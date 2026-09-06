@@ -108,7 +108,11 @@ make candidate identity stale. A selected path addition or deletion, or a
 change to locked bytes or executable mode, makes Prime reject the candidate and
 reopen the mission.
 
-Mission cycles remain separate: Prime plans, dispatches, and observes the
+The outer lifecycle uses mission-family phases mapped to separate per-mission
+cycles in this canonical order: `Scope -> Plan Builder -> Dispatch Builder ->
+Observe Builder report -> Prime reconcile Builder and lock candidate -> Plan
+Verifier -> Dispatch Verifier -> Observe Verifier report -> Prime reconcile
+Verifier -> Verify -> Report`. Prime plans, dispatches, and observes the
 Builder mission; the Builder returns a terminal report; Prime reconciles the
 Builder report and locks the candidate; Prime plans, dispatches, and observes
 the Verifier mission; the Verifier returns a report; Prime reconciles the

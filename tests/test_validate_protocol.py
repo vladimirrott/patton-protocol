@@ -515,6 +515,30 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertIn("separate mission cycle", skill)
         self.assertNotIn("verifier reconcile", skill)
 
+    def test_outer_lifecycle_maps_to_both_mission_cycles(self) -> None:
+        skill = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+        mapping = (
+            "scope -> plan builder",
+            "plan builder -> dispatch builder",
+            "dispatch builder -> observe builder report",
+            "observe builder report -> prime reconcile builder and lock candidate",
+            "prime reconcile builder and lock candidate -> plan verifier",
+            "plan verifier -> dispatch verifier",
+            "dispatch verifier -> observe verifier report",
+            "observe verifier report -> prime reconcile verifier",
+            "prime reconcile verifier -> verify",
+            "verify -> report",
+        )
+
+        self.assertIn("outer lifecycle", skill)
+        self.assertIn("mission-family phases", skill)
+        positions = []
+        for transition in mapping:
+            self.assertIn(transition, skill)
+            positions.append(skill.index(transition))
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("both cycles", skill)
+
     def test_ignore_inputs_are_repository_controlled_and_config_invariant(self) -> None:
         content = " ".join(
             (

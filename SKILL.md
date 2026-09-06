@@ -66,9 +66,22 @@ the controls, exceptions, and recovery record for these limits.
 
 ## Lifecycle
 
-Patton Prime runs the stages in order. Prime may repeat observe, reconcile, and
-verify after a retry or recovery mission, while preserving the source revision
-and report history.
+Patton Prime runs the outer lifecycle as mission-family phases. The outer
+phases map to separate per-mission cycles in this canonical order:
+`Scope -> Plan Builder -> Dispatch Builder -> Observe Builder report -> Prime
+reconcile Builder and lock candidate -> Plan Verifier -> Dispatch Verifier ->
+Observe Verifier report -> Prime reconcile Verifier -> Verify -> Report`.
+Prime owns reconciliation at both handoffs. A host may repeat a bounded
+mission cycle after retry or recovery, while preserving the source revision and
+report history.
+
+The Builder and Verifier cycles are separate mission cycles. Prime plans,
+dispatches, and observes Builder mission. The Builder mission ends with the
+Builder terminal report. Prime reconciles Builder report, then Prime locks
+candidate identity. Prime plans, dispatches, and observes Verifier mission as a
+separate mission cycle. Verifier returns report, then Prime reconciles Verifier
+report. Prime owns reconcile in both cycles. Verifier never reconciles reports,
+and the Builder report never serves as the Verifier report.
 
 ### Scope
 
@@ -105,13 +118,6 @@ untracked addition stays outside the locked manifest. A post-lock mutation to
 locked manifest membership, bytes, or executable mode makes the evidence stale
 and reopens the mission. A locked membership change after the lock has the same
 effect; unlisted generated additions do not count as locked membership.
-
-Prime plans, dispatches, and observes Builder mission. The Builder mission
-ends with the Builder terminal report. Prime reconciles Builder report, then
-Prime locks candidate identity. Prime plans, dispatches, and observes Verifier
-mission as a separate mission cycle. Verifier returns report, then Prime
-reconciles Verifier report. Prime owns reconcile in both cycles. Verifier never
-reconciles reports, and the Builder report never serves as the Verifier report.
 
 Prime locks the candidate identity after the mutation. A post-build mutation
 changes the candidate and invalidates prior evidence. Prime rejects stale
