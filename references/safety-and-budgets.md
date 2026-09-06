@@ -59,18 +59,26 @@ unverifiable evidence and keeps the mission open.
 
 Prime computes the candidate-relevant repository snapshot after the Builder
 stops mutating files and confirms the allowlist. The candidate manifest contains
-tracked files from the source-control state at `source_revision` plus files
-Prime explicitly names in `candidate_untracked_paths`, the candidate untracked
-paths list. Ignored/generated
+the tracked paths Prime records from the post-mutation candidate state in
+`candidate_tracked_paths`, plus files Prime explicitly names in
+`candidate_untracked_paths`, the candidate untracked paths list. Ignored/generated
 outputs, including ordinary test artifacts such as `__pycache__/`, stay outside
 the manifest. Prime rejects an explicit candidate path that names an ignored
 or generated output. The manifest excludes `.git/` and the Patton mission
 ledger (`.patton/ledger/`). Prime rejects symlinks in the manifest instead of
-following them. The manifest scope and the `allowed_paths` mutation boundary
+following them. Prime filters excluded generated untracked paths before this
+symlink check. A symlink selected by `candidate_tracked_paths` or
+`candidate_untracked_paths`, including a symlink ancestor, is rejected. The
+manifest scope and the `allowed_paths` mutation boundary
 serve separate controls: a behavior-affecting file outside `allowed_paths` may
 still invalidate the candidate digest, while a worker may not mutate it. A
 behavior-affecting file outside the mutation allowlist therefore remains in
 the candidate-relevant snapshot.
+
+Each `candidate_untracked_paths` entry has exactly two fields: `path`, a
+nonempty lossless path token, and `executable`, an integer `0` or `1`. Prime
+records these entries from the post-mutation candidate state and does not infer
+untracked membership from a directory scan.
 
 Prime records `candidate_tracked_paths` from the post-mutation source-control
 state. A tracked deletion removes its path from the manifest. A tracked
@@ -87,6 +95,11 @@ lossless path tokens. A path token percent-encodes each raw path byte as ASCII,
 leaving only unreserved ASCII bytes and `/` separators. Hosts with Unicode-only
 path APIs encode Unicode scalar values as UTF-8 before percent-encoding; hosts
 with raw filename bytes preserve those bytes, including non-UTF-8 names. For
+each explicit untracked entry, Prime requires a nonempty relative token with
+no `.` or `..` component, no absolute prefix, no encoded `/` or `\\`, and only
+canonical uppercase percent escapes for bytes outside the unreserved set.
+Prime rejects duplicate untracked tokens and any token that overlaps
+`candidate_tracked_paths`. For
 each sorted file, Prime appends this record to the digest input:
 
 ```text

@@ -4,6 +4,7 @@ from pathlib import Path
 import hashlib
 import os
 import re
+import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -97,6 +98,8 @@ GENERATED_DIRECTORY_NAMES = {
     "dist",
 }
 GENERATED_SUFFIXES = {".pyc", ".pyo"}
+UNRESERVED_PATH_BYTES = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+UPPERCASE_HEX_DIGITS = frozenset("0123456789ABCDEF")
 
 
 def read_frontmatter(path: Path) -> dict[str, str]:
@@ -129,14 +132,13 @@ def read_text_or_empty(path: Path) -> str:
 
 def canonical_path_token(root: Path, path: Path) -> bytes:
     """Encode path bytes without requiring valid UTF-8 filenames."""
-    unreserved = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
     components = path.relative_to(root).parts
     encoded_components = []
     for component in components:
         raw_component = os.fsencode(component)
         encoded_components.append(
             b"".join(
-                bytes((byte,)) if byte in unreserved else f"%{byte:02X}".encode("ascii")
+                bytes((byte,)) if byte in UNRESERVED_PATH_BYTES else f"%{byte:02X}".encode("ascii")
                 for byte in raw_component
             )
         )
@@ -160,6 +162,42 @@ def decode_path_token(root: Path, token: str) -> Path:
     return root.joinpath(*components)
 
 
+def validate_path_token(root: Path, token: str) -> Path:
+    """Decode one canonical, relative, lossless manifest path token."""
+    if not isinstance(token, str) or not token or token.startswith("/"):
+        raise ValueError("path token must be a nonempty relative token")
+    if "\\" in token:
+        raise ValueError("path token must use slash separators")
+    components = token.split("/")
+    if any(component in {"", ".", ".."} for component in components):
+        raise ValueError("path token contains an empty or traversal component")
+    index = 0
+    while index < len(token):
+        character = token[index]
+        if character == "/":
+            index += 1
+            continue
+        if character == "%":
+            if index + 2 >= len(token) or token[index + 1] not in UPPERCASE_HEX_DIGITS or token[index + 2] not in UPPERCASE_HEX_DIGITS:
+                raise ValueError("path token has noncanonical percent encoding")
+            byte = int(token[index + 1 : index + 3], 16)
+            if byte in UNRESERVED_PATH_BYTES or byte in {0x00, 0x2F, 0x5C}:
+                raise ValueError("path token has a noncanonical or encoded separator byte")
+            index += 3
+            continue
+        if ord(character) > 0x7F or ord(character) not in UNRESERVED_PATH_BYTES:
+            raise ValueError("path token contains a noncanonical literal byte")
+        index += 1
+    path = decode_path_token(root, token)
+    try:
+        canonical = canonical_path_token(root, path).decode("ascii")
+    except (UnicodeEncodeError, ValueError) as error:
+        raise ValueError("path token is not canonical or stays within the root") from error
+    if canonical != token:
+        raise ValueError("path token is not canonical")
+    return path
+
+
 def canonical_fixture_digest(
     root: Path,
     *,
@@ -177,14 +215,18 @@ def canonical_fixture_digest(
             relative = candidate.relative_to(root)
             if ".git" in relative.parts or relative.parts[:2] == (".patton", "ledger"):
                 continue
-            if candidate.is_symlink():
-                raise ValueError(f"symlink is not a candidate file: {candidate}")
             if any(part in GENERATED_DIRECTORY_NAMES for part in relative.parts):
                 continue
             if candidate.suffix in GENERATED_SUFFIXES:
                 continue
+            if candidate.is_symlink():
+                raise ValueError(f"symlink is not a candidate file: {candidate}")
             if candidate.is_file():
                 tracked_paths.add(canonical_path_token(root, candidate).decode("ascii"))
+    tracked_tokens = set()
+    for token in tracked_paths:
+        validate_path_token(root, token)
+        tracked_tokens.add(token)
     untracked_tokens: set[str] = set()
     untracked_executable_paths: set[str] = set()
     for entry in candidate_untracked_paths:
@@ -194,15 +236,19 @@ def canonical_fixture_digest(
         executable = entry["executable"]
         if not isinstance(token, str) or isinstance(executable, bool) or executable not in (0, 1):
             raise ValueError("candidate untracked entry has invalid path or executable flag")
-        candidate_path = decode_path_token(root, token)
+        candidate_path = validate_path_token(root, token)
         relative = candidate_path.relative_to(root)
         if any(part in GENERATED_DIRECTORY_NAMES for part in relative.parts) or candidate_path.suffix in GENERATED_SUFFIXES:
             raise ValueError("candidate untracked entry names a generated output")
+        if token in tracked_tokens:
+            raise ValueError("candidate untracked entry overlaps a tracked path")
+        if token in untracked_tokens:
+            raise ValueError("candidate untracked paths contain a duplicate")
         untracked_tokens.add(token)
         if executable:
             untracked_executable_paths.add(token)
     manifest_paths = tracked_paths | untracked_tokens
-    paths = [decode_path_token(root, token) for token in manifest_paths]
+    paths = [validate_path_token(root, token) for token in manifest_paths]
     for path in sorted(paths, key=lambda candidate: canonical_path_token(root, candidate)):
         ancestor = path.parent
         while ancestor != root:
@@ -409,7 +455,7 @@ class ProtocolContractTests(unittest.TestCase):
             "candidate-relevant repository snapshot",
             "outside the mutation allowlist",
             "behavior-affecting",
-            "tracked files",
+            "tracked paths",
             "candidate untracked paths",
             "ignored/generated outputs",
         ):
@@ -422,6 +468,43 @@ class ProtocolContractTests(unittest.TestCase):
                 re.IGNORECASE,
             ),
         )
+
+    def test_manifest_uses_post_mutation_git_state_not_source_revision(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Protocol Test"], cwd=root, check=True)
+            kept = root / "kept.txt"
+            removed = root / "removed.txt"
+            kept.write_bytes(b"kept\n")
+            removed.write_bytes(b"removed\n")
+            subprocess.run(["git", "add", "kept.txt", "removed.txt"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "source"], cwd=root, check=True)
+
+            source_manifest = set(
+                subprocess.run(
+                    ["git", "ls-files"], cwd=root, check=True, text=True, capture_output=True
+                ).stdout.splitlines()
+            )
+            locked_digest = canonical_fixture_digest(root, tracked_paths=source_manifest)
+            removed.unlink()
+            added = root / "added.txt"
+            added.write_bytes(b"added\n")
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+            candidate_manifest = set(
+                subprocess.run(
+                    ["git", "ls-files"], cwd=root, check=True, text=True, capture_output=True
+                ).stdout.splitlines()
+            )
+            current_digest = canonical_fixture_digest(root, tracked_paths=candidate_manifest)
+
+        self.assertEqual(source_manifest, {"kept.txt", "removed.txt"})
+        self.assertEqual(candidate_manifest, {"added.txt", "kept.txt"})
+        self.assertNotEqual(locked_digest, current_digest)
+        safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+        self.assertIn("post-mutation source-control state", safety)
+        self.assertNotRegex(safety, re.compile(r"tracked files from the source-control state at `source_revision`", re.IGNORECASE))
 
     def test_portable_executable_semantics_contribute_to_candidate_digest(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -533,6 +616,61 @@ class ProtocolContractTests(unittest.TestCase):
                     candidate_untracked_paths=[{"path": "__pycache__/candidate.pyc", "executable": 0}],
                 )
 
+    def test_untracked_path_token_rejects_unsafe_or_noncanonical_forms(self) -> None:
+        invalid_tokens = (
+            "../outside.txt",
+            "/absolute.txt",
+            "src/../candidate.txt",
+            "src/%2Fcandidate.txt",
+            "src/%5Ccandidate.txt",
+            "src/%41.txt",
+            "src/%aa.txt",
+        )
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            for token in invalid_tokens:
+                with self.subTest(token=token), self.assertRaises(ValueError):
+                    canonical_fixture_digest(
+                        root,
+                        tracked_paths=set(),
+                        candidate_untracked_paths=[{"path": token, "executable": 0}],
+                    )
+
+    def test_untracked_path_token_rejects_duplicates_and_tracked_overlap(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            config = root / "config.ini"
+            config.write_bytes(b"feature=on\n")
+            duplicate = [{"path": "config.ini", "executable": 0}, {"path": "config.ini", "executable": 1}]
+            overlap = [{"path": "config.ini", "executable": 0}]
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(root, candidate_untracked_paths=duplicate)
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(root, tracked_paths={"config.ini"}, candidate_untracked_paths=overlap)
+
+    def test_tracked_executable_metadata_is_preserved_with_untracked_entries(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            tracked = root / "tracked.sh"
+            config = root / "config.ini"
+            tracked.write_bytes(b"#!/bin/sh\n")
+            config.write_bytes(b"feature=on\n")
+            not_executable = canonical_fixture_digest(
+                root,
+                tracked_paths={"tracked.sh"},
+                executable_paths=set(),
+                candidate_untracked_paths=[{"path": "config.ini", "executable": 0}],
+            )
+            executable = canonical_fixture_digest(
+                root,
+                tracked_paths={"tracked.sh"},
+                executable_paths={"tracked.sh"},
+                candidate_untracked_paths=[{"path": "config.ini", "executable": 0}],
+            )
+
+        self.assertNotEqual(not_executable, executable)
+
     @unittest.skipIf(os.name == "nt", "requires a POSIX byte filename fixture")
     def test_non_utf8_filename_has_lossless_digest_path_token(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -556,23 +694,43 @@ class ProtocolContractTests(unittest.TestCase):
                 self.skipTest(f"symlink fixture unavailable: {error}")
 
             with self.assertRaises(ValueError):
-                canonical_fixture_digest(root)
+                canonical_fixture_digest(root, tracked_paths={"link.txt"})
 
-    def test_symlink_in_generated_output_is_rejected(self) -> None:
+    def test_excluded_generated_symlink_does_not_enter_manifest(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             target = root / "target.txt"
             generated = root / "__pycache__"
             link = generated / "link.pyc"
             target.write_bytes(b"target\n")
+            locked_digest = canonical_fixture_digest(root)
             generated.mkdir()
             try:
                 link.symlink_to(target)
             except (NotImplementedError, OSError) as error:
                 self.skipTest(f"symlink fixture unavailable: {error}")
 
+            current_digest = canonical_fixture_digest(root)
+
+        self.assertEqual(locked_digest, current_digest)
+
+    def test_explicit_untracked_symlink_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            target = root / "target.txt"
+            link = root / "link.txt"
+            target.write_bytes(b"target\n")
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symlink fixture unavailable: {error}")
+
             with self.assertRaises(ValueError):
-                canonical_fixture_digest(root)
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths=set(),
+                    candidate_untracked_paths=[{"path": "link.txt", "executable": 0}],
+                )
 
     def test_symlink_ancestor_in_candidate_manifest_is_rejected(self) -> None:
         with TemporaryDirectory() as temporary_directory:
