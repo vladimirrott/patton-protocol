@@ -1,33 +1,42 @@
 ---
 name: patton-protocol
-description: Coordinate bounded coding-agent missions through a portable scope, plan, dispatch, observe, reconcile, verify, and report lifecycle.
+description: Coordinate coding-agent work with a portable lifecycle.
 ---
 
 # Patton Protocol
 
-Patton Protocol coordinates coding-agent work through a bounded, observable
-lifecycle. It targets any AI tool that implements the canonical Agent Skills
-`SKILL.md` format. The protocol describes capabilities and responsibilities;
-the host chooses the mechanism that provides them.
+Patton Protocol is a portable Agent Skills package for coding-agent
+coordination. It targets any AI tool that implements the canonical Agent Skills
+`SKILL.md` format.
 
 ## Lifecycle
 
-Run each mission through these stages:
+The lifecycle stages are:
 
-1. **Scope**: define the objective, inputs, ownership boundary, and stopping
-   condition.
-2. **Plan**: choose the smallest set of bounded missions and state the evidence
-   each mission must return.
-3. **Dispatch**: assign missions to available workers, or keep them in the main
-   loop when the host cannot spawn workers.
-4. **Observe**: collect progress, failures, timeouts, and structured worker
-   reports.
-5. **Reconcile**: compare reports, preserve disagreements, and integrate only
-   changes that remain within their assigned boundaries.
-6. **Verify**: independently check the candidate and its evidence against the
-   mission objective.
-7. **Report**: summarize status, changed files, commands, evidence, risks, and
-   the next action.
+### Scope
 
-The lifecycle remains valid when dispatch runs serially. Host-specific adapters
-may map these capabilities to native surfaces, but they are optional.
+Placeholder for the scope stage.
+
+### Plan
+
+Placeholder for the plan stage.
+
+### Dispatch
+
+Placeholder for the dispatch stage.
+
+### Observe
+
+Placeholder for the observe stage.
+
+### Reconcile
+
+Placeholder for the reconcile stage.
+
+### Verify
+
+Placeholder for the verify stage.
+
+### Report
+
+Placeholder for the report stage.

@@ -1,6 +1,7 @@
 """Contract tests for the canonical Patton Protocol package metadata."""
 
 from pathlib import Path
+import re
 import unittest
 
 
@@ -59,6 +60,14 @@ class ProtocolMetadataTests(unittest.TestCase):
         for term in LIFECYCLE_TERMS:
             with self.subTest(term=term):
                 self.assertIn(term, content)
+
+    def test_skill_uses_neutral_lifecycle_placeholders(self) -> None:
+        content = read_text_or_empty(SKILL_PATH)
+
+        for term in LIFECYCLE_TERMS:
+            heading = rf"^### {term.title()}\s*$"
+            with self.subTest(term=term):
+                self.assertRegex(content, re.compile(heading, re.MULTILINE))
 
     def test_codex_discovery_metadata_names_skill(self) -> None:
         content = read_text_or_empty(OPENAI_METADATA_PATH)
