@@ -1562,21 +1562,24 @@ class ProtocolContractTests(unittest.TestCase):
                         f"{decision} must preserve {state}",
                     )
 
-        self.assertRegex(
-            content,
-            re.compile(
-                r"human.{0,180}(cannot|may not).{0,120}(mark|claim).{0,120}inconclusive"
-                r".{0,120}verified",
-                re.IGNORECASE,
-            ),
+        human_irreversible_prohibition = re.compile(
+            r"\bhuman\b.{0,220}\b(?:cannot|may not)\b"
+            r".{0,180}\b(?:authorize|approve|approval)\b"
+            r".{0,100}\birreversible action\b",
+            re.IGNORECASE,
         )
-        self.assertRegex(
-            content,
-            re.compile(
-                r"human.{0,260}(authorize|approval).{0,160}irreversible action",
-                re.IGNORECASE,
-            ),
-        )
+        for source_path in (SKILL_PATH, SAFETY_BUDGETS_PATH):
+            source = " ".join(read_text_or_empty(source_path).lower().split())
+            with self.subTest(source=source_path.name):
+                self.assertRegex(source, human_irreversible_prohibition)
+
+            mutations = {
+                "prohibition removed": source.replace("a human cannot", "a human", 1),
+                "prohibition reversed": source.replace("a human cannot", "a human may", 1),
+            }
+            for mutation, mutated_source in mutations.items():
+                with self.subTest(source=source_path.name, mutation=mutation):
+                    self.assertNotRegex(mutated_source, human_irreversible_prohibition)
 
     def test_codex_discovery_metadata_names_skill(self) -> None:
         content = read_text_or_empty(OPENAI_METADATA_PATH)
