@@ -57,6 +57,16 @@ additional risk within its mission.
 verification, open a bounded mission, resolve a missing input, or close the
 objective.
 
+### Phase-specific envelopes
+
+A pre-candidate Builder report may omit `candidate_revision`, `content_digest`,
+`candidate_tracked_paths`, and `candidate_untracked_paths`, or carry them as
+nullable `null` values. The Builder reports its work and evidence, but does not
+author candidate identity. After the Builder stops mutating, Prime writes a
+Prime-authored candidate record before the Verifier mission starts. Prime then
+copies the non-null revision, digest, and manifest membership into the Verifier
+mission and report.
+
 ### Candidate identity
 
 The candidate revision and content digest identify the post-mutation state.
@@ -101,6 +111,15 @@ evidence:
     finding: "The candidate matches the validation requirement"
 risks: []
 next_action: "Patton Prime may reconcile this report"
+```
+
+The nullable pre-candidate Builder report shape is:
+
+```yaml
+candidate_revision: null
+content_digest: null
+candidate_tracked_paths: null
+candidate_untracked_paths: null
 ```
 
 Workers return evidence and leads. A lead is a reasoned direction for the next

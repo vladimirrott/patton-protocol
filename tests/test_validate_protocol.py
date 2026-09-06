@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import hashlib
+import inspect
 import os
 import re
 import subprocess
@@ -88,16 +89,6 @@ REPORT_ENVELOPE_KEYS = {
 }
 IDENTITY_KEYS = {"mission_id", "worker_role", "source_revision", "actor_id"}
 ALLOWED_STATUSES = {"completed", "partial", "blocked", "failed"}
-GENERATED_DIRECTORY_NAMES = {
-    "__pycache__",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tox",
-    "build",
-    "dist",
-}
-GENERATED_SUFFIXES = {".pyc", ".pyo"}
 UNRESERVED_PATH_BYTES = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
 UPPERCASE_HEX_DIGITS = frozenset("0123456789ABCDEF")
 
@@ -204,25 +195,14 @@ def canonical_fixture_digest(
     tracked_paths: set[str] | None = None,
     candidate_untracked_paths: list[dict[str, object]] | None = None,
     executable_paths: set[str] | None = None,
+    ignored_paths: set[str] | None = None,
 ) -> str:
     """Compute the deterministic digest described by the candidate contract."""
     records: list[bytes] = []
     candidate_untracked_paths = candidate_untracked_paths or []
     executable_paths = executable_paths or set()
-    if tracked_paths is None:
-        tracked_paths = set()
-        for candidate in root.rglob("*"):
-            relative = candidate.relative_to(root)
-            if ".git" in relative.parts or relative.parts[:2] == (".patton", "ledger"):
-                continue
-            if any(part in GENERATED_DIRECTORY_NAMES for part in relative.parts):
-                continue
-            if candidate.suffix in GENERATED_SUFFIXES:
-                continue
-            if candidate.is_symlink():
-                raise ValueError(f"symlink is not a candidate file: {candidate}")
-            if candidate.is_file():
-                tracked_paths.add(canonical_path_token(root, candidate).decode("ascii"))
+    ignored_paths = ignored_paths or set()
+    tracked_paths = set(tracked_paths or ())
     tracked_tokens = set()
     for token in tracked_paths:
         validate_path_token(root, token)
@@ -239,9 +219,8 @@ def canonical_fixture_digest(
         if not isinstance(token, str) or isinstance(executable, bool) or executable not in (0, 1):
             raise ValueError("candidate untracked entry has invalid path or executable flag")
         candidate_path = validate_path_token(root, token)
-        relative = candidate_path.relative_to(root)
-        if any(part in GENERATED_DIRECTORY_NAMES for part in relative.parts) or candidate_path.suffix in GENERATED_SUFFIXES:
-            raise ValueError("candidate untracked entry names a generated output")
+        if token in ignored_paths:
+            raise ValueError("candidate untracked entry names an ignored output")
         if token in tracked_tokens:
             raise ValueError("candidate untracked entry overlaps a tracked path")
         if token in untracked_tokens:
@@ -275,7 +254,8 @@ def canonical_fixture_digest(
             + b"\0"
             + payload
         )
-    return hashlib.sha256(b"".join(record + b"\n" for record in records)).hexdigest()
+    digest = hashlib.sha256(b"".join(record + b"\n" for record in records)).hexdigest()
+    return f"sha256:{digest}"
 
 
 def parse_first_yaml_block(path: Path) -> tuple[dict[str, str], dict[str, str]]:
@@ -410,9 +390,9 @@ class ProtocolContractTests(unittest.TestCase):
             source.parent.mkdir()
             source.write_bytes(b"candidate-v1\n")
 
-            locked_digest = canonical_fixture_digest(root)
+            locked_digest = canonical_fixture_digest(root, tracked_paths={"src/candidate.txt"})
             source.write_bytes(b"candidate-v2\n")
-            current_digest = canonical_fixture_digest(root)
+            current_digest = canonical_fixture_digest(root, tracked_paths={"src/candidate.txt"})
 
         self.assertNotEqual(locked_digest, current_digest)
         self.assertNotEqual(
@@ -462,7 +442,7 @@ class ProtocolContractTests(unittest.TestCase):
             "behavior-affecting",
             "tracked paths",
             "candidate untracked paths",
-            "ignored/generated outputs",
+            "untracked paths not listed",
         ):
             with self.subTest(term=term):
                 self.assertIn(term, content)
@@ -473,6 +453,44 @@ class ProtocolContractTests(unittest.TestCase):
                 re.IGNORECASE,
             ),
         )
+
+    def test_builder_outside_allowlist_requires_new_mission_handoff(self) -> None:
+        allowed_paths = {"src/"}
+        attempted_path = "config.ini"
+        builder_report = {"status": "blocked", "files_changed": [attempted_path]}
+        next_mission = {"mission_id": "mission-043", "handoff": "mission-042"}
+
+        self.assertNotIn(attempted_path, allowed_paths)
+        self.assertEqual(builder_report["status"], "blocked")
+        self.assertNotEqual(next_mission["mission_id"], next_mission["handoff"])
+        mission = " ".join(read_text_or_empty(MISSION_CONTRACT_PATH).lower().split())
+        safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+        for content in (mission, safety):
+            self.assertIn("immutable", content)
+            self.assertIn("new mission", content)
+            self.assertIn("handoff", content)
+        self.assertNotIn("unless patton prime expands the mission", mission)
+
+    def test_phase_specific_candidate_envelopes_are_documented(self) -> None:
+        mission = " ".join(read_text_or_empty(MISSION_CONTRACT_PATH).lower().split())
+        report = " ".join(read_text_or_empty(WORKER_REPORT_PATH).lower().split())
+
+        for content in (mission, report):
+            for term in ("pre-candidate", "nullable", "prime-authored candidate record", "before the verifier"):
+                with self.subTest(content=content[:20], term=term):
+                    self.assertIn(term, content)
+        self.assertRegex(mission, re.compile(r"candidate_revision:\s*null", re.IGNORECASE))
+        self.assertRegex(report, re.compile(r"content_digest:\s*null", re.IGNORECASE))
+
+    def test_generated_exclusion_uses_manifest_and_ignore_state(self) -> None:
+        safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+        helper = inspect.getsource(canonical_fixture_digest)
+
+        for term in ("explicit manifest", "source-control ignore state", "untracked paths not listed"):
+            with self.subTest(term=term):
+                self.assertIn(term, safety)
+        self.assertNotIn("GENERATED_DIRECTORY_NAMES", helper)
+        self.assertNotIn("GENERATED_SUFFIXES", helper)
 
     def test_manifest_uses_post_mutation_git_state_not_source_revision(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -516,8 +534,8 @@ class ProtocolContractTests(unittest.TestCase):
             root = Path(temporary_directory)
             source = root / "candidate.txt"
             source.write_bytes(b"same bytes\n")
-            locked_digest = canonical_fixture_digest(root, executable_paths=set())
-            executable_digest = canonical_fixture_digest(root, executable_paths={"candidate.txt"})
+            locked_digest = canonical_fixture_digest(root, tracked_paths={"candidate.txt"}, executable_paths=set())
+            executable_digest = canonical_fixture_digest(root, tracked_paths={"candidate.txt"}, executable_paths={"candidate.txt"})
 
         self.assertNotEqual(locked_digest, executable_digest)
 
@@ -530,14 +548,11 @@ class ProtocolContractTests(unittest.TestCase):
             source.write_bytes(b"candidate\n")
             tracked_paths = {"src/candidate.txt"}
             locked_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
-            discovered_locked_digest = canonical_fixture_digest(root)
             generated.parent.mkdir()
             generated.write_bytes(b"generated\n")
             current_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
-            discovered_current_digest = canonical_fixture_digest(root)
 
         self.assertEqual(locked_digest, current_digest)
-        self.assertEqual(discovered_locked_digest, discovered_current_digest)
 
     def test_tracked_deletion_changes_post_mutation_manifest_digest(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -619,6 +634,7 @@ class ProtocolContractTests(unittest.TestCase):
                     root,
                     tracked_paths=set(),
                     candidate_untracked_paths=[{"path": "__pycache__/candidate.pyc", "executable": 0}],
+                    ignored_paths={"__pycache__/candidate.pyc"},
                 )
 
     def test_untracked_path_token_rejects_unsafe_or_noncanonical_forms(self) -> None:
@@ -697,9 +713,9 @@ class ProtocolContractTests(unittest.TestCase):
             raw_name = b"config-\xff.ini"
             path = root / os.fsdecode(raw_name)
             path.write_bytes(b"feature=on\n")
-            digest = canonical_fixture_digest(root)
+            digest = canonical_fixture_digest(root, tracked_paths={canonical_path_token(root, path).decode("ascii")})
 
-        self.assertRegex(digest, re.compile(r"^[0-9a-f]{64}$"))
+        self.assertRegex(digest, re.compile(r"^sha256:[0-9a-f]{64}$"))
 
     def test_symlink_in_candidate_manifest_is_rejected(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -722,14 +738,15 @@ class ProtocolContractTests(unittest.TestCase):
             generated = root / "__pycache__"
             link = generated / "link.pyc"
             target.write_bytes(b"target\n")
-            locked_digest = canonical_fixture_digest(root)
+            ignored_paths = {"__pycache__/link.pyc"}
+            locked_digest = canonical_fixture_digest(root, tracked_paths={"target.txt"}, ignored_paths=ignored_paths)
             generated.mkdir()
             try:
                 link.symlink_to(target)
             except (NotImplementedError, OSError) as error:
                 self.skipTest(f"symlink fixture unavailable: {error}")
 
-            current_digest = canonical_fixture_digest(root)
+            current_digest = canonical_fixture_digest(root, tracked_paths={"target.txt"}, ignored_paths=ignored_paths)
 
         self.assertEqual(locked_digest, current_digest)
 
@@ -773,6 +790,12 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertIn("portable executable semantics", content)
         self.assertIn("executable flag", content)
         self.assertRegex(content, re.compile(r"host-neutral|platform-neutral", re.IGNORECASE))
+
+    def test_digest_returns_prefixed_known_answer_for_empty_snapshot(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            digest = canonical_fixture_digest(Path(temporary_directory), tracked_paths=set())
+
+        self.assertEqual(digest, "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 
     def test_worker_report_defines_required_fields(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()

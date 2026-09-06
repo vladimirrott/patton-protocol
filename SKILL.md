@@ -84,13 +84,17 @@ Prime converts the objective into bounded missions. Each mission uses the
 allowlist, sets a stopping condition, records budget, timeout, retry limit,
 and evidence requirements, and assigns one worker role. Prime gives each
 concurrent mission an immutable ownership boundary. Workers may inspect other
-paths as read-only. After a Builder mutation, Prime records immutable
+paths as read-only. An out-of-boundary Builder mutation blocks the mission.
+Prime never widens `allowed_paths` in place. Prime creates a new mission with a
+new identity and records the prior mission as a handoff before assigning a new
+boundary. After a Builder mutation, Prime records immutable
 `candidate_revision` and `content_digest` values for the exact candidate.
 Prime computes those values from the candidate-relevant repository snapshot,
 which remains separate from the Builder's `allowed_paths` mutation allowlist.
 The manifest uses tracked files plus explicit `candidate_untracked_paths` and
-excludes ignored/generated outputs. Behavior-affecting files outside the
-allowlist still participate in candidate verification. Prime records
+excludes untracked files unless the explicit manifest selects them and the
+source-control ignore state permits them. Behavior-affecting files outside the allowlist still
+participate in candidate verification. Prime records
 `candidate_tracked_paths` and `candidate_untracked_paths` from the
 post-mutation state of the candidate: tracked additions enter, tracked deletions leave,
 and a tracked generated file remains included when source control records it.

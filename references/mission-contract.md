@@ -31,7 +31,20 @@ the version or revision when that context affects the result.
 Treat `allowed_paths` as the mutation allowlist. List the files and directories
 the worker may create, edit, or delete. The worker may inspect supplied inputs
 and other paths as read-only, but it may not mutate a path outside this list
-unless Patton Prime expands the mission.
+or widen the list. An out-of-boundary mutation blocks the mission. Prime never
+expands `allowed_paths` in place: Prime creates a new mission with a new
+identity, records the prior mission as a handoff, and gives the new Builder its
+own immutable boundary.
+
+### Phase-specific envelopes
+
+A pre-candidate Builder mission may omit `candidate_revision`,
+`content_digest`, `candidate_tracked_paths`, and `candidate_untracked_paths`, or
+carry them as nullable `null` values. The Builder does not author candidate
+identity. After the Builder stops mutating, Prime computes and locks a
+Prime-authored candidate record before the Verifier mission starts. That record
+has non-null revision, digest, and manifest membership values. Prime copies the
+record into the Verifier mission and the Verifier report.
 
 ### Candidate tracked paths
 
@@ -46,8 +59,9 @@ rejects any membership change after the lock.
 in the candidate manifest. Prime gets `candidate_tracked_paths` from the
 post-mutation source-control state, so a tracked deletion removes a path and a
 tracked addition includes a path. Ignored and generated outputs stay outside
-the manifest, including when a generated file is tracked only in a different
-state. Each explicit untracked entry has a `path` field of type lossless token
+the manifest when they are untracked and not explicitly selected. A generated
+file remains included when source control records it as tracked. Each explicit
+untracked entry has a `path` field of type lossless token
 and an `executable` field of type integer `0 | 1`. Prime rejects an entry that
 names an ignored or generated output.
 
@@ -128,6 +142,15 @@ Non-empty `candidate_untracked_paths` entries use this shape:
 ```yaml
 path: "config/local.ini"
 executable: 0
+```
+
+The nullable pre-candidate Builder shape is:
+
+```yaml
+candidate_revision: null
+content_digest: null
+candidate_tracked_paths: null
+candidate_untracked_paths: null
 ```
 
 The worker reports a result against this mission. A lead may revise the next

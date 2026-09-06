@@ -41,7 +41,10 @@ create, edit, or delete only those paths. Workers may inspect other paths as
 read-only. A path counts as overlapping when two active missions can mutate it,
 including a directory and a file beneath that directory. Prime pauses one
 mission, records the reason, and performs an explicit handoff before allowing
-shared-path work. A worker cannot widen its own allowlist.
+shared-path work. An out-of-boundary Builder mutation blocks the mission. Prime
+never widens an allowlist in place: Prime creates a new mission with a new
+identity, records the prior mission as a handoff, and assigns the new Builder
+an immutable boundary. A worker cannot widen its own allowlist.
 
 ## Evidence rechecking
 
@@ -61,13 +64,16 @@ Prime computes the candidate-relevant repository snapshot after the Builder
 stops mutating files and confirms the allowlist. The candidate manifest contains
 the tracked paths Prime records from the post-mutation candidate state in
 `candidate_tracked_paths`, plus files Prime explicitly names in
-`candidate_untracked_paths`, the candidate untracked paths list. Ignored/generated
-outputs, including ordinary test artifacts such as `__pycache__/`, stay outside
-the manifest. Prime rejects an explicit candidate path that names an ignored
-or generated output. The manifest excludes `.git/` and the Patton mission
+`candidate_untracked_paths`, the candidate untracked paths list. Prime does not
+infer untracked membership from a directory scan. Prime queries the
+source-control ignore state at the same post-mutation point. Untracked paths
+marked ignored, and untracked paths not listed in the explicit manifest, stay
+outside the candidate. This rule excludes generated outputs without a
+host-specific filename allowlist. Prime rejects an explicit candidate path that
+names an ignored output. The manifest excludes `.git/` and the Patton mission
 ledger (`.patton/ledger/`). Prime rejects symlinks in the manifest instead of
-following them. Prime filters excluded generated untracked paths before this
-symlink check. A symlink selected by `candidate_tracked_paths` or
+following them. Prime filters excluded untracked paths before this symlink
+check. A symlink selected by `candidate_tracked_paths` or
 `candidate_untracked_paths`, including a symlink ancestor, is rejected. The
 manifest scope and the `allowed_paths` mutation boundary
 serve separate controls: a behavior-affecting file outside `allowed_paths` may
