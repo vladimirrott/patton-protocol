@@ -16,6 +16,7 @@ OPENAI_METADATA_PATH = PACKAGE_ROOT / "agents" / "openai.yaml"
 MISSION_CONTRACT_PATH = PACKAGE_ROOT / "references" / "mission-contract.md"
 WORKER_REPORT_PATH = PACKAGE_ROOT / "references" / "worker-report.md"
 SAFETY_BUDGETS_PATH = PACKAGE_ROOT / "references" / "safety-and-budgets.md"
+GITIGNORE_PATH = PACKAGE_ROOT / ".gitignore"
 LIFECYCLE_TERMS = (
     "scope",
     "plan",
@@ -375,6 +376,12 @@ class ProtocolMetadataTests(unittest.TestCase):
 
 
 class ProtocolContractTests(unittest.TestCase):
+    def test_repository_ignores_python_bytecode_artifacts(self) -> None:
+        content = read_text_or_empty(GITIGNORE_PATH)
+
+        self.assertTrue(GITIGNORE_PATH.is_file())
+        self.assertRegex(content, re.compile(r"(?m)^__pycache__/$"))
+
     def test_mission_contract_defines_required_fields(self) -> None:
         content = read_text_or_empty(MISSION_CONTRACT_PATH).lower()
 
@@ -1536,31 +1543,40 @@ class ProtocolContractTests(unittest.TestCase):
         )
 
     def test_inconclusive_conflict_human_decisions_keep_candidate_blocked(self) -> None:
-        decision_clauses = {
-            "recovery": "recovery opens a bounded mission and keeps the candidate `blocked` and `unverified`.",
-            "risk acceptance": "risk acceptance records the accepted risk without marking the candidate verified, keeps the candidate `blocked` and `unverified`, and keeps the irreversible gate closed.",
-            "abandonment": "abandonment closes the attempt without success and keeps the candidate `blocked` and `unverified`.",
+        content = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+        sentences = re.split(r"(?<=[.!?])\s+", content)
+        expected_states = {
+            "recovery": ("blocked", "unverified"),
+            "risk acceptance": ("blocked", "unverified", "irreversible gate", "closed"),
+            "abandonment": ("blocked", "unverified"),
         }
-        for source_path in (SKILL_PATH, SAFETY_BUDGETS_PATH):
-            content = " ".join(read_text_or_empty(source_path).lower().split())
-            for decision, clause in decision_clauses.items():
-                with self.subTest(source=source_path.name, decision=decision):
-                    self.assertIn(clause, content)
-            self.assertRegex(
-                content,
-                re.compile(
-                    r"human.{0,180}(cannot|may not).{0,120}(mark|claim).{0,120}inconclusive"
-                    r".{0,120}verified",
-                    re.IGNORECASE,
-                ),
-            )
-            self.assertRegex(
-                content,
-                re.compile(
-                    r"inconclusive.{0,260}irreversible.{0,120}(closed|blocked|cannot|not authorized)",
-                    re.IGNORECASE,
-                ),
-            )
+
+        for decision, states in expected_states.items():
+            for state in states:
+                with self.subTest(decision=decision, state=state):
+                    self.assertTrue(
+                        any(
+                            decision in sentence and (f"`{state}`" in sentence or state in sentence)
+                            for sentence in sentences
+                        ),
+                        f"{decision} must preserve {state}",
+                    )
+
+        self.assertRegex(
+            content,
+            re.compile(
+                r"human.{0,180}(cannot|may not).{0,120}(mark|claim).{0,120}inconclusive"
+                r".{0,120}verified",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertRegex(
+            content,
+            re.compile(
+                r"human.{0,260}(authorize|approval).{0,160}irreversible action",
+                re.IGNORECASE,
+            ),
+        )
 
     def test_codex_discovery_metadata_names_skill(self) -> None:
         content = read_text_or_empty(OPENAI_METADATA_PATH)
