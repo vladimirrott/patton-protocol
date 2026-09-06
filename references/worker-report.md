@@ -83,9 +83,16 @@ either value or when the report does not match the candidate.
 
 `candidate_tracked_paths` and `candidate_untracked_paths` echo the manifest
 membership Prime recorded after mutation. The Verifier compares both sets with
-the current candidate before and after checks. A tracked addition or deletion,
-or an unapproved untracked-path change after the lock, makes the report stale
-and leaves the mission `blocked`.
+the current candidate before and after checks. A post-lock mutation to locked
+manifest membership, bytes, or executable mode makes the report stale. An
+unlisted generated untracked addition stays outside the locked manifest and
+does not make the report stale. A selected path addition or deletion, or an
+unapproved change to locked manifest state, leaves the mission `blocked`.
+
+Mission cycles are separate and ordered: Builder terminal report, Prime locks
+candidate, Prime plans and dispatches Verifier mission, Verifier observe,
+Verifier reconcile, then Verifier report. Prime creates the Verifier mission
+after the Builder terminal report and after locking the candidate record.
 
 ## YAML-shaped report envelope
 

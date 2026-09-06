@@ -51,8 +51,10 @@ Verifier mission. The Verifier authors a report that echoes the locked record.
 
 `candidate_tracked_paths` records the tracked manifest membership after
 mutation. Prime records this post-mutation set before it locks the candidate
-identity. Prime includes tracked additions, omits tracked deletions, and
-rejects any membership change after the lock.
+identity. Prime includes tracked additions and omits tracked deletions. A
+post-lock mutation to locked manifest membership, bytes, or executable mode
+makes the candidate stale. An unlisted generated untracked addition stays
+outside the locked manifest and does not make the candidate stale.
 
 ### Candidate untracked paths
 
@@ -67,6 +69,11 @@ A generated file remains included when source control records it as tracked. Eac
 explicit untracked entry has a `path` field of type lossless token
 and an `executable` field of type integer `0 | 1`. Prime rejects an entry that
 names an ignored output.
+
+Canonical ignore input consists of repository-controlled ignore rules only.
+Clone-local rules and user-global rules do not affect the candidate manifest.
+Hosts that cannot isolate ambient rules must use the explicit manifest and
+record the repository-controlled ignore result.
 
 The canonical schema is `path: lossless token` and `executable: 0 | 1`.
 
@@ -111,6 +118,11 @@ recompute and match both values before and after verification. A post-build
 mutation makes the recorded identity stale. Prime
 rejects stale evidence, marks the candidate unverified, and opens a bounded
 mission for a new candidate identity.
+
+Mission cycles are separate and ordered: Builder terminal report, Prime locks
+candidate, Prime plans and dispatches Verifier mission, Verifier observe,
+Verifier reconcile, then Verifier report. Prime creates the Verifier mission
+after the Builder terminal report and after locking the candidate record.
 
 ## Example mission
 

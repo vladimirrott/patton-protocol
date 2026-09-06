@@ -495,6 +495,88 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertLess(report.index("builder terminal report"), report.index("prime authors"))
         self.assertLess(report.index("prime authors"), report.index("verifier authors"))
 
+    def test_builder_and_verifier_are_separate_mission_cycles(self) -> None:
+        skill = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+        transitions = (
+            "builder terminal report",
+            "prime locks candidate",
+            "prime plans and dispatches verifier mission",
+            "verifier observe",
+            "verifier reconcile",
+            "verifier report",
+        )
+
+        positions = []
+        for transition in transitions:
+            self.assertIn(transition, skill)
+            positions.append(skill.index(transition))
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("separate mission cycle", skill)
+
+    def test_ignore_inputs_are_repository_controlled_and_config_invariant(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(MISSION_CONTRACT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+        for term in (
+            "repository-controlled ignore rules",
+            "clone-local",
+            "user-global",
+            "do not affect the candidate manifest",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, content)
+
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            candidate = root / "config.ini"
+            candidate.write_bytes(b"feature=on\n")
+
+            def digest_with_ignore_inputs(
+                repository_rules: set[str],
+                clone_local_rules: set[str],
+                user_global_rules: set[str],
+            ) -> str:
+                del clone_local_rules, user_global_rules
+                return canonical_fixture_digest(
+                    root,
+                    candidate_untracked_paths=[{"path": "config.ini", "executable": 0}],
+                    ignored_paths=repository_rules,
+                )
+
+            baseline = digest_with_ignore_inputs(set(), set(), set())
+            ambient_variance = digest_with_ignore_inputs(
+                set(),
+                {"config.ini"},
+                {"config.ini"},
+            )
+            with self.assertRaises(ValueError):
+                digest_with_ignore_inputs({"config.ini"}, set(), set())
+
+        self.assertEqual(baseline, ambient_variance)
+
+    def test_post_lock_mutation_scope_names_locked_manifest_state(self) -> None:
+        content = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+
+        self.assertRegex(
+            content,
+            re.compile(
+                r"post-lock.{0,240}locked (?:candidate )?manifest.{0,240}"
+                r"(?:membership|bytes).{0,160}(?:mode|executable)",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertRegex(
+            content,
+            re.compile(
+                r"unlisted generated.{0,160}(?:outside|outside the).{0,160}"
+                r"(?:does not|do not).{0,80}(?:stale|identity)",
+                re.IGNORECASE,
+            ),
+        )
+
     def test_generated_exclusion_uses_manifest_and_ignore_state(self) -> None:
         safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
         helper = inspect.getsource(canonical_fixture_digest)

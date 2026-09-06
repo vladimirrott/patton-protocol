@@ -81,6 +81,13 @@ still invalidate the candidate digest, while a worker may not mutate it. A
 behavior-affecting file outside the mutation allowlist therefore remains in
 the candidate-relevant snapshot.
 
+Canonical ignore input consists of repository-controlled ignore rules only.
+Clone-local rules and user-global rules do not affect the candidate manifest.
+Hosts that cannot isolate ambient ignore configuration must use the explicit
+manifest and record the repository-controlled ignore result. An explicit
+non-ignored entry remains included regardless of its filename, while an
+explicit entry marked ignored is rejected.
+
 Each `candidate_untracked_paths` entry has exactly two fields: `path`, a
 nonempty lossless path token, and `executable`, an integer `0` or `1`. Prime
 records these entries from the post-mutation candidate state and does not infer
@@ -93,8 +100,18 @@ post-mutation state stays in the manifest and receives normal verification;
 generated status excludes only untracked output. Prime records
 `candidate_untracked_paths` at the same point and locks both membership sets
 with the candidate identity. The Verifier recomputes membership before and
-after checks. Any post-lock addition, deletion, or unapproved untracked path
-change makes the candidate stale, so Prime rejects it and reopens the mission.
+after checks. A post-lock mutation to the locked manifest makes the candidate
+stale only when it changes locked manifest membership, bytes, or executable
+mode. An unlisted generated untracked addition stays outside the locked
+manifest and does not
+make candidate identity stale. A selected path addition or deletion, or a
+change to locked bytes or executable mode, makes Prime reject the candidate and
+reopen the mission.
+
+Mission cycles remain separate: the Builder terminal report ends the Builder
+mission, Prime locks the candidate, Prime plans and dispatches the Verifier
+mission, and the Verifier then observes, reconciles, and reports in its own
+mission.
 
 Prime normalizes each relative path to `/` separators and sorts paths by their
 lossless path tokens. A path token percent-encodes each raw path byte as ASCII,

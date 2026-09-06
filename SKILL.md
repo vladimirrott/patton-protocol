@@ -98,8 +98,19 @@ participate in candidate verification. Prime records
 `candidate_tracked_paths` and `candidate_untracked_paths` from the
 post-mutation state of the candidate: tracked additions enter, tracked deletions leave,
 and a tracked generated file remains included when source control records it.
-Prime locks this membership with the candidate identity. Any membership change
-after the lock makes the evidence stale and reopens the mission.
+Prime locks this membership with the candidate identity. Canonical ignore input
+comes from repository-controlled ignore rules only. Clone-local rules and
+user-global rules do not affect the candidate manifest. An unlisted generated
+untracked addition stays outside the locked manifest. A post-lock mutation to
+locked manifest membership, bytes, or executable mode makes the evidence stale
+and reopens the mission. A locked membership change after the lock has the same
+effect; unlisted generated additions do not count as locked membership.
+
+The Builder mission cycle ends with the Builder terminal report. Prime locks
+candidate identity, then Prime plans and dispatches Verifier mission as a
+separate mission cycle. That cycle enters Verifier observe, Verifier reconcile,
+and Verifier report states. The Builder report never serves as the Verifier
+report.
 
 Prime locks the candidate identity after the mutation. A post-build mutation
 changes the candidate and invalidates prior evidence. Prime rejects stale
