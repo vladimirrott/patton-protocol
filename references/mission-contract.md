@@ -64,6 +64,10 @@ invalidates the lock pending classification, even when it appears to be
 generated. Only a repository-ignored generated output remains digest-neutral
 without post-lock reclassification. A classified non-candidate output remains
 outside the digest only after Prime relocks the candidate.
+Before constructing this regular-file manifest, Prime inspects every
+post-mutation tracked entry. Any tracked symlink, including a directory or
+dangling symlink, or any tracked gitlink blocks the candidate, even when the
+entry is absent from `candidate_tracked_paths`.
 
 ### Candidate untracked paths
 
@@ -71,7 +75,9 @@ outside the digest only after Prime relocks the candidate.
 in the candidate manifest. Prime gets `candidate_tracked_paths` from the
 post-mutation source-control state, so a tracked deletion removes a path and a
 tracked addition includes a path. Ignored and generated outputs stay outside
-the manifest when they are untracked and not explicitly listed. Prime uses
+the manifest when they are repository-ignored. A non-ignored generated output
+must be explicitly classified as a proven non-candidate output before it stays
+outside the manifest. Prime uses
 source-control ignore state to reject an explicit untracked entry marked
 ignored. An explicit non-ignored entry is included regardless of its filename.
 A generated file remains included when source control records it as tracked. Each
@@ -82,12 +88,13 @@ names an ignored output.
 The candidate entry schema is `path: lossless token` and `executable: 0 | 1`.
 
 Prime classifies every non-ignored untracked path that can affect the objective
-or verification. Prime includes a behavior-affecting path in
-`candidate_untracked_paths`, or records an explicit non-candidate output
-classification in `non_candidate_untracked_paths` in the mission ledger. Prime
-discovers and records the complete post-mutation non-ignored untracked set.
-Every discovered path appears exactly once, in either the candidate list or the
-non-candidate list. Silent omission blocks candidate lock.
+or verification as an entry in `candidate_untracked_paths`. The
+`non_candidate_untracked_paths` list is reserved for paths proven not to affect
+the objective or verification, such as generated outputs. Prime discovers and
+records the complete post-mutation non-ignored untracked set. Every discovered
+path appears exactly once in one list, and a behavior-affecting path must be in
+the candidate list. Silent omission or non-candidate classification of a
+behavior input blocks candidate lock.
 
 Canonical ignore input consists of repository-controlled ignore rules only.
 Clone-local rules and user-global rules do not affect the candidate manifest.

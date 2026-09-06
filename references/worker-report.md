@@ -95,13 +95,14 @@ or an unapproved change to locked manifest state, leaves the mission `blocked`.
 
 ### Non-candidate untracked paths
 
-The report records whether each non-ignored untracked behavior input is included
-in `candidate_untracked_paths` or explicitly classified as a non-candidate
-output in `non_candidate_untracked_paths`. Prime records the complete
-post-mutation non-ignored untracked set, and each path appears exactly once in
-one of those lists. The non-candidate untracked paths list is persisted in the
-report schema as sorted, unique scalar lossless path tokens. A silent omission
-blocks candidate lock and leaves the report unverified.
+The report records every non-ignored untracked behavior input in
+`candidate_untracked_paths`. `non_candidate_untracked_paths` is reserved for
+paths proven not to affect the objective or verification, such as generated
+outputs. Prime records the complete post-mutation non-ignored untracked set,
+and each path appears exactly once in one of those lists. The non-candidate
+untracked paths list is persisted in the report schema as sorted, unique scalar
+lossless path tokens. A silent omission or non-candidate classification of a
+behavior input blocks candidate lock and leaves the report unverified.
 
 The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
 this report. This reference defines the report fields, status values, evidence

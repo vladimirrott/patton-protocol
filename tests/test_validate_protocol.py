@@ -236,8 +236,11 @@ def canonical_fixture_digest(
         validate_path_token(root, token)
         tracked_tokens.add(token)
     if post_mutation_tracked_paths is not None:
+        post_mutation_tracked_tokens = set(post_mutation_tracked_paths)
+        if post_mutation_tracked_tokens & gitlink_paths:
+            raise ValueError("tracked inventory cannot contain gitlinks")
         expected_tracked_tokens = set()
-        for token in post_mutation_tracked_paths:
+        for token in post_mutation_tracked_tokens:
             path = validate_path_token(root, token)
             if path.is_symlink():
                 raise ValueError("tracked inventory cannot contain symlinks")
@@ -579,7 +582,7 @@ class ProtocolContractTests(unittest.TestCase):
             "behavior-affecting",
             "tracked paths",
             "candidate untracked paths",
-            "untracked paths not listed",
+            "unlisted path blocks candidate lock",
         ):
             with self.subTest(term=term):
                 self.assertIn(term, content)
@@ -851,6 +854,95 @@ class ProtocolContractTests(unittest.TestCase):
         )
         self.assertRegex(content, re.compile(r"gitlink.{0,160}(reject|excluded|not serialized)", re.IGNORECASE))
 
+    def test_real_git_tracked_symlinks_are_rejected_before_manifest_selection(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "Protocol Test"], cwd=root, check=True)
+            (root / "tracked.txt").write_bytes(b"tracked\n")
+            target_directory = root / "untracked-target"
+            target_directory.mkdir()
+            (target_directory / "target.txt").write_bytes(b"target\n")
+            try:
+                (root / "directory-link").symlink_to(target_directory, target_is_directory=True)
+                (root / "dangling-link").symlink_to("missing-target")
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symlink fixture unavailable: {error}")
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "symlinks"], cwd=root, check=True)
+            tracked_entries = set(
+                subprocess.run(
+                    ["git", "ls-files"], cwd=root, check=True, text=True, capture_output=True
+                ).stdout.splitlines()
+            )
+
+            with self.assertRaisesRegex(ValueError, "tracked inventory"):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths={"tracked.txt"},
+                    post_mutation_tracked_paths=tracked_entries,
+                )
+
+        self.assertIn("directory-link", tracked_entries)
+        self.assertIn("dangling-link", tracked_entries)
+
+    def test_real_git_tracked_gitlink_is_rejected_before_manifest_selection(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            child = root / "child"
+            parent = root / "parent"
+            child.mkdir()
+            parent.mkdir()
+            for repository in (child, parent):
+                subprocess.run(["git", "init", "--quiet"], cwd=repository, check=True)
+                subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repository, check=True)
+                subprocess.run(["git", "config", "user.name", "Protocol Test"], cwd=repository, check=True)
+            (child / "module.txt").write_bytes(b"module\n")
+            subprocess.run(["git", "add", "module.txt"], cwd=child, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "module"], cwd=child, check=True)
+            (parent / "tracked.txt").write_bytes(b"tracked\n")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=parent, check=True)
+            subprocess.run(["git", "commit", "--quiet", "-m", "parent"], cwd=parent, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "protocol.file.allow=always",
+                    "submodule",
+                    "add",
+                    str(child),
+                    "vendor/child",
+                ],
+                cwd=parent,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            subprocess.run(["git", "commit", "--quiet", "-m", "submodule"], cwd=parent, check=True)
+            tracked_entries = set(
+                subprocess.run(
+                    ["git", "ls-files"], cwd=parent, check=True, text=True, capture_output=True
+                ).stdout.splitlines()
+            )
+            gitlink_entries = {
+                line.split()[3]
+                for line in subprocess.run(
+                    ["git", "ls-files", "-s"], cwd=parent, check=True, text=True, capture_output=True
+                ).stdout.splitlines()
+                if line.startswith("160000 ")
+            }
+
+            with self.assertRaisesRegex(ValueError, "gitlink"):
+                canonical_fixture_digest(
+                    parent,
+                    tracked_paths={"tracked.txt", ".gitmodules"},
+                    post_mutation_tracked_paths=tracked_entries,
+                    gitlink_paths=gitlink_entries,
+                )
+
+        self.assertEqual(gitlink_entries, {"vendor/child"})
+
     def test_untracked_behavior_input_omission_blocks_candidate_lock(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -883,21 +975,80 @@ class ProtocolContractTests(unittest.TestCase):
                 discovered_nonignored_untracked_paths={"artifact.log"},
             )
 
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(MISSION_CONTRACT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+        for term in (
+            "non-ignored untracked",
+            "candidate_untracked_paths",
+            "non_candidate_untracked_paths",
+            "proven not to affect",
+            "blocks candidate lock",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, content)
+        self.assertRegex(classified_output, re.compile(r"^sha256:[0-9a-f]{64}$"))
+
+    def test_behavior_inputs_are_reserved_for_candidate_untracked_paths(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(MISSION_CONTRACT_PATH)
+                + read_text_or_empty(WORKER_REPORT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
         self.assertRegex(
-            " ".join(
-                (
-                    read_text_or_empty(SKILL_PATH)
-                    + read_text_or_empty(MISSION_CONTRACT_PATH)
-                    + read_text_or_empty(SAFETY_BUDGETS_PATH)
-                ).lower().split()
-            ),
+            content,
             re.compile(
-                r"non-ignored untracked.{0,220}(?:candidate_untracked_paths|non-candidate output)"
-                r".{0,220}(?:silent omission|blocks candidate lock)",
+                r"every non-ignored untracked path that can affect the objective"
+                r".{0,240}candidate_untracked_paths",
                 re.IGNORECASE,
             ),
         )
-        self.assertRegex(classified_output, re.compile(r"^sha256:[0-9a-f]{64}$"))
+        self.assertRegex(
+            content,
+            re.compile(
+                r"non_candidate_untracked_paths.{0,180}reserved for paths proven not to affect",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertRegex(
+            content,
+            re.compile(
+                r"non-candidate classification of a behavior input.{0,100}blocks candidate lock",
+                re.IGNORECASE,
+            ),
+        )
+
+    def test_behavior_input_mutation_changes_candidate_digest(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            entrypoint = root / "main.py"
+            module = root / "helper.py"
+            entrypoint.write_bytes(b"import helper\nprint(helper.value)\n")
+            module.write_bytes(b"value = 1\n")
+            locked_digest = canonical_fixture_digest(
+                root,
+                tracked_paths={"main.py"},
+                candidate_untracked_paths=[{"path": "helper.py", "executable": 0}],
+                behavior_affecting_untracked_paths={"helper.py"},
+                discovered_nonignored_untracked_paths={"helper.py"},
+            )
+            module.write_bytes(b"value = 2\n")
+            current_digest = canonical_fixture_digest(
+                root,
+                tracked_paths={"main.py"},
+                candidate_untracked_paths=[{"path": "helper.py", "executable": 0}],
+                behavior_affecting_untracked_paths={"helper.py"},
+                discovered_nonignored_untracked_paths={"helper.py"},
+            )
+
+        self.assertNotEqual(locked_digest, current_digest)
 
     def test_untracked_behavior_input_inclusion_and_post_lock_mutation(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -1081,7 +1232,7 @@ class ProtocolContractTests(unittest.TestCase):
         safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
         helper = inspect.getsource(canonical_fixture_digest)
 
-        for term in ("explicit manifest", "source-control ignore state", "untracked paths not listed"):
+        for term in ("explicit manifest", "source-control ignore state", "unlisted path blocks candidate lock"):
             with self.subTest(term=term):
                 self.assertIn(term, safety)
         self.assertNotIn("GENERATED_DIRECTORY_NAMES", helper)

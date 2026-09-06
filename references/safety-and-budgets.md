@@ -87,14 +87,18 @@ the tracked paths Prime records from the post-mutation candidate state in
 `candidate_tracked_paths`, plus files Prime explicitly names in
 `candidate_untracked_paths`, the candidate untracked paths list. Prime does not
 infer untracked membership from a directory scan. Prime queries the
-source-control ignore state at the same post-mutation point. Untracked paths
-marked ignored, and untracked paths not listed in the explicit manifest, stay
-outside the candidate. This rule excludes generated outputs without a
-host-specific filename allowlist. Prime rejects an explicit candidate path that
-names an ignored output. The manifest excludes `.git/` and the Patton mission
+source-control ignore state at the same post-mutation point. Repository-ignored
+generated outputs stay outside the candidate. Every non-ignored untracked path
+must appear in exactly one explicit candidate or non-candidate list; an
+unlisted path blocks candidate lock. This rule excludes generated outputs
+without a host-specific filename allowlist. Prime rejects an explicit candidate
+path that names an ignored output. The manifest excludes `.git/` and the Patton mission
 ledger (`.patton/ledger/`). Prime rejects symlinks in the manifest instead of
-following them. Prime filters excluded untracked paths before this symlink
-check. A symlink selected by `candidate_tracked_paths` or
+following them. Before constructing the regular-file manifest, Prime inspects
+every post-mutation tracked entry and rejects any tracked symlink, including a
+directory or dangling symlink, even when it is absent from
+`candidate_tracked_paths`. Prime filters excluded untracked paths before this
+symlink check. A symlink selected by `candidate_tracked_paths` or
 `candidate_untracked_paths`, including a symlink ancestor, is rejected. The
 manifest scope and the `allowed_paths` mutation boundary
 serve separate controls: a behavior-affecting file outside `allowed_paths` may
@@ -103,8 +107,10 @@ behavior-affecting file outside the mutation allowlist therefore remains in
 the candidate-relevant snapshot.
 
 A source-control gitlink (submodule entry) is not a regular candidate file.
-Prime rejects a selected gitlink before digesting it. The digest does not
-serialize a gitlink object ID or follow the linked repository.
+Prime inspects all post-mutation tracked entries and rejects any gitlink before
+constructing the regular-file manifest, even when it is absent from
+`candidate_tracked_paths`. The digest does not serialize a gitlink object ID or
+follow the linked repository.
 
 Canonical ignore input consists of repository-controlled ignore rules only.
 Clone-local rules and user-global rules do not affect the candidate manifest.
@@ -119,12 +125,13 @@ so Prime blocks candidate lock until a future schema defines one. Ignored
 generated outputs remain excluded.
 
 Prime classifies every non-ignored untracked path that can affect the objective
-or verification. Prime includes a behavior-affecting path in
-`candidate_untracked_paths`, or records an explicit non-candidate output
-classification in `non_candidate_untracked_paths` in the mission ledger. Prime
-discovers and records the complete post-mutation non-ignored untracked set.
-Every discovered path appears exactly once in either list. Silent omission
-blocks candidate lock.
+or verification in `candidate_untracked_paths`. Prime reserves
+`non_candidate_untracked_paths` for paths proven not to affect the objective or
+verification, such as generated outputs. Prime discovers and records the
+complete post-mutation non-ignored untracked set. Every discovered path appears
+exactly once in either list, and every behavior-affecting path appears in the
+candidate list. Silent omission or non-candidate classification of a behavior
+input blocks candidate lock.
 
 Each `candidate_untracked_paths` entry has exactly two fields: `path`, a
 nonempty lossless path token, and `executable`, an integer `0` or `1`. Prime
