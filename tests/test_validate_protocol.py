@@ -227,6 +227,8 @@ def canonical_fixture_digest(
     for token in tracked_paths:
         validate_path_token(root, token)
         tracked_tokens.add(token)
+    if not executable_paths <= tracked_tokens:
+        raise ValueError("executable metadata may only name tracked paths")
     untracked_tokens: set[str] = set()
     untracked_executable_paths: set[str] = set()
     for entry in candidate_untracked_paths:
@@ -259,7 +261,10 @@ def canonical_fixture_digest(
             raise ValueError(f"symlink is not a candidate file: {path}")
         relative_path = canonical_path_token(root, path)
         token = relative_path.decode("ascii")
-        executable = b"1" if token in executable_paths or token in untracked_executable_paths else b"0"
+        if token in tracked_tokens:
+            executable = b"1" if token in executable_paths else b"0"
+        else:
+            executable = b"1" if token in untracked_executable_paths else b"0"
         payload = path.read_bytes()
         records.append(
             relative_path
@@ -670,6 +675,20 @@ class ProtocolContractTests(unittest.TestCase):
             )
 
         self.assertNotEqual(not_executable, executable)
+
+    def test_untracked_executable_flag_cannot_be_overridden_by_tracked_metadata(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            config = root / "config.ini"
+            config.write_bytes(b"feature=on\n")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths=set(),
+                    executable_paths={"config.ini"},
+                    candidate_untracked_paths=[{"path": "config.ini", "executable": 0}],
+                )
 
     @unittest.skipIf(os.name == "nt", "requires a POSIX byte filename fixture")
     def test_non_utf8_filename_has_lossless_digest_path_token(self) -> None:
