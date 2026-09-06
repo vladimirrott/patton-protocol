@@ -3,6 +3,7 @@
 from pathlib import Path
 import hashlib
 import re
+import stat
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -111,11 +112,27 @@ def read_text_or_empty(path: Path) -> str:
 def canonical_fixture_digest(root: Path) -> str:
     """Compute the deterministic digest described by the candidate contract."""
     records: list[bytes] = []
-    paths = (candidate for candidate in root.rglob("*") if candidate.is_file())
+    paths = (
+        candidate
+        for candidate in root.rglob("*")
+        if candidate.is_file()
+        and not candidate.is_symlink()
+        and ".git" not in candidate.relative_to(root).parts
+        and candidate.relative_to(root).parts[:2] != (".patton", "ledger")
+    )
     for path in sorted(paths, key=lambda candidate: candidate.relative_to(root).as_posix().encode("utf-8")):
         relative_path = path.relative_to(root).as_posix().encode("utf-8")
+        mode = f"{stat.S_IMODE(path.stat().st_mode):04o}".encode("ascii")
         payload = path.read_bytes()
-        records.append(relative_path + b"\0" + str(len(payload)).encode("ascii") + b"\0" + payload)
+        records.append(
+            relative_path
+            + b"\0"
+            + mode
+            + b"\0"
+            + str(len(payload)).encode("ascii")
+            + b"\0"
+            + payload
+        )
     return hashlib.sha256(b"".join(record + b"\n" for record in records)).hexdigest()
 
 
@@ -270,6 +287,56 @@ class ProtocolContractTests(unittest.TestCase):
             with self.subTest(term=term):
                 self.assertIn(term, content)
         self.assertRegex(content, re.compile(r"verifier.{0,200}(recomputes|recompute).{0,200}(before|after)", re.IGNORECASE))
+
+    def test_out_of_allowlist_behavior_file_invalidates_candidate_identity(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "src" / "candidate.txt"
+            config = root / "config.ini"
+            source.parent.mkdir()
+            source.write_bytes(b"candidate\n")
+            config.write_bytes(b"feature=old\n")
+            allowed_paths = {"src/"}
+
+            locked_digest = canonical_fixture_digest(root)
+            config.write_bytes(b"feature=new\n")
+            current_digest = canonical_fixture_digest(root)
+
+        self.assertIn("src/", allowed_paths)
+        self.assertNotIn("config.ini", allowed_paths)
+        self.assertNotEqual(locked_digest, current_digest)
+
+        content = " ".join(
+            read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split()
+        )
+        for term in (
+            "candidate-relevant repository snapshot",
+            "outside the mutation allowlist",
+            "behavior-affecting",
+            "file mode",
+            "permission bits",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, content)
+        self.assertRegex(
+            content,
+            re.compile(
+                r"outside.{0,180}(allowlist|allowed_paths).{0,180}(digest|reject|blocked)",
+                re.IGNORECASE,
+            ),
+        )
+
+    def test_file_mode_metadata_contributes_to_candidate_digest(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "candidate.txt"
+            source.write_bytes(b"same bytes\n")
+            initial_mode = source.stat().st_mode
+            locked_digest = canonical_fixture_digest(root)
+            source.chmod(stat.S_IMODE(initial_mode) ^ stat.S_IXUSR)
+            mode_changed_digest = canonical_fixture_digest(root)
+
+        self.assertNotEqual(locked_digest, mode_changed_digest)
 
     def test_worker_report_defines_required_fields(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()

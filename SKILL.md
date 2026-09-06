@@ -86,6 +86,10 @@ and evidence requirements, and assigns one worker role. Prime gives each
 concurrent mission an immutable ownership boundary. Workers may inspect other
 paths as read-only. After a Builder mutation, Prime records immutable
 `candidate_revision` and `content_digest` values for the exact candidate.
+Prime computes those values from the candidate-relevant repository snapshot,
+which remains separate from the Builder's `allowed_paths` mutation allowlist.
+Behavior-affecting files outside the allowlist still participate in candidate
+verification.
 
 Prime locks the candidate identity after the mutation. A post-build mutation
 changes the candidate and invalidates prior evidence. Prime rejects stale
@@ -113,7 +117,8 @@ promoting its own result.
 Prime matches each [worker report](references/worker-report.md) to its mission
 identity and checks that files changed stay within the immutable ownership
 boundary. Prime rechecks every material evidence claim against the source
-revision, candidate identity, report data, and safe command output. Prime
+revision, candidate identity, report data, and safe command output, including
+behavior-affecting files outside the mutation allowlist. Prime
 requires Prime's and the Verifier's evidence to match the immutable
 `candidate_revision` and `content_digest`. Prime rejects stale or mismatched
 evidence. Prime compares conflicting

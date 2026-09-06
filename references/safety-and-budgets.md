@@ -57,25 +57,29 @@ unverifiable evidence and keeps the mission open.
 
 ## Candidate snapshot and digest
 
-Prime computes the candidate snapshot after the Builder stops mutating files
-and confirms the allowlist. The snapshot includes every regular file under the
-mission's `allowed_paths`, with paths relative to the repository root. Prime
-excludes `.git/` and the Patton mission ledger from the allowlist and rejects a
-mission that includes either control-plane path. Prime rejects symlinks in the
-snapshot instead of following them.
+Prime computes the candidate-relevant repository snapshot after the Builder
+stops mutating files and confirms the allowlist. The snapshot includes every
+regular file in the repository worktree, including behavior-affecting files
+outside the mutation allowlist. Prime excludes `.git/` and the Patton mission
+ledger (`.patton/ledger/`) from the snapshot. Prime rejects symlinks in the
+snapshot instead of following them. The snapshot scope and the `allowed_paths`
+mutation boundary serve separate controls: a file outside `allowed_paths` may
+still invalidate the candidate digest, while a worker may not mutate it.
 
 Prime normalizes each relative path to UTF-8 with `/` separators and sorts paths
 by their UTF-8 byte sequence. For each sorted file, Prime appends this record to
 the digest input:
 
 ```text
-UTF-8 relative path + NUL + ASCII byte length + NUL + exact file bytes + LF
+UTF-8 relative path + NUL + ASCII octal file mode + NUL + ASCII byte length
++ NUL + exact file bytes + LF
 ```
 
 Prime computes `content_digest` as `sha256:` followed by the lowercase
-64-hex-digit SHA-256 digest of the complete record stream. The path, byte
-length, and exact bytes define the content; line endings remain unchanged. The
-empty snapshot hashes the empty record stream. Prime obtains
+64-hex-digit SHA-256 digest of the complete record stream. The path, permission
+bits, byte length, and exact bytes define the content; line endings
+remain unchanged. Prime excludes timestamps, ownership, and other host-local
+metadata. The empty snapshot hashes the empty record stream. Prime obtains
 `candidate_revision` from the host's post-mutation revision. If the host has no
 revision, Prime uses `candidate:sha256:<digest>` as a deterministic fallback.
 
@@ -83,8 +87,9 @@ Prime, not the Builder, computes and locks both candidate fields. The Builder
 may report observations, but cannot choose or rewrite the identity. The
 Verifier recomputes the snapshot from current content before checks and again
 after checks. Prime and Verifier require both recomputed values to match the
-locked ledger values. A mismatch means post-build mutation or stale evidence,
-so Prime blocks the candidate and opens a new bounded mission.
+locked ledger values. A mismatch, including a mutation outside `allowed_paths`,
+means post-build mutation or stale evidence, so Prime blocks the candidate and
+opens a new bounded mission.
 
 ## Conflicts and disagreement
 
