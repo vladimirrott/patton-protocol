@@ -62,18 +62,19 @@ objective.
 A pre-candidate Builder report may omit `candidate_revision`, `content_digest`,
 `candidate_tracked_paths`, and `candidate_untracked_paths`, or carry them as
 nullable `null` values. The Builder reports its work and evidence, but does not
-author candidate identity. After the Builder stops mutating, Prime writes a
-Prime-authored candidate record before the Verifier mission starts. Prime then
-copies the non-null revision, digest, and manifest membership into the Verifier
-mission and report.
+author candidate identity. The Builder terminal report carries these fields as
+omitted or null. Prime authors and locks a candidate record before the Verifier
+mission starts, then
+includes it in the Verifier mission. The Verifier authors a report that echoes
+the locked revision, digest, and manifest membership.
 
 ### Candidate identity
 
 The candidate revision and content digest identify the post-mutation state.
 `candidate_revision` and `content_digest` identify the exact post-mutation
-candidate that the report describes. The Builder copies the immutable values
-from the mission ledger after Prime computes them. The Builder cannot choose or
-rewrite the identity. The Verifier recomputes the canonical snapshot from
+candidate that the report describes. A Builder report carries no candidate
+identity. Prime authors and locks the record after the Builder terminal report.
+The Verifier recomputes the canonical snapshot from
 current content and checks that both values match the ledger before and after
 its checks. Prime rejects stale evidence when a post-build mutation changes
 either value or when the report does not match the candidate.

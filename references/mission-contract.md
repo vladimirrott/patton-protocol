@@ -41,10 +41,11 @@ own immutable boundary.
 A pre-candidate Builder mission may omit `candidate_revision`,
 `content_digest`, `candidate_tracked_paths`, and `candidate_untracked_paths`, or
 carry them as nullable `null` values. The Builder does not author candidate
-identity. After the Builder stops mutating, Prime computes and locks a
-Prime-authored candidate record before the Verifier mission starts. That record
-has non-null revision, digest, and manifest membership values. Prime copies the
-record into the Verifier mission and the Verifier report.
+identity. The Builder terminal report carries these fields as omitted or null.
+After the Builder stops mutating, Prime authors and locks a candidate record
+before the Verifier mission starts. That record has non-null
+revision, digest, and manifest membership values. Prime includes it in the
+Verifier mission. The Verifier authors a report that echoes the locked record.
 
 ### Candidate tracked paths
 
@@ -59,11 +60,13 @@ rejects any membership change after the lock.
 in the candidate manifest. Prime gets `candidate_tracked_paths` from the
 post-mutation source-control state, so a tracked deletion removes a path and a
 tracked addition includes a path. Ignored and generated outputs stay outside
-the manifest when they are untracked and not explicitly selected. A generated
-file remains included when source control records it as tracked. Each explicit
-untracked entry has a `path` field of type lossless token
+the manifest when they are untracked and not explicitly listed. Prime uses
+source-control ignore state to reject an explicit untracked entry marked
+ignored. An explicit non-ignored entry is included regardless of its filename.
+A generated file remains included when source control records it as tracked. Each
+explicit untracked entry has a `path` field of type lossless token
 and an `executable` field of type integer `0 | 1`. Prime rejects an entry that
-names an ignored or generated output.
+names an ignored output.
 
 The canonical schema is `path: lossless token` and `executable: 0 | 1`.
 
@@ -103,8 +106,9 @@ After a Builder finishes a mutation, Prime records `candidate_revision` and
 candidate. Prime computes the digest from the canonical snapshot in the
 [safety and budgets reference](safety-and-budgets.md). The Builder may report
 observations but cannot choose these values. The report echoes the locked
-values, and the Verifier must recompute and match both values before and after
-verification. A post-build mutation makes the recorded identity stale. Prime
+values. The Verifier mission and report echo them, and the Verifier must
+recompute and match both values before and after verification. A post-build
+mutation makes the recorded identity stale. Prime
 rejects stale evidence, marks the candidate unverified, and opens a bounded
 mission for a new candidate identity.
 

@@ -476,11 +476,24 @@ class ProtocolContractTests(unittest.TestCase):
         report = " ".join(read_text_or_empty(WORKER_REPORT_PATH).lower().split())
 
         for content in (mission, report):
-            for term in ("pre-candidate", "nullable", "prime-authored candidate record", "before the verifier"):
+            for term in ("pre-candidate", "nullable", "prime authors", "before the verifier"):
                 with self.subTest(content=content[:20], term=term):
                     self.assertIn(term, content)
         self.assertRegex(mission, re.compile(r"candidate_revision:\s*null", re.IGNORECASE))
         self.assertRegex(report, re.compile(r"content_digest:\s*null", re.IGNORECASE))
+
+    def test_phase_flow_assigns_candidate_record_ownership(self) -> None:
+        mission = " ".join(read_text_or_empty(MISSION_CONTRACT_PATH).lower().split())
+        report = " ".join(read_text_or_empty(WORKER_REPORT_PATH).lower().split())
+
+        for content in (mission, report):
+            for term in ("builder terminal report", "prime authors", "verifier authors"):
+                with self.subTest(content=content[:20], term=term):
+                    self.assertIn(term, content)
+        self.assertNotIn("builder copies the immutable values", report)
+        self.assertNotIn("prime then copies the non-null", report)
+        self.assertLess(report.index("builder terminal report"), report.index("prime authors"))
+        self.assertLess(report.index("prime authors"), report.index("verifier authors"))
 
     def test_generated_exclusion_uses_manifest_and_ignore_state(self) -> None:
         safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
@@ -622,20 +635,35 @@ class ProtocolContractTests(unittest.TestCase):
 
         self.assertNotEqual(without_config, with_config)
 
-    def test_explicit_generated_untracked_entry_is_rejected(self) -> None:
+    def test_explicit_ignored_untracked_entry_is_rejected(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            generated = root / "__pycache__" / "candidate.pyc"
-            generated.parent.mkdir()
-            generated.write_bytes(b"generated\n")
+            ignored = root / "ignored-output.bin"
+            ignored.write_bytes(b"ignored\n")
 
             with self.assertRaises(ValueError):
                 canonical_fixture_digest(
                     root,
                     tracked_paths=set(),
-                    candidate_untracked_paths=[{"path": "__pycache__/candidate.pyc", "executable": 0}],
-                    ignored_paths={"__pycache__/candidate.pyc"},
+                    candidate_untracked_paths=[{"path": "ignored-output.bin", "executable": 0}],
+                    ignored_paths={"ignored-output.bin"},
                 )
+
+    def test_explicit_generated_looking_nonignored_entry_is_included(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            generated_looking = root / "build" / "output.pyc"
+            generated_looking.parent.mkdir()
+            generated_looking.write_bytes(b"candidate\n")
+            without_entry = canonical_fixture_digest(root, tracked_paths=set())
+            with_entry = canonical_fixture_digest(
+                root,
+                tracked_paths=set(),
+                candidate_untracked_paths=[{"path": "build/output.pyc", "executable": 0}],
+                ignored_paths=set(),
+            )
+
+        self.assertNotEqual(without_entry, with_entry)
 
     def test_untracked_path_token_rejects_unsafe_or_noncanonical_forms(self) -> None:
         invalid_tokens = (
@@ -796,6 +824,15 @@ class ProtocolContractTests(unittest.TestCase):
             digest = canonical_fixture_digest(Path(temporary_directory), tracked_paths=set())
 
         self.assertEqual(digest, "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+
+    def test_digest_returns_known_answer_for_one_file_snapshot(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            candidate = root / "a.txt"
+            candidate.write_bytes(b"hello\n")
+            digest = canonical_fixture_digest(root, tracked_paths={"a.txt"})
+
+        self.assertEqual(digest, "sha256:8b5a61dc4a507ede77fb4e38bb438aa8008acd8893ad23d86d7055fa16946562")
 
     def test_worker_report_defines_required_fields(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()
