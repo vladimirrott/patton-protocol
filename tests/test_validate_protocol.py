@@ -10,6 +10,7 @@ SKILL_PATH = PACKAGE_ROOT / "SKILL.md"
 OPENAI_METADATA_PATH = PACKAGE_ROOT / "agents" / "openai.yaml"
 MISSION_CONTRACT_PATH = PACKAGE_ROOT / "references" / "mission-contract.md"
 WORKER_REPORT_PATH = PACKAGE_ROOT / "references" / "worker-report.md"
+SAFETY_BUDGETS_PATH = PACKAGE_ROOT / "references" / "safety-and-budgets.md"
 LIFECYCLE_TERMS = (
     "scope",
     "plan",
@@ -235,6 +236,72 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertIn("short_description:", content)
         self.assertIn("default_prompt:", content)
         self.assertIn("patton-protocol", content)
+
+
+class PortableWorkflowTests(unittest.TestCase):
+    """The canonical workflow must remain portable and bounded."""
+
+    def test_skill_states_required_orchestration_safeguards(self) -> None:
+        content = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+
+        required_rules = (
+            "delegation threshold",
+            "bounded mission",
+            "immutable ownership",
+            "recheck",
+            "conflict",
+            "partial failure",
+            "human approval",
+            "serial fallback",
+        )
+        for rule in required_rules:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, content)
+
+    def test_safety_reference_defines_operational_limits(self) -> None:
+        content = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+
+        self.assertTrue(SAFETY_BUDGETS_PATH.is_file())
+        limits = (
+            "worker count",
+            "mission budget",
+            "timeout",
+            "retry",
+            "mutable-file overlap",
+            "approval",
+            "disagreement",
+        )
+        for limit in limits:
+            with self.subTest(limit=limit):
+                self.assertIn(limit, content)
+
+    def test_skill_defines_patton_roles_and_boundaries(self) -> None:
+        content = read_text_or_empty(SKILL_PATH).lower()
+
+        for role in ("patton prime", "scout", "builder", "verifier", "quartermaster"):
+            with self.subTest(role=role):
+                self.assertIn(role, content)
+        self.assertRegex(content, re.compile(r"immutable.{0,80}ownership", re.IGNORECASE | re.DOTALL))
+
+    def test_skill_links_safety_reference(self) -> None:
+        content = read_text_or_empty(SKILL_PATH)
+
+        self.assertIn("](references/safety-and-budgets.md)", content)
+        self.assertTrue(SAFETY_BUDGETS_PATH.is_file())
+
+    def test_core_does_not_require_vendor_command_syntax(self) -> None:
+        content = read_text_or_empty(SKILL_PATH).lower()
+        forbidden_required_syntax = (
+            r"\bclaude\s+--",
+            r"\bcodex\s+(?:exec|run)\b",
+            r"\bcursor\s+--",
+            r"\bspawn_agent\s*\(",
+            r"/agents?\b",
+        )
+
+        for pattern in forbidden_required_syntax:
+            with self.subTest(pattern=pattern):
+                self.assertNotRegex(content, re.compile(pattern))
 
 
 if __name__ == "__main__":

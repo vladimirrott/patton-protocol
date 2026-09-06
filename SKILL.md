@@ -5,49 +5,136 @@ description: Coordinate bounded coding-agent missions when independent delegatio
 
 # Patton Protocol
 
-Patton Protocol is a portable Agent Skills package for coding-agent
-coordination. It targets any AI tool that implements the canonical Agent Skills
-`SKILL.md` format.
+Patton Protocol is a portable Agent Skills package for coordinating bounded
+coding-agent missions. It targets any host that implements the Agent Skills
+`SKILL.md` format. The core names roles, contracts, limits, and evidence rules;
+the host decides how it starts workers.
+
+Patton Prime owns the lifecycle, the mission ledger, and the final decision.
+Prime delegates only when a delegation threshold is met: the work contains at
+least two independent bounded missions, each mission has a useful stopping
+condition, and coordination costs less than serial execution. Prime keeps one
+mission in the main loop when that threshold is not met.
 
 The mission and report contracts define the data exchanged across each
-lifecycle stage: [mission contract](references/mission-contract.md) and
-[worker report](references/worker-report.md). When a host cannot spawn workers,
-Patton Prime runs bounded missions in serial order and keeps the same contracts.
+lifecycle stage: [mission contract](references/mission-contract.md), [worker
+report](references/worker-report.md), and [safety and budgets](references/safety-and-budgets.md).
+When a host cannot spawn workers, Patton Prime uses serial fallback and keeps
+the same contracts, evidence checks, and approval gates.
+
+## Roles
+
+- **Patton Prime** scopes the objective, creates missions, assigns roles,
+  enforces limits, reconciles reports, requests verification, and owns closure.
+  Prime never treats a worker report as approval.
+- **Scout** investigates repository state, dependencies, constraints, and
+  likely causes. Scout returns findings and evidence without changing files.
+- **Builder** changes files inside one immutable ownership boundary and returns
+  the change plus reproducible evidence.
+- **Verifier** independently rechecks claims against the recorded source
+  revision, runs the required safe checks, and reports pass, failure, or open
+  risk. Verifier does not verify its own change.
+- **Quartermaster** tracks missions, revisions, budgets, timeouts, retries,
+  changed paths, reports, and handoffs. Quartermaster preserves partial failure
+  records for Prime.
+
+Prime may combine roles in a serial mission when the host has no worker
+primitive, but the worker must still perform the role-specific checks.
+
+## Limits
+
+Prime records these limits before dispatch and may lower them for a mission:
+
+- worker count: at most 4 active workers, excluding Patton Prime;
+- mission budget: at most 20 command units or 10 000 generated tokens per
+  mission, with the selected unit recorded in the mission;
+- timeout: at most 15 minutes of wall-clock time per mission;
+- retries: at most 2 retries after transient failure, against the same mission
+  boundary;
+- mutable-file overlap: 0 paths across concurrent missions; a shared path
+  requires serial execution and an explicit ownership handoff;
+- approvals: 1 explicit human or host approval for each irreversible action;
+- unresolved disagreement: 0 disagreements at closure. Prime opens a bounded
+  verifier mission and then asks for human approval when reports still differ.
+
+The [safety and budgets reference](references/safety-and-budgets.md) defines
+the controls, exceptions, and recovery record for these limits.
 
 ## Lifecycle
 
-The lifecycle stages are:
+Patton Prime runs the stages in order. Prime may repeat observe, reconcile, and
+verify after a retry or recovery mission, while preserving the source revision
+and report history.
 
 ### Scope
 
-Placeholder for the scope stage.
+Prime states one objective, identifies the source revision, records inputs and
+risks, and selects the smallest useful set of roles. Prime applies the
+delegation threshold before creating parallel work. Prime marks irreversible
+actions for a human approval gate before dispatch.
 
 ### Plan
 
-Placeholder for the plan stage.
+Prime converts the objective into bounded missions. Each mission uses the
+[mission contract](references/mission-contract.md), names an allowed path
+allowlist, sets a stopping condition, records budget, timeout, retry limit,
+and evidence requirements, and assigns one worker role. Prime gives each
+concurrent mission an immutable ownership boundary. Workers may inspect other
+paths as read-only.
 
 ### Dispatch
 
-Placeholder for the dispatch stage.
+Prime records the mission ledger and source revision before dispatch. Prime
+starts no more than the worker-count limit, rejects overlapping mutable paths,
+and passes each worker its own mission contract. A host with no worker spawn
+capability uses serial fallback in mission order. Serial fallback does not
+remove verification or approval requirements.
 
 ### Observe
 
-Placeholder for the observe stage.
+Quartermaster records starts, progress, commands, changed paths, budget use,
+and timeout or host-loss events. Prime stops a mission at its timeout or budget
+limit. Prime preserves any report and changes from a partial failure, labels
+the evidence as unverified, and prevents a failed worker from approving or
+promoting its own result.
 
 ### Reconcile
 
-Placeholder for the reconcile stage.
+Prime matches each [worker report](references/worker-report.md) to its mission
+identity and checks that files changed stay within the immutable ownership
+boundary. Prime rechecks every material evidence claim against the source
+revision, report data, and safe command output. Prime compares conflicting
+reports by evidence and requests an independent Verifier check. Prime does not
+resolve a conflict by majority vote or discard a minority finding.
 
 ### Verify
 
-Placeholder for the verify stage.
+Verifier repeats the required checks from a clean or explicitly recorded state,
+inspects the claimed files, and checks that the objective and stopping
+condition hold. Prime sends partial or failed work to a bounded recovery
+mission, which may resume from preserved evidence or revert its own in-boundary
+changes under the host's normal recovery mechanism. Prime retries transient
+failures within the retry limit and creates a new mission when the objective or
+allowed paths change. Prime keeps the outcome blocked when evidence remains
+insufficient.
+
+Human approval remains required before a merge, deployment, deletion,
+publication, credential change, or other irreversible action. Prime records the
+approver, decision, scope, and evidence. A worker, Verifier, or Quartermaster
+cannot grant that approval.
 
 ### Report
 
-Placeholder for the report stage.
+Prime reports the final status, mission identities, files changed, checks run,
+verified evidence, risks, approvals, unresolved disagreements, and next
+action. Prime reports `blocked` when a required approval is denied or evidence
+cannot resolve a disagreement. Prime retains partial and failed reports so a
+later mission can resume without inventing evidence.
 
 ## Contracts
 
 Workers use the [mission contract](references/mission-contract.md) for scope,
-inputs, limits, and evidence requirements. They return a [worker report](references/worker-report.md)
-with status, evidence, risks, and a next action.
+inputs, limits, and evidence requirements. They return a [worker
+report](references/worker-report.md) with status, evidence, risks, and a next
+action. Hosts may serialize these records through another interface while
+preserving their fields and meanings.
