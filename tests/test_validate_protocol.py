@@ -338,6 +338,13 @@ class ProtocolContractTests(unittest.TestCase):
 
         self.assertNotEqual(locked_digest, mode_changed_digest)
 
+    def test_digest_mode_serialization_is_canonical(self) -> None:
+        content = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+
+        self.assertIn("four ascii octal digits", content)
+        self.assertIn("0000-7777", read_text_or_empty(SAFETY_BUDGETS_PATH))
+        self.assertRegex(content, re.compile(r"mode.{0,100}no prefix", re.IGNORECASE))
+
     def test_worker_report_defines_required_fields(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()
 

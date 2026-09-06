@@ -75,6 +75,10 @@ UTF-8 relative path + NUL + ASCII octal file mode + NUL + ASCII byte length
 + NUL + exact file bytes + LF
 ```
 
+Prime serializes file mode as four ASCII octal digits from `0000-7777`, with no
+prefix. The encoding matches the POSIX permission bits and uses a fixed width
+for deterministic records.
+
 Prime computes `content_digest` as `sha256:` followed by the lowercase
 64-hex-digit SHA-256 digest of the complete record stream. The path, permission
 bits, byte length, and exact bytes define the content; line endings
