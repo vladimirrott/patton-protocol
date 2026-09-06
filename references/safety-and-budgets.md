@@ -111,13 +111,14 @@ reopen the mission.
 The outer lifecycle uses mission-family phases mapped to separate per-mission
 cycles in this canonical order: `Scope -> Plan Builder -> Dispatch Builder ->
 Observe Builder report -> Prime reconcile Builder and lock candidate -> Plan
-Verifier -> Dispatch Verifier -> Observe Verifier report -> Prime reconcile
-Verifier -> Verify -> Report`. Prime plans, dispatches, and observes the
-Builder mission; the Builder returns a terminal report; Prime reconciles the
-Builder report and locks the candidate; Prime plans, dispatches, and observes
-the Verifier mission; the Verifier returns a report; Prime reconciles the
-Verifier report. Prime owns reconcile in both cycles. The Verifier never
-reconciles reports.
+Verifier -> Dispatch Verifier -> Verify Verifier checks -> Verifier report ->
+Prime observe and reconcile Verifier -> Report`. Prime plans, dispatches, and
+observes the Builder mission; the Builder returns a terminal report; Prime
+reconciles the Builder report and locks the candidate; Prime plans, dispatches,
+and observes the Verifier mission; the Verify phase runs the Verifier checks;
+the Verifier returns a report; Prime observes and reconciles the Verifier
+report. Prime owns reconcile in both cycles. The Verifier never reconciles
+reports.
 
 Prime normalizes each relative path to `/` separators and sorts paths by their
 lossless path tokens. A path token percent-encodes each raw path byte as ASCII,

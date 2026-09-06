@@ -504,7 +504,7 @@ class ProtocolContractTests(unittest.TestCase):
             "prime locks candidate",
             "prime plans, dispatches, and observes verifier mission",
             "verifier returns report",
-            "prime reconciles verifier report",
+            "prime observes and reconciles verifier report",
         )
 
         positions = []
@@ -524,10 +524,10 @@ class ProtocolContractTests(unittest.TestCase):
             "observe builder report -> prime reconcile builder and lock candidate",
             "prime reconcile builder and lock candidate -> plan verifier",
             "plan verifier -> dispatch verifier",
-            "dispatch verifier -> observe verifier report",
-            "observe verifier report -> prime reconcile verifier",
-            "prime reconcile verifier -> verify",
-            "verify -> report",
+            "dispatch verifier -> verify verifier checks",
+            "verify verifier checks -> verifier report",
+            "verifier report -> prime observe and reconcile verifier",
+            "prime observe and reconcile verifier -> report",
         )
 
         self.assertIn("outer lifecycle", skill)
