@@ -1562,24 +1562,41 @@ class ProtocolContractTests(unittest.TestCase):
                         f"{decision} must preserve {state}",
                     )
 
+        human_candidate_verification_prohibition = re.compile(
+            r"\bhuman\b.{0,180}\b(?:cannot|may not)\b"
+            r".{0,120}\b(?:mark|claim)\b.{0,120}\binconclusive\b"
+            r".{0,120}\bverified\b",
+            re.IGNORECASE,
+        )
         human_irreversible_prohibition = re.compile(
             r"\bhuman\b.{0,220}\b(?:cannot|may not)\b"
-            r".{0,180}\b(?:authorize|approve|approval)\b"
+            r"(?:(?!\b(?:can|may|will|shall|must|cannot|may not)\b).){0,180}"
+            r"\b(?:authorize|approve|approval)\b"
             r".{0,100}\birreversible action\b",
             re.IGNORECASE,
         )
+        prohibition_rules = {
+            "candidate verification": (
+                human_candidate_verification_prohibition,
+                "a human cannot mark an inconclusive candidate verified",
+                "a human may mark an inconclusive candidate verified",
+            ),
+            "irreversible action": (
+                human_irreversible_prohibition,
+                "or authorize an irreversible action",
+                "or may authorize an irreversible action",
+            ),
+        }
         for source_path in (SKILL_PATH, SAFETY_BUDGETS_PATH):
             source = " ".join(read_text_or_empty(source_path).lower().split())
-            with self.subTest(source=source_path.name):
-                self.assertRegex(source, human_irreversible_prohibition)
+            for rule, (pattern, original, reversed_clause) in prohibition_rules.items():
+                with self.subTest(source=source_path.name, rule=rule):
+                    self.assertRegex(source, pattern)
 
-            mutations = {
-                "prohibition removed": source.replace("a human cannot", "a human", 1),
-                "prohibition reversed": source.replace("a human cannot", "a human may", 1),
-            }
-            for mutation, mutated_source in mutations.items():
-                with self.subTest(source=source_path.name, mutation=mutation):
-                    self.assertNotRegex(mutated_source, human_irreversible_prohibition)
+                mutated_source = source.replace(original, reversed_clause, 1)
+                with self.subTest(source=source_path.name, rule=rule, mutation="reversed"):
+                    self.assertNotEqual(source, mutated_source)
+                    self.assertNotRegex(mutated_source, pattern)
 
     def test_codex_discovery_metadata_names_skill(self) -> None:
         content = read_text_or_empty(OPENAI_METADATA_PATH)
