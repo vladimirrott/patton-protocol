@@ -47,6 +47,10 @@ before the Verifier mission starts. That record has non-null revision, digest,
 and complete candidate and non-candidate manifest membership values. Prime includes it in the
 Verifier mission. The Verifier authors a report that echoes the locked record.
 
+A Verifier mission uses `allowed_paths: []`. The Verifier is read-only and
+cannot mutate candidate files; any attempted candidate mutation blocks the
+mission.
+
 ### Candidate tracked paths
 
 `candidate_tracked_paths` records the tracked manifest membership after
@@ -163,9 +167,7 @@ source_revision: "abc123"
 objective: "Verify the candidate validation result against the stopping condition"
 inputs:
   - "failing test output"
-allowed_paths:
-  - "src/validation/"
-  - "tests/"
+allowed_paths: []
 candidate_tracked_paths: []
 candidate_untracked_paths: []
 non_candidate_untracked_paths: []

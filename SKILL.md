@@ -39,7 +39,8 @@ the same contracts, evidence checks, and human approval gates.
   the change plus reproducible evidence.
 - **Verifier** independently rechecks claims against the recorded source
   revision, runs the required safe checks, and reports pass, failure, or open
-  risk. Verifier does not verify its own change.
+  risk. Verifier is read-only, cannot mutate the candidate, and does not verify
+  its own change.
 - **Quartermaster** tracks missions, revisions, budgets, timeouts, retries,
   changed paths, reports, and handoffs. Quartermaster preserves partial failure
   records for Prime.

@@ -387,6 +387,18 @@ class ProtocolContractTests(unittest.TestCase):
 
         self.assertEqual(set(top_level), MISSION_ENVELOPE_KEYS)
 
+    def test_verifier_mission_example_is_read_only(self) -> None:
+        top_level, _ = parse_first_yaml_block(MISSION_CONTRACT_PATH)
+        self.assertEqual(top_level.get("worker_role"), "verifier")
+        self.assertEqual(top_level.get("allowed_paths"), "[]")
+
+        content = " ".join(read_text_or_empty(MISSION_CONTRACT_PATH).lower().split())
+        self.assertIn("verifier mission", content)
+        self.assertRegex(
+            content,
+            re.compile(r"verifier.{0,180}read-only.{0,180}(cannot mutate|no candidate mutation)", re.IGNORECASE),
+        )
+
     def test_report_example_has_exact_required_keys(self) -> None:
         top_level, nested = parse_first_yaml_block(WORKER_REPORT_PATH)
 
