@@ -1334,36 +1334,31 @@ class ProtocolContractTests(unittest.TestCase):
         )
 
     def test_inconclusive_conflict_human_decisions_keep_candidate_blocked(self) -> None:
-        content = " ".join(
-            (
-                read_text_or_empty(SKILL_PATH)
-                + read_text_or_empty(SAFETY_BUDGETS_PATH)
-            ).lower().split()
-        )
-
-        decision_rules = {
-            "recovery": r"human.{0,120}recovery.{0,220}(blocked|unverified)",
-            "risk acceptance": r"human.{0,120}risk acceptance.{0,220}(without verification|unverified|blocked)",
-            "abandonment": r"human.{0,120}abandonment.{0,220}(blocked|unverified)",
+        decision_clauses = {
+            "recovery": "recovery opens a bounded mission and keeps the candidate `blocked` and `unverified`.",
+            "risk acceptance": "risk acceptance records the accepted risk without marking the candidate verified, keeps the candidate `blocked` and `unverified`, and keeps the irreversible gate closed.",
+            "abandonment": "abandonment closes the attempt without success and keeps the candidate `blocked` and `unverified`.",
         }
-        for decision, pattern in decision_rules.items():
-            with self.subTest(decision=decision):
-                self.assertRegex(content, re.compile(pattern, re.IGNORECASE))
-        self.assertRegex(
-            content,
-            re.compile(
-                r"human.{0,180}(cannot|may not).{0,120}(mark|claim).{0,120}inconclusive"
-                r".{0,120}verified",
-                re.IGNORECASE,
-            ),
-        )
-        self.assertRegex(
-            content,
-            re.compile(
-                r"inconclusive.{0,260}irreversible.{0,120}(closed|blocked|cannot|not authorized)",
-                re.IGNORECASE,
-            ),
-        )
+        for source_path in (SKILL_PATH, SAFETY_BUDGETS_PATH):
+            content = " ".join(read_text_or_empty(source_path).lower().split())
+            for decision, clause in decision_clauses.items():
+                with self.subTest(source=source_path.name, decision=decision):
+                    self.assertIn(clause, content)
+            self.assertRegex(
+                content,
+                re.compile(
+                    r"human.{0,180}(cannot|may not).{0,120}(mark|claim).{0,120}inconclusive"
+                    r".{0,120}verified",
+                    re.IGNORECASE,
+                ),
+            )
+            self.assertRegex(
+                content,
+                re.compile(
+                    r"inconclusive.{0,260}irreversible.{0,120}(closed|blocked|cannot|not authorized)",
+                    re.IGNORECASE,
+                ),
+            )
 
     def test_codex_discovery_metadata_names_skill(self) -> None:
         content = read_text_or_empty(OPENAI_METADATA_PATH)

@@ -179,7 +179,7 @@ mission and keeps the candidate `blocked` and `unverified`. Risk acceptance
 records the accepted risk without marking the candidate verified, keeps the
 candidate `blocked` and `unverified`, and keeps the irreversible gate closed.
 Abandonment closes the attempt without success and keeps the candidate
-`blocked`. A human cannot mark an inconclusive candidate
+`blocked` and `unverified`. A human cannot mark an inconclusive candidate
 verified or authorize an irreversible action. The irreversible gate stays
 closed until independent verification resolves the evidence and the explicit
 approval gate is satisfied.
