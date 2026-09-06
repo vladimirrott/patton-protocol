@@ -85,6 +85,11 @@ Clone-local rules and user-global rules do not affect the candidate manifest.
 Hosts that cannot isolate ambient rules must use the explicit manifest and
 record the repository-controlled ignore result.
 
+An ignored untracked behavior-affecting path cannot be silently excluded as
+generated output. Prime includes its exact bytes through an explicit secure
+manifest, or blocks candidate lock when that mechanism is unavailable. Ignored
+generated outputs remain excluded.
+
 ### Non-candidate untracked paths
 
 `non_candidate_untracked_paths` is a sorted list of unique scalar lossless path

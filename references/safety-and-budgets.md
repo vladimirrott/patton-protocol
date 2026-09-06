@@ -102,6 +102,11 @@ manifest and record the repository-controlled ignore result. An explicit
 non-ignored entry remains included regardless of its filename, while an
 explicit entry marked ignored is rejected.
 
+An ignored untracked behavior-affecting path cannot be silently excluded as
+generated output. Prime includes its exact bytes through an explicit secure
+manifest, or blocks candidate lock when that mechanism is unavailable. Ignored
+generated outputs remain excluded.
+
 Prime classifies every non-ignored untracked path that can affect the objective
 or verification. Prime includes a behavior-affecting path in
 `candidate_untracked_paths`, or records an explicit non-candidate output

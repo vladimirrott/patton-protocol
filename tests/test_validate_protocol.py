@@ -271,9 +271,14 @@ def canonical_fixture_digest(
     manifest_paths = tracked_paths | untracked_tokens
     if gitlink_paths & manifest_paths:
         raise ValueError("gitlinks are not candidate files")
+    ignored_behavior_paths = behavior_affecting_untracked_paths & ignored_paths
+    if ignored_behavior_paths:
+        raise ValueError(
+            "ignored behavior-affecting untracked path requires a secure manifest or blocks candidate lock"
+        )
     omitted_behavior_paths = (
         behavior_affecting_untracked_paths - untracked_tokens - non_candidate_tokens
-    ) - ignored_paths
+    )
     if omitted_behavior_paths:
         raise ValueError(
             "non-ignored behavior-affecting untracked path lacks candidate classification"
@@ -850,6 +855,52 @@ class ProtocolContractTests(unittest.TestCase):
             {"content_digest": locked_digest},
             {"content_digest": current_digest},
             "post-lock mutation makes prior behavior-input evidence stale",
+        )
+
+    def test_ignored_behavior_input_blocks_lock_but_generated_output_stays_excluded(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            entrypoint = root / "main.py"
+            hidden_module = root / "hidden_module.py"
+            generated_output = root / "build" / "cache.bin"
+            entrypoint.write_bytes(b"import hidden_module\nprint(hidden_module.value)\n")
+            hidden_module.write_bytes(b"value = 1\n")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths={"main.py"},
+                    ignored_paths={"hidden_module.py"},
+                    behavior_affecting_untracked_paths={"hidden_module.py"},
+                )
+
+            locked_digest = canonical_fixture_digest(
+                root,
+                tracked_paths={"main.py"},
+                ignored_paths={"build/cache.bin"},
+            )
+            generated_output.parent.mkdir()
+            generated_output.write_bytes(b"generated\n")
+            current_digest = canonical_fixture_digest(
+                root,
+                tracked_paths={"main.py"},
+                ignored_paths={"build/cache.bin"},
+            )
+
+        self.assertEqual(locked_digest, current_digest)
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(MISSION_CONTRACT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+        self.assertRegex(
+            content,
+            re.compile(
+                r"ignored.{0,180}behavior-affecting.{0,240}(secure manifest|block candidate lock)",
+                re.IGNORECASE,
+            ),
         )
 
     def test_non_candidate_paths_require_ordered_unique_scalar_tokens(self) -> None:

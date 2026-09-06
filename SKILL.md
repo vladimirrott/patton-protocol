@@ -137,6 +137,11 @@ locked manifest membership, bytes, or executable mode makes the evidence stale
 and reopens the mission. A locked membership change after the lock has the same
 effect; unlisted generated additions do not count as locked membership.
 
+An ignored untracked behavior-affecting path cannot be silently excluded as
+generated output. Prime includes its exact bytes through an explicit secure
+manifest, or blocks candidate lock when that mechanism is unavailable. Ignored
+generated outputs remain excluded.
+
 Prime classifies every non-ignored untracked path that can affect the objective
 or verification. Prime includes a behavior-affecting path in
 `candidate_untracked_paths`, or records an explicit non-candidate output
