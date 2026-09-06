@@ -90,13 +90,8 @@ does not make the report stale. A selected path addition or deletion, or an
 unapproved change to locked manifest state, leaves the mission `blocked`.
 
 The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
-this report. Within its local mission rules, Prime plans, dispatches, and
-observes the Builder mission; the Builder returns a terminal report; Prime
-reconciles the Builder report and locks the candidate; Prime plans, dispatches,
-and observes the Verifier mission; the Verify phase runs the Verifier checks.
-Live Observe checks and records timeout and budget before the Verifier returns a
-report. Prime observes and reconciles the Verifier report. Prime owns reconcile
-in both cycles. The Verifier never reconciles reports.
+this report. This reference defines the report fields, status values, evidence
+rules, and phase-specific envelope requirements used within that sequence.
 
 ## YAML-shaped report envelope
 

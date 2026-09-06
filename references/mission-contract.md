@@ -119,14 +119,13 @@ mutation makes the recorded identity stale. Prime
 rejects stale evidence, marks the candidate unverified, and opens a bounded
 mission for a new candidate identity.
 
+The candidate snapshot rejects source-control gitlinks, including submodule
+entries. Gitlink object IDs are not serialized and the linked repository is not
+followed.
+
 The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
-this contract. Within its local mission rules, Prime plans, dispatches, and
-observes the Builder mission; the Builder returns a terminal report; Prime
-reconciles the Builder report and locks the candidate; Prime plans, dispatches,
-and observes the Verifier mission; the Verify phase runs the Verifier checks.
-Live Observe checks and records timeout and budget before the Verifier returns a
-report. Prime observes and reconciles the Verifier report. Prime owns reconcile
-in both cycles. The Verifier never reconciles reports.
+this contract. This reference defines the mission fields, candidate rules, and
+phase-specific envelope requirements used within that sequence.
 
 ## Example mission
 

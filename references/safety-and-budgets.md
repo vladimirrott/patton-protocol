@@ -20,6 +20,11 @@ Prime counts a worker's retry as another attempt within the worker-count and
 mission ledger. Prime never increases a limit to force a mission through a
 timeout, budget ceiling, ownership collision, denied approval, or disagreement.
 
+Live Observe wraps each Verifier check and runs concurrently with it. The
+observer records progress and signals timeout or budget before the Verifier
+report. Prime alone stops the mission on either signal; a long-running check
+cannot emit a terminal report after Prime stops it.
+
 ## Delegation threshold
 
 Prime delegates when the objective splits into at least two independent
@@ -81,6 +86,10 @@ still invalidate the candidate digest, while a worker may not mutate it. A
 behavior-affecting file outside the mutation allowlist therefore remains in
 the candidate-relevant snapshot.
 
+A source-control gitlink (submodule entry) is not a regular candidate file.
+Prime rejects a selected gitlink before digesting it. The digest does not
+serialize a gitlink object ID or follow the linked repository.
+
 Canonical ignore input consists of repository-controlled ignore rules only.
 Clone-local rules and user-global rules do not affect the candidate manifest.
 Hosts that cannot isolate ambient ignore configuration must use the explicit
@@ -109,13 +118,9 @@ change to locked bytes or executable mode, makes Prime reject the candidate and
 reopen the mission.
 
 The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
-these safety rules. Within its local mission rules, Prime plans, dispatches,
-and observes the Builder mission; the Builder returns a terminal report; Prime
-reconciles the Builder report and locks the candidate; Prime plans, dispatches,
-and observes the Verifier mission; the Verify phase runs the Verifier checks.
-Live Observe checks and records timeout and budget before the Verifier returns a
-report. Prime observes and reconciles the Verifier report. Prime owns reconcile
-in both cycles. The Verifier never reconciles reports.
+these safety rules. This reference defines operational limits, ownership
+controls, candidate snapshot rules, and recovery requirements used within that
+sequence.
 
 Prime normalizes each relative path to `/` separators and sorts paths by their
 lossless path tokens. A path token percent-encodes each raw path byte as ASCII,

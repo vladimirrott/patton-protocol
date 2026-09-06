@@ -71,8 +71,8 @@ phases map to separate per-mission cycles in this canonical order:
 SKILL.md is the sole normative source for the canonical lifecycle sequence.
 `Scope -> Plan Builder -> Dispatch Builder -> Observe Builder report -> Prime
 reconcile Builder and lock candidate -> Plan Verifier -> Dispatch Verifier ->
-Verify Verifier checks -> Observe Verifier live checks and monitor timeout and
-budget -> Verifier report -> Prime observe and reconcile Verifier -> Final Report`.
+Observe Verifier live checks and monitor timeout and budget -> Verify Verifier
+checks -> Verifier report -> Prime observe and reconcile Verifier -> Final Report`.
 Prime owns reconciliation at both handoffs. A host may repeat a bounded
 mission cycle after retry or recovery, while preserving the source revision and
 report history.
@@ -81,11 +81,17 @@ The Builder and Verifier cycles are separate mission cycles. Prime plans,
 dispatches, and observes Builder mission. The Builder mission ends with the
 Builder terminal report. Prime reconciles Builder report, then Prime locks
 candidate identity. Prime plans, dispatches, and observes Verifier mission as a
-separate mission cycle. The Verify phase runs the Verifier checks. Observe
-Verifier live checks and monitor timeout and budget before Verifier report.
-Verifier returns report, then Prime observes and reconciles Verifier report.
+separate mission cycle. Prime starts live Observe before the Verify phase runs
+the Verifier checks. Observe Verifier live checks and monitor timeout and budget
+around those checks before Verifier report. Verifier returns report, then Prime
+observes and reconciles Verifier report.
 Prime owns reconcile in both cycles. Verifier never reconciles reports, and
 the Builder report never serves as the Verifier report.
+
+Live Observe wraps Verifier checks and runs concurrently with them, recording
+timeout and budget before the Verifier report. Prime alone stops the mission on
+either signal, and a long-running check cannot emit a terminal report after
+Prime stops it.
 
 ### Scope
 

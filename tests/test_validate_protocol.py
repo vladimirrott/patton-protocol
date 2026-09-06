@@ -196,17 +196,21 @@ def canonical_fixture_digest(
     candidate_untracked_paths: list[dict[str, object]] | None = None,
     executable_paths: set[str] | None = None,
     ignored_paths: set[str] | None = None,
+    gitlink_paths: set[str] | None = None,
 ) -> str:
     """Compute the deterministic digest described by the candidate contract."""
     records: list[bytes] = []
     candidate_untracked_paths = candidate_untracked_paths or []
     executable_paths = executable_paths or set()
     ignored_paths = ignored_paths or set()
+    gitlink_paths = set(gitlink_paths or ())
     tracked_paths = set(tracked_paths or ())
     tracked_tokens = set()
     for token in tracked_paths:
         validate_path_token(root, token)
         tracked_tokens.add(token)
+    for token in gitlink_paths:
+        validate_path_token(root, token)
     if not executable_paths <= tracked_tokens:
         raise ValueError("executable metadata may only name tracked paths")
     untracked_tokens: set[str] = set()
@@ -229,6 +233,8 @@ def canonical_fixture_digest(
         if executable:
             untracked_executable_paths.add(token)
     manifest_paths = tracked_paths | untracked_tokens
+    if gitlink_paths & manifest_paths:
+        raise ValueError("gitlinks are not candidate files")
     paths = [validate_path_token(root, token) for token in manifest_paths]
     for path in sorted(paths, key=lambda candidate: canonical_path_token(root, candidate)):
         ancestor = path.parent
@@ -524,9 +530,9 @@ class ProtocolContractTests(unittest.TestCase):
             "observe builder report -> prime reconcile builder and lock candidate",
             "prime reconcile builder and lock candidate -> plan verifier",
             "plan verifier -> dispatch verifier",
-            "dispatch verifier -> verify verifier checks",
-            "verify verifier checks -> observe verifier live checks and monitor timeout and budget",
-            "observe verifier live checks and monitor timeout and budget -> verifier report",
+            "dispatch verifier -> observe verifier live checks and monitor timeout and budget",
+            "observe verifier live checks and monitor timeout and budget -> verify verifier checks",
+            "verify verifier checks -> verifier report",
             "verifier report -> prime observe and reconcile verifier",
             "prime observe and reconcile verifier -> final report",
         )
@@ -564,6 +570,26 @@ class ProtocolContractTests(unittest.TestCase):
             ),
         )
 
+    def test_live_observe_wraps_long_running_verifier_check(self) -> None:
+        skill = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+        for term in (
+            "live observe wraps verifier checks",
+            "runs concurrently with them",
+            "before the verifier report",
+            "prime alone stops the mission",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, skill)
+
+        events = ["dispatch verifier", "verifier check started"]
+        events.append("live observe wraps verifier checks")
+        events.append("timeout signal")
+        events.append("prime alone stops the mission")
+
+        self.assertLess(events.index("verifier check started"), events.index("timeout signal"))
+        self.assertLess(events.index("timeout signal"), events.index("prime alone stops the mission"))
+        self.assertNotIn("verifier report", events)
+
     def test_quartermaster_signals_ceiling_but_prime_alone_stops(self) -> None:
         safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
         normative = (
@@ -600,6 +626,28 @@ class ProtocolContractTests(unittest.TestCase):
                 self.assertNotIn("sole normative source for the canonical lifecycle sequence", content)
                 self.assertNotIn("cycles in this canonical order", content)
                 self.assertIn("../skill.md#lifecycle", content)
+                self.assertNotIn("prime plans, dispatches, and observes the builder mission", content)
+
+    def test_gitlinks_are_rejected_from_candidate_digest(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            gitlink = root / "submodule"
+            gitlink.mkdir()
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths={"submodule"},
+                    gitlink_paths={"submodule"},
+                )
+
+        content = " ".join(
+            (
+                read_text_or_empty(MISSION_CONTRACT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+        self.assertRegex(content, re.compile(r"gitlink.{0,160}(reject|excluded|not serialized)", re.IGNORECASE))
 
     def test_ignore_inputs_are_repository_controlled_and_config_invariant(self) -> None:
         content = " ".join(
