@@ -525,9 +525,10 @@ class ProtocolContractTests(unittest.TestCase):
             "prime reconcile builder and lock candidate -> plan verifier",
             "plan verifier -> dispatch verifier",
             "dispatch verifier -> verify verifier checks",
-            "verify verifier checks -> verifier report",
+            "verify verifier checks -> observe verifier live checks and monitor timeout and budget",
+            "observe verifier live checks and monitor timeout and budget -> verifier report",
             "verifier report -> prime observe and reconcile verifier",
-            "prime observe and reconcile verifier -> report",
+            "prime observe and reconcile verifier -> final report",
         )
 
         self.assertIn("outer lifecycle", skill)
@@ -538,6 +539,30 @@ class ProtocolContractTests(unittest.TestCase):
             positions.append(skill.index(transition))
         self.assertEqual(positions, sorted(positions))
         self.assertIn("both cycles", skill)
+
+    def test_verifier_live_observation_precedes_terminal_report(self) -> None:
+        skill = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+        transitions = (
+            "dispatch verifier",
+            "observe verifier live checks and monitor timeout and budget",
+            "verifier report",
+            "prime observe and reconcile verifier",
+            "final report",
+        )
+
+        positions = []
+        for transition in transitions:
+            self.assertIn(transition, skill)
+            positions.append(skill.index(transition))
+        self.assertEqual(positions, sorted(positions))
+        self.assertRegex(
+            skill,
+            re.compile(
+                r"observe verifier live checks and monitor timeout and budget"
+                r".{0,200}before verifier report",
+                re.IGNORECASE,
+            ),
+        )
 
     def test_ignore_inputs_are_repository_controlled_and_config_invariant(self) -> None:
         content = " ".join(
