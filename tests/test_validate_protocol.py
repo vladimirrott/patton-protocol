@@ -498,12 +498,13 @@ class ProtocolContractTests(unittest.TestCase):
     def test_builder_and_verifier_are_separate_mission_cycles(self) -> None:
         skill = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
         transitions = (
+            "prime plans, dispatches, and observes builder mission",
             "builder terminal report",
+            "prime reconciles builder report",
             "prime locks candidate",
-            "prime plans and dispatches verifier mission",
-            "verifier observe",
-            "verifier reconcile",
-            "verifier report",
+            "prime plans, dispatches, and observes verifier mission",
+            "verifier returns report",
+            "prime reconciles verifier report",
         )
 
         positions = []
@@ -512,6 +513,7 @@ class ProtocolContractTests(unittest.TestCase):
             positions.append(skill.index(transition))
         self.assertEqual(positions, sorted(positions))
         self.assertIn("separate mission cycle", skill)
+        self.assertNotIn("verifier reconcile", skill)
 
     def test_ignore_inputs_are_repository_controlled_and_config_invariant(self) -> None:
         content = " ".join(

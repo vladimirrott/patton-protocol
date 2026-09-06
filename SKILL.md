@@ -106,11 +106,12 @@ locked manifest membership, bytes, or executable mode makes the evidence stale
 and reopens the mission. A locked membership change after the lock has the same
 effect; unlisted generated additions do not count as locked membership.
 
-The Builder mission cycle ends with the Builder terminal report. Prime locks
-candidate identity, then Prime plans and dispatches Verifier mission as a
-separate mission cycle. That cycle enters Verifier observe, Verifier reconcile,
-and Verifier report states. The Builder report never serves as the Verifier
-report.
+Prime plans, dispatches, and observes Builder mission. The Builder mission
+ends with the Builder terminal report. Prime reconciles Builder report, then
+Prime locks candidate identity. Prime plans, dispatches, and observes Verifier
+mission as a separate mission cycle. Verifier returns report, then Prime
+reconciles Verifier report. Prime owns reconcile in both cycles. Verifier never
+reconciles reports, and the Builder report never serves as the Verifier report.
 
 Prime locks the candidate identity after the mutation. A post-build mutation
 changes the candidate and invalidates prior evidence. Prime rejects stale

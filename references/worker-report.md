@@ -89,10 +89,12 @@ unlisted generated untracked addition stays outside the locked manifest and
 does not make the report stale. A selected path addition or deletion, or an
 unapproved change to locked manifest state, leaves the mission `blocked`.
 
-Mission cycles are separate and ordered: Builder terminal report, Prime locks
-candidate, Prime plans and dispatches Verifier mission, Verifier observe,
-Verifier reconcile, then Verifier report. Prime creates the Verifier mission
-after the Builder terminal report and after locking the candidate record.
+Mission cycles are separate and ordered: Prime plans, dispatches, and observes
+the Builder mission; the Builder returns a terminal report; Prime reconciles
+the Builder report and locks the candidate; Prime plans, dispatches, and
+observes the Verifier mission; the Verifier returns a report; Prime reconciles
+the Verifier report. Prime owns reconcile in both cycles. The Verifier never
+reconciles reports.
 
 ## YAML-shaped report envelope
 

@@ -108,10 +108,12 @@ make candidate identity stale. A selected path addition or deletion, or a
 change to locked bytes or executable mode, makes Prime reject the candidate and
 reopen the mission.
 
-Mission cycles remain separate: the Builder terminal report ends the Builder
-mission, Prime locks the candidate, Prime plans and dispatches the Verifier
-mission, and the Verifier then observes, reconciles, and reports in its own
-mission.
+Mission cycles remain separate: Prime plans, dispatches, and observes the
+Builder mission; the Builder returns a terminal report; Prime reconciles the
+Builder report and locks the candidate; Prime plans, dispatches, and observes
+the Verifier mission; the Verifier returns a report; Prime reconciles the
+Verifier report. Prime owns reconcile in both cycles. The Verifier never
+reconciles reports.
 
 Prime normalizes each relative path to `/` separators and sorts paths by their
 lossless path tokens. A path token percent-encodes each raw path byte as ASCII,
