@@ -2,8 +2,8 @@
 
 from pathlib import Path
 import hashlib
+import os
 import re
-import stat
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -36,6 +36,7 @@ MISSION_FIELDS = (
     "evidence",
     "candidate revision",
     "content digest",
+    "candidate untracked paths",
 )
 
 REPORT_FIELDS = (
@@ -65,6 +66,7 @@ MISSION_ENVELOPE_KEYS = {
     "evidence",
     "candidate_revision",
     "content_digest",
+    "candidate_untracked_paths",
 }
 REPORT_ENVELOPE_KEYS = {
     "mission_identity",
@@ -109,25 +111,55 @@ def read_text_or_empty(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.is_file() else ""
 
 
-def canonical_fixture_digest(root: Path) -> str:
+def canonical_path_token(root: Path, path: Path) -> bytes:
+    """Encode path bytes without requiring valid UTF-8 filenames."""
+    unreserved = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    components = path.relative_to(root).parts
+    encoded_components = []
+    for component in components:
+        raw_component = os.fsencode(component)
+        encoded_components.append(
+            b"".join(
+                bytes((byte,)) if byte in unreserved else f"%{byte:02X}".encode("ascii")
+                for byte in raw_component
+            )
+        )
+    return b"/".join(encoded_components)
+
+
+def canonical_fixture_digest(
+    root: Path,
+    *,
+    tracked_paths: set[str] | None = None,
+    candidate_untracked_paths: set[str] | None = None,
+    executable_paths: set[str] | None = None,
+) -> str:
     """Compute the deterministic digest described by the candidate contract."""
     records: list[bytes] = []
-    paths = (
-        candidate
-        for candidate in root.rglob("*")
-        if candidate.is_file()
-        and not candidate.is_symlink()
-        and ".git" not in candidate.relative_to(root).parts
-        and candidate.relative_to(root).parts[:2] != (".patton", "ledger")
-    )
-    for path in sorted(paths, key=lambda candidate: candidate.relative_to(root).as_posix().encode("utf-8")):
-        relative_path = path.relative_to(root).as_posix().encode("utf-8")
-        mode = f"{stat.S_IMODE(path.stat().st_mode):04o}".encode("ascii")
+    candidate_untracked_paths = candidate_untracked_paths or set()
+    executable_paths = executable_paths or set()
+    if tracked_paths is None:
+        tracked_paths = set()
+        for candidate in root.rglob("*"):
+            relative = candidate.relative_to(root)
+            if ".git" in relative.parts or relative.parts[:2] == (".patton", "ledger"):
+                continue
+            if candidate.is_symlink():
+                raise ValueError(f"symlink is not a candidate file: {candidate}")
+            if candidate.is_file():
+                tracked_paths.add(relative.as_posix())
+    manifest_paths = tracked_paths | candidate_untracked_paths
+    paths = [root / relative for relative in manifest_paths]
+    for path in sorted(paths, key=lambda candidate: canonical_path_token(root, candidate)):
+        if path.is_symlink():
+            raise ValueError(f"symlink is not a candidate file: {path}")
+        relative_path = canonical_path_token(root, path)
+        executable = b"1" if path.relative_to(root).as_posix() in executable_paths else b"0"
         payload = path.read_bytes()
         records.append(
             relative_path
             + b"\0"
-            + mode
+            + executable
             + b"\0"
             + str(len(payload)).encode("ascii")
             + b"\0"
@@ -297,10 +329,11 @@ class ProtocolContractTests(unittest.TestCase):
             source.write_bytes(b"candidate\n")
             config.write_bytes(b"feature=old\n")
             allowed_paths = {"src/"}
+            tracked_paths = {"src/candidate.txt", "config.ini"}
 
-            locked_digest = canonical_fixture_digest(root)
+            locked_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
             config.write_bytes(b"feature=new\n")
-            current_digest = canonical_fixture_digest(root)
+            current_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
 
         self.assertIn("src/", allowed_paths)
         self.assertNotIn("config.ini", allowed_paths)
@@ -313,8 +346,9 @@ class ProtocolContractTests(unittest.TestCase):
             "candidate-relevant repository snapshot",
             "outside the mutation allowlist",
             "behavior-affecting",
-            "file mode",
-            "permission bits",
+            "tracked files",
+            "candidate untracked paths",
+            "ignored/generated outputs",
         ):
             with self.subTest(term=term):
                 self.assertIn(term, content)
@@ -326,24 +360,62 @@ class ProtocolContractTests(unittest.TestCase):
             ),
         )
 
-    def test_file_mode_metadata_contributes_to_candidate_digest(self) -> None:
+    def test_portable_executable_semantics_contribute_to_candidate_digest(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             source = root / "candidate.txt"
             source.write_bytes(b"same bytes\n")
-            initial_mode = source.stat().st_mode
-            locked_digest = canonical_fixture_digest(root)
-            source.chmod(stat.S_IMODE(initial_mode) ^ stat.S_IXUSR)
-            mode_changed_digest = canonical_fixture_digest(root)
+            locked_digest = canonical_fixture_digest(root, executable_paths=set())
+            executable_digest = canonical_fixture_digest(root, executable_paths={"candidate.txt"})
 
-        self.assertNotEqual(locked_digest, mode_changed_digest)
+        self.assertNotEqual(locked_digest, executable_digest)
 
-    def test_digest_mode_serialization_is_canonical(self) -> None:
+    def test_generated_artifact_does_not_change_tracked_manifest_digest(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "src" / "candidate.txt"
+            generated = root / "__pycache__" / "candidate.cpython-312.pyc"
+            source.parent.mkdir()
+            source.write_bytes(b"candidate\n")
+            tracked_paths = {"src/candidate.txt"}
+            locked_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
+            generated.parent.mkdir()
+            generated.write_bytes(b"generated\n")
+            current_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
+
+        self.assertEqual(locked_digest, current_digest)
+
+    @unittest.skipIf(os.name == "nt", "requires a POSIX byte filename fixture")
+    def test_non_utf8_filename_has_lossless_digest_path_token(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            raw_name = b"config-\xff.ini"
+            path = root / os.fsdecode(raw_name)
+            path.write_bytes(b"feature=on\n")
+            digest = canonical_fixture_digest(root)
+
+        self.assertRegex(digest, re.compile(r"^[0-9a-f]{64}$"))
+
+    def test_symlink_in_candidate_manifest_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            target = root / "target.txt"
+            link = root / "link.txt"
+            target.write_bytes(b"target\n")
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symlink fixture unavailable: {error}")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(root)
+
+    def test_executable_metadata_serialization_is_portable(self) -> None:
         content = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
 
-        self.assertIn("four ascii octal digits", content)
-        self.assertIn("0000-7777", read_text_or_empty(SAFETY_BUDGETS_PATH))
-        self.assertRegex(content, re.compile(r"mode.{0,100}no prefix", re.IGNORECASE))
+        self.assertIn("portable executable semantics", content)
+        self.assertIn("executable flag", content)
+        self.assertRegex(content, re.compile(r"host-neutral|platform-neutral", re.IGNORECASE))
 
     def test_worker_report_defines_required_fields(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()

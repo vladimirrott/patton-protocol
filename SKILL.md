@@ -88,8 +88,9 @@ paths as read-only. After a Builder mutation, Prime records immutable
 `candidate_revision` and `content_digest` values for the exact candidate.
 Prime computes those values from the candidate-relevant repository snapshot,
 which remains separate from the Builder's `allowed_paths` mutation allowlist.
-Behavior-affecting files outside the allowlist still participate in candidate
-verification.
+The manifest uses tracked files plus explicit `candidate_untracked_paths` and
+excludes ignored/generated outputs. Behavior-affecting files outside the
+allowlist still participate in candidate verification.
 
 Prime locks the candidate identity after the mutation. A post-build mutation
 changes the candidate and invalidates prior evidence. Prime rejects stale

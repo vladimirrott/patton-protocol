@@ -33,6 +33,15 @@ the worker may create, edit, or delete. The worker may inspect supplied inputs
 and other paths as read-only, but it may not mutate a path outside this list
 unless Patton Prime expands the mission.
 
+### Candidate untracked paths
+
+`candidate_untracked_paths` lists untracked files that Prime explicitly includes
+in the candidate manifest. Prime gets tracked files from the source-control
+state at `source_revision`; ignored and generated outputs stay outside the
+manifest. Each explicit untracked entry records its path and a portable
+executable flag. Prime rejects an entry that names an ignored or generated
+output.
+
 ### Stopping condition
 
 Name the condition that ends the mission. The worker stops after producing the
@@ -84,21 +93,22 @@ mission_id: "mission-042"
 worker_role: "verifier"
 actor_id: "actor-verifier-07"
 source_revision: "abc123"
-objective: "Identify the source of the failing validation case"
+objective: "Verify the candidate validation result against the stopping condition"
 inputs:
   - "failing test output"
 allowed_paths:
   - "src/validation/"
   - "tests/"
-stopping_condition: "Return a cause with evidence or report blocked"
+candidate_untracked_paths: []
+stopping_condition: "Return a verified result with evidence or report blocked"
 budget: "20 command runs"
 timeout: "10 minutes"
 retry_limit: 1
 evidence:
-  - "file and line reference"
+  - "candidate manifest and digest"
   - "reproduction or test result"
-candidate_revision: null
-content_digest: null
+candidate_revision: "candidate:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+content_digest: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 ```
 
 The worker reports a result against this mission. A lead may revise the next

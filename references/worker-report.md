@@ -88,7 +88,7 @@ commands_run:
     outcome: "pass"
 evidence:
   - source: "tests/validation.txt"
-    finding: "The candidate reproduces the expected result"
+    finding: "The candidate matches the validation requirement"
 risks: []
 next_action: "Patton Prime may reconcile this report"
 ```

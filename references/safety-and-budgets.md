@@ -58,32 +58,45 @@ unverifiable evidence and keeps the mission open.
 ## Candidate snapshot and digest
 
 Prime computes the candidate-relevant repository snapshot after the Builder
-stops mutating files and confirms the allowlist. The snapshot includes every
-regular file in the repository worktree, including behavior-affecting files
-outside the mutation allowlist. Prime excludes `.git/` and the Patton mission
-ledger (`.patton/ledger/`) from the snapshot. Prime rejects symlinks in the
-snapshot instead of following them. The snapshot scope and the `allowed_paths`
-mutation boundary serve separate controls: a file outside `allowed_paths` may
-still invalidate the candidate digest, while a worker may not mutate it.
+stops mutating files and confirms the allowlist. The candidate manifest contains
+tracked files from the source-control state at `source_revision` plus files
+Prime explicitly names in `candidate_untracked_paths`, the candidate untracked
+paths list. Ignored/generated
+outputs, including ordinary test artifacts such as `__pycache__/`, stay outside
+the manifest. Prime rejects an explicit candidate path that names an ignored
+or generated output. The manifest excludes `.git/` and the Patton mission
+ledger (`.patton/ledger/`). Prime rejects symlinks in the manifest instead of
+following them. The manifest scope and the `allowed_paths` mutation boundary
+serve separate controls: a behavior-affecting file outside `allowed_paths` may
+still invalidate the candidate digest, while a worker may not mutate it. A
+behavior-affecting file outside the mutation allowlist therefore remains in
+the candidate-relevant snapshot.
 
-Prime normalizes each relative path to UTF-8 with `/` separators and sorts paths
-by their UTF-8 byte sequence. For each sorted file, Prime appends this record to
-the digest input:
+Prime normalizes each relative path to `/` separators and sorts paths by their
+lossless path tokens. A path token percent-encodes each raw path byte as ASCII,
+leaving only unreserved ASCII bytes and `/` separators. Hosts with Unicode-only
+path APIs encode Unicode scalar values as UTF-8 before percent-encoding; hosts
+with raw filename bytes preserve those bytes, including non-UTF-8 names. For
+each sorted file, Prime appends this record to the digest input:
 
 ```text
-UTF-8 relative path + NUL + ASCII octal file mode + NUL + ASCII byte length
+lossless path token + NUL + ASCII executable flag + NUL + ASCII byte length
 + NUL + exact file bytes + LF
 ```
 
-Prime serializes file mode as four ASCII octal digits from `0000-7777`, with no
-prefix. The encoding matches the POSIX permission bits and uses a fixed width
-for deterministic records.
+Prime serializes portable executable semantics as one ASCII executable flag, `0`
+or `1`. For a
+tracked file, `1` means the source-control entry marks the file executable. For
+an explicit untracked file, Prime records the flag in its manifest entry. Hosts
+derive the flag from repository metadata or explicit candidate metadata, not
+from POSIX mode bits, Windows ACLs, timestamps, ownership, or another local
+permission model. This keeps the manifest platform-neutral.
 
 Prime computes `content_digest` as `sha256:` followed by the lowercase
-64-hex-digit SHA-256 digest of the complete record stream. The path, permission
-bits, byte length, and exact bytes define the content; line endings
-remain unchanged. Prime excludes timestamps, ownership, and other host-local
-metadata. The empty snapshot hashes the empty record stream. Prime obtains
+64-hex-digit SHA-256 digest of the complete record stream. The path, executable
+flag, byte length, and exact bytes define the content; line endings remain
+unchanged. Prime excludes timestamps, ownership, and other host-local metadata.
+The empty snapshot hashes the empty record stream. Prime obtains
 `candidate_revision` from the host's post-mutation revision. If the host has no
 revision, Prime uses `candidate:sha256:<digest>` as a deterministic fallback.
 
