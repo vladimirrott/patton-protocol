@@ -70,6 +70,8 @@ explicit untracked entry has a `path` field of type lossless token
 and an `executable` field of type integer `0 | 1`. Prime rejects an entry that
 names an ignored output.
 
+The candidate entry schema is `path: lossless token` and `executable: 0 | 1`.
+
 Prime classifies every non-ignored untracked path that can affect the objective
 or verification. Prime includes a behavior-affecting path in
 `candidate_untracked_paths`, or records an explicit non-candidate output
@@ -85,11 +87,10 @@ record the repository-controlled ignore result.
 
 ### Non-candidate untracked paths
 
-The canonical schema is `path: lossless token` and `executable: 0 | 1`.
-`non_candidate_untracked_paths` is a sorted list of unique lossless path tokens
-for explicitly classified non-candidate outputs. The non-candidate untracked
-paths list and the candidate list partition the
-complete discovered non-ignored untracked set, with no overlap or omission.
+`non_candidate_untracked_paths` is a sorted list of unique scalar lossless path
+tokens for explicitly classified non-candidate outputs. The non-candidate
+untracked paths list and the candidate list partition the complete discovered
+non-ignored untracked set, with no overlap or omission.
 
 ### Stopping condition
 

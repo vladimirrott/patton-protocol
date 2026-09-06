@@ -109,7 +109,7 @@ Each `candidate_untracked_paths` entry has exactly two fields: `path`, a
 nonempty lossless path token, and `executable`, an integer `0` or `1`. Prime
 records these entries from the post-mutation candidate state and does not infer
 untracked membership from a directory scan.
-`non_candidate_untracked_paths` is a sorted, unique list of lossless path
+`non_candidate_untracked_paths` is a sorted, unique list of scalar lossless path
 tokens. The candidate and non-candidate lists partition the complete discovered
 non-ignored untracked set with no overlap or omission.
 

@@ -202,7 +202,7 @@ def canonical_fixture_digest(
     ignored_paths: set[str] | None = None,
     gitlink_paths: set[str] | None = None,
     behavior_affecting_untracked_paths: set[str] | None = None,
-    non_candidate_untracked_paths: set[str] | None = None,
+    non_candidate_untracked_paths: list[str] | None = None,
     discovered_nonignored_untracked_paths: set[str] | None = None,
 ) -> str:
     """Compute the deterministic digest described by the candidate contract."""
@@ -212,7 +212,17 @@ def canonical_fixture_digest(
     ignored_paths = ignored_paths or set()
     gitlink_paths = set(gitlink_paths or ())
     behavior_affecting_untracked_paths = set(behavior_affecting_untracked_paths or ())
-    non_candidate_untracked_paths = set(non_candidate_untracked_paths or ())
+    if non_candidate_untracked_paths is None:
+        non_candidate_untracked_paths = []
+    if not isinstance(non_candidate_untracked_paths, list):
+        raise ValueError("non-candidate paths must be an ordered list")
+    if any(not isinstance(token, str) for token in non_candidate_untracked_paths):
+        raise ValueError("non-candidate paths must contain scalar path tokens")
+    if len(set(non_candidate_untracked_paths)) != len(non_candidate_untracked_paths):
+        raise ValueError("non-candidate paths contain a duplicate")
+    if non_candidate_untracked_paths != sorted(non_candidate_untracked_paths):
+        raise ValueError("non-candidate paths must use canonical sorted order")
+    non_candidate_tokens = set(non_candidate_untracked_paths)
     discovered_nonignored_untracked_paths = (
         None
         if discovered_nonignored_untracked_paths is None
@@ -225,13 +235,13 @@ def canonical_fixture_digest(
         tracked_tokens.add(token)
     for token in gitlink_paths:
         validate_path_token(root, token)
-    for token in behavior_affecting_untracked_paths | non_candidate_untracked_paths:
+    for token in behavior_affecting_untracked_paths | non_candidate_tokens:
         validate_path_token(root, token)
     for token in discovered_nonignored_untracked_paths or ():
         validate_path_token(root, token)
-    if behavior_affecting_untracked_paths & non_candidate_untracked_paths:
+    if behavior_affecting_untracked_paths & non_candidate_tokens:
         raise ValueError("untracked path has conflicting candidate classifications")
-    if non_candidate_untracked_paths & tracked_tokens:
+    if non_candidate_tokens & tracked_tokens:
         raise ValueError("tracked path cannot be classified as non-candidate output")
     if discovered_nonignored_untracked_paths is not None and discovered_nonignored_untracked_paths & tracked_tokens:
         raise ValueError("discovered untracked path overlaps a tracked path")
@@ -256,20 +266,20 @@ def canonical_fixture_digest(
         untracked_tokens.add(token)
         if executable:
             untracked_executable_paths.add(token)
+    if untracked_tokens & non_candidate_tokens:
+        raise ValueError("untracked path has conflicting candidate classifications")
     manifest_paths = tracked_paths | untracked_tokens
     if gitlink_paths & manifest_paths:
         raise ValueError("gitlinks are not candidate files")
     omitted_behavior_paths = (
-        behavior_affecting_untracked_paths
-        - untracked_tokens
-        - non_candidate_untracked_paths
+        behavior_affecting_untracked_paths - untracked_tokens - non_candidate_tokens
     ) - ignored_paths
     if omitted_behavior_paths:
         raise ValueError(
             "non-ignored behavior-affecting untracked path lacks candidate classification"
         )
     if discovered_nonignored_untracked_paths is not None:
-        classified_untracked_paths = untracked_tokens | non_candidate_untracked_paths
+        classified_untracked_paths = untracked_tokens | non_candidate_tokens
         if classified_untracked_paths != discovered_nonignored_untracked_paths:
             raise ValueError(
                 "discovered non-ignored untracked paths must be classified exactly once"
@@ -716,7 +726,7 @@ class ProtocolContractTests(unittest.TestCase):
             classified_output = canonical_fixture_digest(
                 root,
                 tracked_paths={"main.py"},
-                non_candidate_untracked_paths={"artifact.log"},
+                non_candidate_untracked_paths=["artifact.log"],
                 discovered_nonignored_untracked_paths={"artifact.log"},
             )
 
@@ -770,6 +780,42 @@ class ProtocolContractTests(unittest.TestCase):
             {"content_digest": current_digest},
             "post-lock mutation makes prior behavior-input evidence stale",
         )
+
+    def test_non_candidate_paths_require_ordered_unique_scalar_tokens(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            for paths in (["output/z.log", "output/a.log"], ["output/a.log", "output/a.log"]):
+                with self.subTest(paths=paths), self.assertRaises(ValueError):
+                    canonical_fixture_digest(root, non_candidate_untracked_paths=paths)
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    non_candidate_untracked_paths=[{"path": "output.log", "executable": 0}],  # type: ignore[list-item]
+                )
+
+    def test_candidate_and_non_candidate_paths_cannot_overlap(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            candidate = root / "config.ini"
+            candidate.write_bytes(b"feature=on\n")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    candidate_untracked_paths=[{"path": "config.ini", "executable": 0}],
+                    non_candidate_untracked_paths=["config.ini"],
+                    discovered_nonignored_untracked_paths={"config.ini"},
+                )
+
+    def test_non_candidate_schema_uses_scalar_path_tokens(self) -> None:
+        content = read_text_or_empty(MISSION_CONTRACT_PATH)
+        start = content.index("### Non-candidate untracked paths")
+        section = content[start : content.find("### Stopping condition", start)]
+        section = " ".join(section.split())
+
+        self.assertRegex(section, re.compile(r"sorted list of unique scalar lossless path tokens", re.IGNORECASE))
+        self.assertNotIn("executable", section.lower())
 
     def test_ignore_inputs_are_repository_controlled_and_config_invariant(self) -> None:
         content = " ".join(

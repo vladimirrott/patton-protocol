@@ -97,8 +97,8 @@ in `candidate_untracked_paths` or explicitly classified as a non-candidate
 output in `non_candidate_untracked_paths`. Prime records the complete
 post-mutation non-ignored untracked set, and each path appears exactly once in
 one of those lists. The non-candidate untracked paths list is persisted in the
-report schema. A silent omission blocks candidate lock and leaves the report
-unverified.
+report schema as sorted, unique scalar lossless path tokens. A silent omission
+blocks candidate lock and leaves the report unverified.
 
 The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
 this report. This reference defines the report fields, status values, evidence
