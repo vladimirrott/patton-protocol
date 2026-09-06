@@ -14,7 +14,7 @@ limits, and Prime may lower a limit for a risky objective.
 | Retries | 2 retries after transient failure | A retry keeps the same objective, inputs, and allowed paths. |
 | Mutable-file overlap | 0 paths for concurrent missions | Prime serializes a shared path and records an ownership handoff. |
 | Approvals | 1 explicit human approval per irreversible action | Prime records the human approver, scope, decision, and evidence before action. Automated host-only approval does not satisfy the gate. |
-| Unresolved disagreement | 0 at closure | Prime runs an independent verification mission, then asks a human to decide if disagreement remains. |
+| Unresolved disagreement | 0 at closure | Prime runs an independent verification mission, then asks the human to choose recovery, risk acceptance, or abandonment if disagreement remains; the candidate stays blocked and the irreversible gate stays closed. |
 
 Prime counts a worker's retry as another attempt within the worker-count and
 mission ledger. Prime never increases a limit to force a mission through a
@@ -180,9 +180,17 @@ Prime preserves conflicting reports with their mission identities and source
 revisions. Prime asks a Verifier with no ownership of the disputed change to
 test the competing claims. Prime selects the claim supported by reproducible
 evidence and records why the other claim failed. If the evidence remains
-inconclusive, Prime records unresolved disagreement and requests human
-approval for the decision. Prime does not use a worker vote or automated
-host-only decision as an approval.
+inconclusive, Prime records unresolved disagreement and asks the human to choose
+recovery, risk acceptance without verification, or abandonment. Recovery opens
+a bounded mission and keeps the candidate `blocked` and `unverified`. Risk
+acceptance records the accepted risk without marking the candidate verified,
+keeps the candidate `blocked` and `unverified`, and keeps the irreversible gate
+closed. Abandonment closes the attempt without success and keeps the candidate
+`blocked`. A human cannot mark an inconclusive
+candidate verified or authorize an irreversible action. Prime does not use a
+worker vote or automated host-only decision as an approval. The irreversible
+gate stays closed until independent verification resolves the evidence and the
+explicit approval gate is satisfied.
 
 ## Partial-failure recovery
 

@@ -59,7 +59,9 @@ Prime records these limits before dispatch and may lower them for a mission:
 - approvals: 1 explicit human approval for each irreversible action; automated
   host-only approval does not satisfy the gate;
 - unresolved disagreement: 0 disagreements at closure. Prime opens a bounded
-  verifier mission and then asks for human approval when reports still differ.
+  verifier mission and then asks the human to choose recovery, risk acceptance,
+  or abandonment when reports still differ; the candidate remains blocked and
+  the irreversible gate remains closed.
 
 The [safety and budgets reference](references/safety-and-budgets.md) defines
 the controls, exceptions, and recovery record for these limits.
@@ -170,6 +172,17 @@ requires Prime's and the Verifier's evidence to match the immutable
 evidence. Prime compares conflicting
 reports by evidence and requests an independent Verifier check. Prime does not
 resolve a conflict by majority vote or discard a minority finding.
+
+When the independent check remains inconclusive, the human may choose recovery,
+risk acceptance without verification, or abandonment. Recovery opens a bounded
+mission and keeps the candidate `blocked` and `unverified`. Risk acceptance
+records the accepted risk without marking the candidate verified, keeps the
+candidate `blocked` and `unverified`, and keeps the irreversible gate closed.
+Abandonment closes the attempt without success and keeps the candidate
+`blocked`. A human cannot mark an inconclusive candidate
+verified or authorize an irreversible action. The irreversible gate stays
+closed until independent verification resolves the evidence and the explicit
+approval gate is satisfied.
 
 ### Verify
 
