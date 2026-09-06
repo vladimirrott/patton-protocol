@@ -95,6 +95,12 @@ timeout and budget before the Verifier report. Prime alone stops the mission on
 either signal, and a long-running check cannot emit a terminal report after
 Prime stops it.
 
+For a no-spawn host, Prime models the serial cycle as `start Observe -> run
+Verify while Observe is active -> stop Observe -> report`. The host may enforce
+the bound with a host-enforced deadline or command timeout. If the host cannot
+enforce the bound safely, the mission remains `blocked`, Prime does not accept
+the check as verification, and no late terminal report is accepted.
+
 ### Scope
 
 Prime states one objective, identifies the source revision, records inputs and

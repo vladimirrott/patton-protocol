@@ -639,6 +639,77 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertLess(events.index("timeout signal"), events.index("prime alone stops the mission"))
         self.assertNotIn("verifier report", events)
 
+    def test_serial_observe_requires_host_enforced_bound_for_blocking_check(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+                + read_text_or_empty(WORKER_REPORT_PATH)
+            ).lower().split()
+        )
+        for term in (
+            "start observe",
+            "run verify while observe is active",
+            "stop observe",
+            "host-enforced deadline",
+            "command timeout",
+            "cannot enforce the bound safely",
+            "mission remains `blocked`",
+            "no late terminal report is accepted",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, content)
+
+        host_capabilities = {
+            "deadline": {"can_spawn_workers": False, "host_enforced_deadline": True},
+            "command_timeout": {"can_spawn_workers": False, "command_timeout": True},
+            "unbounded": {"can_spawn_workers": False},
+        }
+
+        def serial_cycle(capabilities: dict[str, bool], blocking_check: object) -> dict[str, object]:
+            events = ["start observe"]
+            bounded = capabilities.get("host_enforced_deadline", False) or capabilities.get("command_timeout", False)
+            if not bounded:
+                events.append("mission remains `blocked`")
+                return {"events": events, "status": "blocked", "late_report_accepted": False}
+            events.append("run verify while observe is active")
+            try:
+                blocking_check()
+            except TimeoutError:
+                events.append("timeout enforced by host")
+            events.append("stop observe")
+            events.append("report")
+            return {"events": events, "status": "partial", "late_report_accepted": False}
+
+        for capability_name in ("deadline", "command_timeout"):
+            with self.subTest(capability=capability_name):
+                check_calls = [0]
+
+                def blocking_check() -> None:
+                    check_calls[0] += 1
+                    raise TimeoutError
+
+                result = serial_cycle(host_capabilities[capability_name], blocking_check)
+                events = result["events"]
+                self.assertEqual(check_calls[0], 1)
+                self.assertEqual(result["late_report_accepted"], False)
+                self.assertEqual(
+                    [events.index(term) for term in ("start observe", "run verify while observe is active", "stop observe", "report")],
+                    sorted(events.index(term) for term in ("start observe", "run verify while observe is active", "stop observe", "report")),
+                )
+
+        check_calls = [0]
+
+        def unbounded_blocking_check() -> None:
+            check_calls[0] += 1
+            raise AssertionError("unsafe host must not run an unbounded check")
+
+        unbounded = serial_cycle(host_capabilities["unbounded"], unbounded_blocking_check)
+        self.assertEqual(unbounded["status"], "blocked")
+        self.assertEqual(unbounded["late_report_accepted"], False)
+        self.assertEqual(check_calls[0], 0)
+        self.assertNotIn("report", unbounded["events"])
+
     def test_quartermaster_signals_ceiling_but_prime_alone_stops(self) -> None:
         safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
         normative = (

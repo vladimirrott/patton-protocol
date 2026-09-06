@@ -39,6 +39,11 @@ assigns a distinct Verifier `actor_id`. If the host cannot provide one, Prime
 asks a human to verify. A same-actor Builder and Verifier result stays
 unverified and the mission stays `blocked`.
 
+For a no-spawn host, the Verify step requires a host-enforced deadline or
+command timeout while Observe remains active. If the host cannot enforce the
+bound safely, the mission remains `blocked`; Prime does not accept the check as
+verification, and no late terminal report is accepted.
+
 ## Immutable ownership
 
 Prime assigns each Builder an immutable mutable-path allowlist. The Builder may
