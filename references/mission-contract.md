@@ -66,10 +66,13 @@ inspection results, file paths, or a reasoned finding tied to an input.
 The candidate revision and content digest identify the post-mutation state.
 After a Builder finishes a mutation, Prime records `candidate_revision` and
 `content_digest` for the exact candidate state. Prime locks both values for that
-candidate. The Builder includes them in its report, and the Verifier must match
-both values before and after verification. A post-build mutation makes the
-recorded identity stale. Prime rejects stale evidence, marks the candidate
-unverified, and opens a bounded mission for a new candidate identity.
+candidate. Prime computes the digest from the canonical snapshot in the
+[safety and budgets reference](safety-and-budgets.md). The Builder may report
+observations but cannot choose these values. The report echoes the locked
+values, and the Verifier must recompute and match both values before and after
+verification. A post-build mutation makes the recorded identity stale. Prime
+rejects stale evidence, marks the candidate unverified, and opens a bounded
+mission for a new candidate identity.
 
 ## Example mission
 

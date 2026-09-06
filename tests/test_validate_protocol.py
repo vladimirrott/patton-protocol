@@ -1,7 +1,9 @@
 """Contract tests for the canonical Patton Protocol package metadata."""
 
 from pathlib import Path
+import hashlib
 import re
+from tempfile import TemporaryDirectory
 import unittest
 
 
@@ -104,6 +106,17 @@ def read_frontmatter(path: Path) -> dict[str, str]:
 def read_text_or_empty(path: Path) -> str:
     """Return an empty document while a package artifact is absent."""
     return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def canonical_fixture_digest(root: Path) -> str:
+    """Compute the deterministic digest described by the candidate contract."""
+    records: list[bytes] = []
+    paths = (candidate for candidate in root.rglob("*") if candidate.is_file())
+    for path in sorted(paths, key=lambda candidate: candidate.relative_to(root).as_posix().encode("utf-8")):
+        relative_path = path.relative_to(root).as_posix().encode("utf-8")
+        payload = path.read_bytes()
+        records.append(relative_path + b"\0" + str(len(payload)).encode("ascii") + b"\0" + payload)
+    return hashlib.sha256(b"".join(record + b"\n" for record in records)).hexdigest()
 
 
 def parse_first_yaml_block(path: Path) -> tuple[dict[str, str], dict[str, str]]:
@@ -226,6 +239,37 @@ class ProtocolContractTests(unittest.TestCase):
                 re.IGNORECASE,
             ),
         )
+
+    def test_fixture_digest_changes_after_post_build_mutation(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "src" / "candidate.txt"
+            source.parent.mkdir()
+            source.write_bytes(b"candidate-v1\n")
+
+            locked_digest = canonical_fixture_digest(root)
+            source.write_bytes(b"candidate-v2\n")
+            current_digest = canonical_fixture_digest(root)
+
+        self.assertNotEqual(locked_digest, current_digest)
+        self.assertNotEqual(
+            {"content_digest": locked_digest},
+            {"content_digest": current_digest},
+            "post-build mutation makes prior evidence stale",
+        )
+
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(MISSION_CONTRACT_PATH)
+                + read_text_or_empty(WORKER_REPORT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+        for term in ("prime computes", "sha-256", "sorted", "relative path", "byte length"):
+            with self.subTest(term=term):
+                self.assertIn(term, content)
+        self.assertRegex(content, re.compile(r"verifier.{0,200}(recomputes|recompute).{0,200}(before|after)", re.IGNORECASE))
 
     def test_worker_report_defines_required_fields(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()

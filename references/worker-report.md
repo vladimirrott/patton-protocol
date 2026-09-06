@@ -62,9 +62,11 @@ objective.
 The candidate revision and content digest identify the post-mutation state.
 `candidate_revision` and `content_digest` identify the exact post-mutation
 candidate that the report describes. The Builder copies the immutable values
-from the mission ledger. The Verifier checks that both values match the ledger
-before and after its checks. Prime rejects stale evidence when a post-build
-mutation changes either value or when the report does not match the candidate.
+from the mission ledger after Prime computes them. The Builder cannot choose or
+rewrite the identity. The Verifier recomputes the canonical snapshot from
+current content and checks that both values match the ledger before and after
+its checks. Prime rejects stale evidence when a post-build mutation changes
+either value or when the report does not match the candidate.
 
 ## YAML-shaped report envelope
 
@@ -77,8 +79,8 @@ mission_identity:
   worker_role: "verifier"
   actor_id: "actor-verifier-07"
   source_revision: "abc123"
-candidate_revision: "candidate-043"
-content_digest: "sha256:0123456789abcdef"
+candidate_revision: "candidate:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+content_digest: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 status: completed
 files_changed: []
 commands_run:
