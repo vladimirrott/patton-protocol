@@ -7,6 +7,13 @@ resume or verify the work.
 
 ## Required fields
 
+### Mission identity
+
+Every mission includes `mission_id`, `worker_role`, and `source_revision`.
+`mission_id` identifies the bounded unit of work, `worker_role` records the
+assigned function, and `source_revision` identifies the input state. A worker
+copies these values into its report.
+
 ### Objective
 
 State one result the worker must produce. Use an observable outcome, such as a
@@ -19,8 +26,10 @@ the version or revision when that context affects the result.
 
 ### Allowed paths
 
-List the files and directories the worker may read or change. The worker treats
-paths outside this list as read-only unless Patton Prime expands the mission.
+Treat `allowed_paths` as the mutation allowlist. List the files and directories
+the worker may create, edit, or delete. The worker may inspect supplied inputs
+and other paths as read-only, but it may not mutate a path outside this list
+unless Patton Prime expands the mission.
 
 ### Stopping condition
 
@@ -36,7 +45,8 @@ Patton Prime records the unit and the limit before dispatch.
 ### Timeout
 
 Set the maximum wall-clock duration. A timeout produces a partial report with
-the evidence collected before the host ended the mission.
+usable evidence collected before the host ended the mission. A timeout with no
+usable evidence produces a failed report.
 
 ### Retry limit
 
@@ -56,9 +66,10 @@ transport while preserving these fields and meanings.
 
 ```yaml
 mission_id: "mission-042"
+worker_role: "verifier"
+source_revision: "abc123"
 objective: "Identify the source of the failing validation case"
 inputs:
-  - "repository revision: abc123"
   - "failing test output"
 allowed_paths:
   - "src/validation/"

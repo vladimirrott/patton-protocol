@@ -21,6 +21,7 @@ LIFECYCLE_TERMS = (
 )
 
 MISSION_FIELDS = (
+    "mission identity",
     "objective",
     "inputs",
     "allowed paths",
@@ -40,6 +41,31 @@ REPORT_FIELDS = (
     "risks",
     "next action",
 )
+
+MISSION_ENVELOPE_KEYS = {
+    "mission_id",
+    "worker_role",
+    "source_revision",
+    "objective",
+    "inputs",
+    "allowed_paths",
+    "stopping_condition",
+    "budget",
+    "timeout",
+    "retry_limit",
+    "evidence",
+}
+REPORT_ENVELOPE_KEYS = {
+    "mission_identity",
+    "status",
+    "files_changed",
+    "commands_run",
+    "evidence",
+    "risks",
+    "next_action",
+}
+IDENTITY_KEYS = {"mission_id", "worker_role", "source_revision"}
+ALLOWED_STATUSES = {"completed", "partial", "blocked", "failed"}
 
 
 def read_frontmatter(path: Path) -> dict[str, str]:
@@ -68,6 +94,32 @@ def read_frontmatter(path: Path) -> dict[str, str]:
 def read_text_or_empty(path: Path) -> str:
     """Return an empty document while a package artifact is absent."""
     return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def parse_first_yaml_block(path: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """Parse top-level keys and one nested mapping from a YAML-shaped example."""
+    content = read_text_or_empty(path)
+    blocks = re.findall(r"```ya?ml\s*\n(.*?)```", content, re.DOTALL)
+    if not blocks:
+        return {}, {}
+
+    top_level: dict[str, str] = {}
+    nested: dict[str, str] = {}
+    parent: str | None = None
+    for line in blocks[0].splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.match(r"^(\s*)([A-Za-z_][\w-]*):(?:\s*(.*))?$", line)
+        if not match:
+            continue
+        indent, key, value = match.groups()
+        value = (value or "").strip().strip('"\'')
+        if not indent:
+            top_level[key] = value
+            parent = key if not value else None
+        elif parent == "mission_identity":
+            nested[key] = value
+    return top_level, nested
 
 
 class ProtocolMetadataTests(unittest.TestCase):
@@ -108,6 +160,28 @@ class ProtocolContractTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertIn(field, content)
 
+    def test_mission_example_has_exact_required_keys(self) -> None:
+        top_level, _ = parse_first_yaml_block(MISSION_CONTRACT_PATH)
+
+        self.assertEqual(set(top_level), MISSION_ENVELOPE_KEYS)
+
+    def test_report_example_has_exact_required_keys(self) -> None:
+        top_level, nested = parse_first_yaml_block(WORKER_REPORT_PATH)
+
+        self.assertEqual(set(top_level), REPORT_ENVELOPE_KEYS)
+        self.assertEqual(set(nested), IDENTITY_KEYS)
+
+    def test_report_identity_matches_mission_identity(self) -> None:
+        mission, _ = parse_first_yaml_block(MISSION_CONTRACT_PATH)
+        report, report_identity = parse_first_yaml_block(WORKER_REPORT_PATH)
+
+        self.assertEqual(set(mission) & IDENTITY_KEYS, IDENTITY_KEYS)
+        self.assertEqual(set(report_identity), IDENTITY_KEYS)
+        for key in IDENTITY_KEYS:
+            with self.subTest(key=key):
+                self.assertEqual(mission[key], report_identity[key])
+        self.assertEqual(report["mission_identity"], "")
+
     def test_worker_report_defines_required_fields(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()
 
@@ -117,11 +191,21 @@ class ProtocolContractTests(unittest.TestCase):
 
     def test_worker_report_documents_yaml_envelope_and_allowed_statuses(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()
+        top_level, _ = parse_first_yaml_block(WORKER_REPORT_PATH)
 
-        self.assertRegex(content, re.compile(r"```ya?ml\s+.*mission[_ -]?identity:", re.DOTALL))
-        for status in ("completed", "partial", "blocked", "failed"):
-            with self.subTest(status=status):
-                self.assertIn(status, content)
+        self.assertIn("mission_identity", top_level)
+        self.assertIn(top_level["status"], ALLOWED_STATUSES)
+        documented_statuses = set(re.findall(r"^- `([a-z_]+)`: ", content, re.MULTILINE))
+        self.assertEqual(documented_statuses, ALLOWED_STATUSES)
+
+    def test_timeout_classifies_reports_by_usable_evidence(self) -> None:
+        content = read_text_or_empty(WORKER_REPORT_PATH).lower()
+        content = " ".join(content.split())
+
+        self.assertIn(
+            "patton prime maps a timeout with usable evidence to `partial`; a timeout with no usable evidence maps to `failed`",
+            content,
+        )
 
     def test_worker_report_separates_evidence_leads_from_approval(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()

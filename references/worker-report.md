@@ -23,6 +23,9 @@ report without this identity cannot be reconciled with other reports.
 Workers use the status that matches the evidence. They do not invent a success
 status to satisfy a deadline.
 
+Patton Prime maps a timeout with usable evidence to `partial`; a timeout with no
+usable evidence maps to `failed`.
+
 ### Files changed
 
 `files_changed` lists paths the worker changed. An empty list records that the
