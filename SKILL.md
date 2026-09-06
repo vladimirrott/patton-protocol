@@ -68,6 +68,7 @@ the controls, exceptions, and recovery record for these limits.
 
 Patton Prime runs the outer lifecycle as mission-family phases. The outer
 phases map to separate per-mission cycles in this canonical order:
+SKILL.md is the sole normative source for the canonical lifecycle sequence.
 `Scope -> Plan Builder -> Dispatch Builder -> Observe Builder report -> Prime
 reconcile Builder and lock candidate -> Plan Verifier -> Dispatch Verifier ->
 Verify Verifier checks -> Observe Verifier live checks and monitor timeout and

@@ -564,6 +564,43 @@ class ProtocolContractTests(unittest.TestCase):
             ),
         )
 
+    def test_quartermaster_signals_ceiling_but_prime_alone_stops(self) -> None:
+        safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+        normative = (
+            read_text_or_empty(SKILL_PATH)
+            + read_text_or_empty(SAFETY_BUDGETS_PATH)
+        ).lower()
+
+        self.assertRegex(
+            safety,
+            re.compile(
+                r"quartermaster records.{0,100}signals? (?:the )?(?:budget|timeout|mission)"
+                r" (?:ceiling|limit)",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertIn("prime solely stops the mission", safety)
+        for line in normative.splitlines():
+            if "quartermaster" in line:
+                quartermaster_clause = line.lower().split("quartermaster", 1)[1].split(";", 1)[0]
+                self.assertNotRegex(quartermaster_clause, re.compile(r"\bstops?\b", re.IGNORECASE))
+
+    def test_skill_owns_the_only_normative_lifecycle_sequence(self) -> None:
+        skill = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+        references = (
+            MISSION_CONTRACT_PATH,
+            WORKER_REPORT_PATH,
+            SAFETY_BUDGETS_PATH,
+        )
+
+        self.assertEqual(skill.count("sole normative source for the canonical lifecycle sequence"), 1)
+        for reference in references:
+            content = " ".join(read_text_or_empty(reference).lower().split())
+            with self.subTest(reference=reference.name):
+                self.assertNotIn("sole normative source for the canonical lifecycle sequence", content)
+                self.assertNotIn("cycles in this canonical order", content)
+                self.assertIn("../skill.md#lifecycle", content)
+
     def test_ignore_inputs_are_repository_controlled_and_config_invariant(self) -> None:
         content = " ".join(
             (

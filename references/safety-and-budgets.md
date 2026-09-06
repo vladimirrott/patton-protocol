@@ -9,8 +9,8 @@ limits, and Prime may lower a limit for a risky objective.
 | Limit | Default ceiling | Control |
 | --- | --- | --- |
 | Worker count | 4 active workers, excluding Prime | Prime starts no additional worker after the ceiling. |
-| Mission budget | 20 command units or 10 000 generated tokens | Quartermaster records the selected unit and stops work at the ceiling. |
-| Timeout | 15 minutes per mission | Prime records the timeout and classifies the report by usable evidence. |
+| Mission budget | 20 command units or 10 000 generated tokens | Quartermaster records usage and signals the budget ceiling; Prime solely stops the mission. |
+| Timeout | 15 minutes per mission | Quartermaster records elapsed time and signals the timeout ceiling; Prime solely stops the mission and classifies the report by usable evidence. |
 | Retries | 2 retries after transient failure | A retry keeps the same objective, inputs, and allowed paths. |
 | Mutable-file overlap | 0 paths for concurrent missions | Prime serializes a shared path and records an ownership handoff. |
 | Approvals | 1 explicit human approval per irreversible action | Prime records the human approver, scope, decision, and evidence before action. Automated host-only approval does not satisfy the gate. |
@@ -108,18 +108,14 @@ make candidate identity stale. A selected path addition or deletion, or a
 change to locked bytes or executable mode, makes Prime reject the candidate and
 reopen the mission.
 
-The outer lifecycle uses mission-family phases mapped to separate per-mission
-cycles in this canonical order: `Scope -> Plan Builder -> Dispatch Builder ->
-Observe Builder report -> Prime reconcile Builder and lock candidate -> Plan
-Verifier -> Dispatch Verifier -> Verify Verifier checks -> Observe Verifier
-live checks and monitor timeout and budget -> Verifier report -> Prime observe
-and reconcile Verifier -> Final Report`. Prime plans, dispatches, and observes the
-Builder mission; the Builder returns a terminal report; Prime reconciles the
-Builder report and locks the candidate; Prime plans, dispatches, and observes
-the Verifier mission; the Verify phase runs the Verifier checks. Live Observe
-checks and records timeout and budget before the Verifier returns a report;
-Prime observes and reconciles the Verifier report. Prime owns reconcile in both
-cycles. The Verifier never reconciles reports.
+The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
+these safety rules. Within its local mission rules, Prime plans, dispatches,
+and observes the Builder mission; the Builder returns a terminal report; Prime
+reconciles the Builder report and locks the candidate; Prime plans, dispatches,
+and observes the Verifier mission; the Verify phase runs the Verifier checks.
+Live Observe checks and records timeout and budget before the Verifier returns a
+report. Prime observes and reconciles the Verifier report. Prime owns reconcile
+in both cycles. The Verifier never reconciles reports.
 
 Prime normalizes each relative path to `/` separators and sorts paths by their
 lossless path tokens. A path token percent-encodes each raw path byte as ASCII,
