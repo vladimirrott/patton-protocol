@@ -90,7 +90,12 @@ Prime computes those values from the candidate-relevant repository snapshot,
 which remains separate from the Builder's `allowed_paths` mutation allowlist.
 The manifest uses tracked files plus explicit `candidate_untracked_paths` and
 excludes ignored/generated outputs. Behavior-affecting files outside the
-allowlist still participate in candidate verification.
+allowlist still participate in candidate verification. Prime records
+`candidate_tracked_paths` and `candidate_untracked_paths` from the
+post-mutation state of the candidate: tracked additions enter, tracked deletions leave,
+and a tracked generated file remains included when source control records it.
+Prime locks this membership with the candidate identity. Any membership change
+after the lock makes the evidence stale and reopens the mission.
 
 Prime locks the candidate identity after the mutation. A post-build mutation
 changes the candidate and invalidates prior evidence. Prime rejects stale

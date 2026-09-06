@@ -68,6 +68,14 @@ current content and checks that both values match the ledger before and after
 its checks. Prime rejects stale evidence when a post-build mutation changes
 either value or when the report does not match the candidate.
 
+### Candidate tracked paths and candidate untracked paths
+
+`candidate_tracked_paths` and `candidate_untracked_paths` echo the manifest
+membership Prime recorded after mutation. The Verifier compares both sets with
+the current candidate before and after checks. A tracked addition or deletion,
+or an unapproved untracked-path change after the lock, makes the report stale
+and leaves the mission `blocked`.
+
 ## YAML-shaped report envelope
 
 This envelope gives hosts a portable shape. A host may serialize the same data
@@ -81,6 +89,8 @@ mission_identity:
   source_revision: "abc123"
 candidate_revision: "candidate:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 content_digest: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+candidate_tracked_paths: []
+candidate_untracked_paths: []
 status: completed
 files_changed: []
 commands_run:

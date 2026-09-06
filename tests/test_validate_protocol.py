@@ -36,6 +36,7 @@ MISSION_FIELDS = (
     "evidence",
     "candidate revision",
     "content digest",
+    "candidate tracked paths",
     "candidate untracked paths",
 )
 
@@ -49,6 +50,8 @@ REPORT_FIELDS = (
     "next action",
     "candidate revision",
     "content digest",
+    "candidate tracked paths",
+    "candidate untracked paths",
 )
 
 MISSION_ENVELOPE_KEYS = {
@@ -66,6 +69,7 @@ MISSION_ENVELOPE_KEYS = {
     "evidence",
     "candidate_revision",
     "content_digest",
+    "candidate_tracked_paths",
     "candidate_untracked_paths",
 }
 REPORT_ENVELOPE_KEYS = {
@@ -78,9 +82,21 @@ REPORT_ENVELOPE_KEYS = {
     "next_action",
     "candidate_revision",
     "content_digest",
+    "candidate_tracked_paths",
+    "candidate_untracked_paths",
 }
 IDENTITY_KEYS = {"mission_id", "worker_role", "source_revision", "actor_id"}
 ALLOWED_STATUSES = {"completed", "partial", "blocked", "failed"}
+GENERATED_DIRECTORY_NAMES = {
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    "build",
+    "dist",
+}
+GENERATED_SUFFIXES = {".pyc", ".pyo"}
 
 
 def read_frontmatter(path: Path) -> dict[str, str]:
@@ -127,16 +143,33 @@ def canonical_path_token(root: Path, path: Path) -> bytes:
     return b"/".join(encoded_components)
 
 
+def decode_path_token(root: Path, token: str) -> Path:
+    """Decode the ASCII path token used by explicit manifest entries."""
+    components = []
+    for component in token.split("/"):
+        raw = bytearray()
+        index = 0
+        while index < len(component):
+            if component[index] == "%":
+                raw.append(int(component[index + 1 : index + 3], 16))
+                index += 3
+            else:
+                raw.extend(component[index].encode("ascii"))
+                index += 1
+        components.append(os.fsdecode(bytes(raw)))
+    return root.joinpath(*components)
+
+
 def canonical_fixture_digest(
     root: Path,
     *,
     tracked_paths: set[str] | None = None,
-    candidate_untracked_paths: set[str] | None = None,
+    candidate_untracked_paths: list[dict[str, object]] | None = None,
     executable_paths: set[str] | None = None,
 ) -> str:
     """Compute the deterministic digest described by the candidate contract."""
     records: list[bytes] = []
-    candidate_untracked_paths = candidate_untracked_paths or set()
+    candidate_untracked_paths = candidate_untracked_paths or []
     executable_paths = executable_paths or set()
     if tracked_paths is None:
         tracked_paths = set()
@@ -146,15 +179,41 @@ def canonical_fixture_digest(
                 continue
             if candidate.is_symlink():
                 raise ValueError(f"symlink is not a candidate file: {candidate}")
+            if any(part in GENERATED_DIRECTORY_NAMES for part in relative.parts):
+                continue
+            if candidate.suffix in GENERATED_SUFFIXES:
+                continue
             if candidate.is_file():
-                tracked_paths.add(relative.as_posix())
-    manifest_paths = tracked_paths | candidate_untracked_paths
-    paths = [root / relative for relative in manifest_paths]
+                tracked_paths.add(canonical_path_token(root, candidate).decode("ascii"))
+    untracked_tokens: set[str] = set()
+    untracked_executable_paths: set[str] = set()
+    for entry in candidate_untracked_paths:
+        if set(entry) != {"path", "executable"}:
+            raise ValueError("candidate untracked entry must contain path and executable")
+        token = entry["path"]
+        executable = entry["executable"]
+        if not isinstance(token, str) or isinstance(executable, bool) or executable not in (0, 1):
+            raise ValueError("candidate untracked entry has invalid path or executable flag")
+        candidate_path = decode_path_token(root, token)
+        relative = candidate_path.relative_to(root)
+        if any(part in GENERATED_DIRECTORY_NAMES for part in relative.parts) or candidate_path.suffix in GENERATED_SUFFIXES:
+            raise ValueError("candidate untracked entry names a generated output")
+        untracked_tokens.add(token)
+        if executable:
+            untracked_executable_paths.add(token)
+    manifest_paths = tracked_paths | untracked_tokens
+    paths = [decode_path_token(root, token) for token in manifest_paths]
     for path in sorted(paths, key=lambda candidate: canonical_path_token(root, candidate)):
+        ancestor = path.parent
+        while ancestor != root:
+            if ancestor.is_symlink():
+                raise ValueError(f"symlink ancestor is not a candidate path: {ancestor}")
+            ancestor = ancestor.parent
         if path.is_symlink():
             raise ValueError(f"symlink is not a candidate file: {path}")
         relative_path = canonical_path_token(root, path)
-        executable = b"1" if path.relative_to(root).as_posix() in executable_paths else b"0"
+        token = relative_path.decode("ascii")
+        executable = b"1" if token in executable_paths or token in untracked_executable_paths else b"0"
         payload = path.read_bytes()
         records.append(
             relative_path
@@ -277,6 +336,10 @@ class ProtocolContractTests(unittest.TestCase):
         )
 
     def test_post_build_mutation_rejects_stale_candidate_evidence(self) -> None:
+        skill = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+        for term in ("candidate_tracked_paths", "post-mutation state", "membership change"):
+            with self.subTest(term=term):
+                self.assertIn(term, skill)
         content = " ".join(
             (read_text_or_empty(SKILL_PATH) + read_text_or_empty(SAFETY_BUDGETS_PATH)).lower().split()
         )
@@ -379,11 +442,96 @@ class ProtocolContractTests(unittest.TestCase):
             source.write_bytes(b"candidate\n")
             tracked_paths = {"src/candidate.txt"}
             locked_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
+            discovered_locked_digest = canonical_fixture_digest(root)
             generated.parent.mkdir()
             generated.write_bytes(b"generated\n")
             current_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
+            discovered_current_digest = canonical_fixture_digest(root)
 
         self.assertEqual(locked_digest, current_digest)
+        self.assertEqual(discovered_locked_digest, discovered_current_digest)
+
+    def test_tracked_deletion_changes_post_mutation_manifest_digest(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            kept = root / "kept.txt"
+            deleted = root / "deleted.txt"
+            kept.write_bytes(b"kept\n")
+            deleted.write_bytes(b"deleted\n")
+            source_manifest = {"kept.txt", "deleted.txt"}
+            locked_digest = canonical_fixture_digest(root, tracked_paths=source_manifest)
+            deleted.unlink()
+            candidate_manifest = {"kept.txt"}
+            current_digest = canonical_fixture_digest(root, tracked_paths=candidate_manifest)
+
+        self.assertNotEqual(locked_digest, current_digest)
+
+    def test_tracked_addition_changes_post_mutation_manifest_digest(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            kept = root / "kept.txt"
+            added = root / "added.txt"
+            kept.write_bytes(b"kept\n")
+            source_manifest = {"kept.txt"}
+            locked_digest = canonical_fixture_digest(root, tracked_paths=source_manifest)
+            added.write_bytes(b"added\n")
+            candidate_manifest = {"kept.txt", "added.txt"}
+            current_digest = canonical_fixture_digest(root, tracked_paths=candidate_manifest)
+
+        self.assertNotEqual(locked_digest, current_digest)
+
+    def test_post_lock_manifest_membership_change_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            kept = root / "kept.txt"
+            added = root / "added.txt"
+            kept.write_bytes(b"kept\n")
+            locked_manifest = {"kept.txt"}
+            locked_digest = canonical_fixture_digest(root, tracked_paths=locked_manifest)
+            added.write_bytes(b"added\n")
+            current_manifest = {"kept.txt", "added.txt"}
+            current_digest = canonical_fixture_digest(root, tracked_paths=current_manifest)
+
+        self.assertNotEqual(locked_manifest, current_manifest)
+        self.assertNotEqual(locked_digest, current_digest)
+        content = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+        self.assertRegex(content, re.compile(r"manifest.{0,180}(lock|freeze).{0,180}(membership|reject)", re.IGNORECASE))
+
+    def test_candidate_untracked_entry_schema_uses_lossless_path_and_flag(self) -> None:
+        content = " ".join(read_text_or_empty(MISSION_CONTRACT_PATH).lower().split())
+
+        for term in ("candidate untracked paths", "path: lossless token", "executable: 0 | 1"):
+            with self.subTest(term=term):
+                self.assertIn(term, content)
+        self.assertRegex(content, re.compile(r"candidate_untracked_paths.{0,240}path:.{0,100}executable", re.IGNORECASE))
+
+    def test_explicit_untracked_manifest_entry_contributes_digest(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            config = root / "config.ini"
+            config.write_bytes(b"feature=on\n")
+            without_config = canonical_fixture_digest(root, tracked_paths=set())
+            with_config = canonical_fixture_digest(
+                root,
+                tracked_paths=set(),
+                candidate_untracked_paths=[{"path": "config.ini", "executable": 0}],
+            )
+
+        self.assertNotEqual(without_config, with_config)
+
+    def test_explicit_generated_untracked_entry_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            generated = root / "__pycache__" / "candidate.pyc"
+            generated.parent.mkdir()
+            generated.write_bytes(b"generated\n")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths=set(),
+                    candidate_untracked_paths=[{"path": "__pycache__/candidate.pyc", "executable": 0}],
+                )
 
     @unittest.skipIf(os.name == "nt", "requires a POSIX byte filename fixture")
     def test_non_utf8_filename_has_lossless_digest_path_token(self) -> None:
@@ -409,6 +557,38 @@ class ProtocolContractTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 canonical_fixture_digest(root)
+
+    def test_symlink_in_generated_output_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            target = root / "target.txt"
+            generated = root / "__pycache__"
+            link = generated / "link.pyc"
+            target.write_bytes(b"target\n")
+            generated.mkdir()
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symlink fixture unavailable: {error}")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(root)
+
+    def test_symlink_ancestor_in_candidate_manifest_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            target_directory = root / "target"
+            link_directory = root / "link"
+            target_file = target_directory / "candidate.txt"
+            target_directory.mkdir()
+            target_file.write_bytes(b"candidate\n")
+            try:
+                link_directory.symlink_to(target_directory, target_is_directory=True)
+            except (NotImplementedError, OSError) as error:
+                self.skipTest(f"symlink fixture unavailable: {error}")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(root, tracked_paths={"link/candidate.txt"})
 
     def test_executable_metadata_serialization_is_portable(self) -> None:
         content = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())

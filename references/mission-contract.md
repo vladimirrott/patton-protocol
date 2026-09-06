@@ -33,14 +33,25 @@ the worker may create, edit, or delete. The worker may inspect supplied inputs
 and other paths as read-only, but it may not mutate a path outside this list
 unless Patton Prime expands the mission.
 
+### Candidate tracked paths
+
+`candidate_tracked_paths` records the tracked manifest membership after
+mutation. Prime records this post-mutation set before it locks the candidate
+identity. Prime includes tracked additions, omits tracked deletions, and
+rejects any membership change after the lock.
+
 ### Candidate untracked paths
 
 `candidate_untracked_paths` lists untracked files that Prime explicitly includes
-in the candidate manifest. Prime gets tracked files from the source-control
-state at `source_revision`; ignored and generated outputs stay outside the
-manifest. Each explicit untracked entry records its path and a portable
-executable flag. Prime rejects an entry that names an ignored or generated
-output.
+in the candidate manifest. Prime gets `candidate_tracked_paths` from the
+post-mutation source-control state, so a tracked deletion removes a path and a
+tracked addition includes a path. Ignored and generated outputs stay outside
+the manifest, including when a generated file is tracked only in a different
+state. Each explicit untracked entry has a `path` field of type lossless token
+and an `executable` field of type integer `0 | 1`. Prime rejects an entry that
+names an ignored or generated output.
+
+The canonical schema is `path: lossless token` and `executable: 0 | 1`.
 
 ### Stopping condition
 
@@ -99,6 +110,7 @@ inputs:
 allowed_paths:
   - "src/validation/"
   - "tests/"
+candidate_tracked_paths: []
 candidate_untracked_paths: []
 stopping_condition: "Return a verified result with evidence or report blocked"
 budget: "20 command runs"
@@ -109,6 +121,13 @@ evidence:
   - "reproduction or test result"
 candidate_revision: "candidate:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 content_digest: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+```
+
+Non-empty `candidate_untracked_paths` entries use this shape:
+
+```yaml
+path: "config/local.ini"
+executable: 0
 ```
 
 The worker reports a result against this mission. A lead may revise the next

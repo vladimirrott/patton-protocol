@@ -72,6 +72,16 @@ still invalidate the candidate digest, while a worker may not mutate it. A
 behavior-affecting file outside the mutation allowlist therefore remains in
 the candidate-relevant snapshot.
 
+Prime records `candidate_tracked_paths` from the post-mutation source-control
+state. A tracked deletion removes its path from the manifest. A tracked
+addition enters the manifest. A generated file that remains tracked in the
+post-mutation state stays in the manifest and receives normal verification;
+generated status excludes only untracked output. Prime records
+`candidate_untracked_paths` at the same point and locks both membership sets
+with the candidate identity. The Verifier recomputes membership before and
+after checks. Any post-lock addition, deletion, or unapproved untracked path
+change makes the candidate stale, so Prime rejects it and reopens the mission.
+
 Prime normalizes each relative path to `/` separators and sorts paths by their
 lossless path tokens. A path token percent-encodes each raw path byte as ASCII,
 leaving only unreserved ASCII bytes and `/` separators. Hosts with Unicode-only
