@@ -20,7 +20,7 @@ The mission and report contracts define the data exchanged across each
 lifecycle stage: [mission contract](references/mission-contract.md), [worker
 report](references/worker-report.md), and [safety and budgets](references/safety-and-budgets.md).
 When a host cannot spawn workers, Patton Prime uses serial fallback and keeps
-the same contracts, evidence checks, and approval gates.
+the same contracts, evidence checks, and human approval gates.
 
 ## Roles
 
@@ -38,8 +38,11 @@ the same contracts, evidence checks, and approval gates.
   changed paths, reports, and handoffs. Quartermaster preserves partial failure
   records for Prime.
 
-Prime may combine roles in a serial mission when the host has no worker
-primitive, but the worker must still perform the role-specific checks.
+Prime may combine Scout and Quartermaster roles in a serial mission when the
+host has no worker primitive. Serial fallback prohibits one actor from serving
+as both Builder and Verifier. Prime assigns a distinct Verifier identity, or a
+human performs verification. Without either, the candidate stays unverified
+and the mission stays `blocked`.
 
 ## Limits
 
@@ -53,7 +56,8 @@ Prime records these limits before dispatch and may lower them for a mission:
   boundary;
 - mutable-file overlap: 0 paths across concurrent missions; a shared path
   requires serial execution and an explicit ownership handoff;
-- approvals: 1 explicit human or host approval for each irreversible action;
+- approvals: 1 explicit human approval for each irreversible action; automated
+  host-only approval does not satisfy the gate;
 - unresolved disagreement: 0 disagreements at closure. Prime opens a bounded
   verifier mission and then asks for human approval when reports still differ.
 
@@ -80,7 +84,13 @@ Prime converts the objective into bounded missions. Each mission uses the
 allowlist, sets a stopping condition, records budget, timeout, retry limit,
 and evidence requirements, and assigns one worker role. Prime gives each
 concurrent mission an immutable ownership boundary. Workers may inspect other
-paths as read-only.
+paths as read-only. After a Builder mutation, Prime records immutable
+`candidate_revision` and `content_digest` values for the exact candidate.
+
+Prime locks the candidate identity after the mutation. A post-build mutation
+changes the candidate and invalidates prior evidence. Prime rejects stale
+evidence and opens a new bounded mission instead of changing the recorded
+identity in place.
 
 ### Dispatch
 
@@ -103,7 +113,10 @@ promoting its own result.
 Prime matches each [worker report](references/worker-report.md) to its mission
 identity and checks that files changed stay within the immutable ownership
 boundary. Prime rechecks every material evidence claim against the source
-revision, report data, and safe command output. Prime compares conflicting
+revision, candidate identity, report data, and safe command output. Prime
+requires Prime's and the Verifier's evidence to match the immutable
+`candidate_revision` and `content_digest`. Prime rejects stale or mismatched
+evidence. Prime compares conflicting
 reports by evidence and requests an independent Verifier check. Prime does not
 resolve a conflict by majority vote or discard a minority finding.
 
@@ -111,17 +124,21 @@ resolve a conflict by majority vote or discard a minority finding.
 
 Verifier repeats the required checks from a clean or explicitly recorded state,
 inspects the claimed files, and checks that the objective and stopping
-condition hold. Prime sends partial or failed work to a bounded recovery
+condition hold. Verifier confirms that `candidate_revision` and
+`content_digest` still match before and after those checks. A mismatch means
+post-build mutation, so Verifier reports the candidate unverified. Prime sends
+partial or failed work to a bounded recovery
 mission, which may resume from preserved evidence or revert its own in-boundary
 changes under the host's normal recovery mechanism. Prime retries transient
 failures within the retry limit and creates a new mission when the objective or
 allowed paths change. Prime keeps the outcome blocked when evidence remains
 insufficient.
 
-Human approval remains required before a merge, deployment, deletion,
+Explicit human approval remains required before a merge, deployment, deletion,
 publication, credential change, or other irreversible action. Prime records the
-approver, decision, scope, and evidence. A worker, Verifier, or Quartermaster
-cannot grant that approval.
+human approver, decision, scope, and evidence. An automated host-only decision
+does not grant approval. A worker, Verifier, or Quartermaster cannot grant that
+approval.
 
 ### Report
 

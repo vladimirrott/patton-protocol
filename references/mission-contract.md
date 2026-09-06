@@ -9,10 +9,12 @@ resume or verify the work.
 
 ### Mission identity
 
-Every mission includes `mission_id`, `worker_role`, and `source_revision`.
-`mission_id` identifies the bounded unit of work, `worker_role` records the
-assigned function, and `source_revision` identifies the input state. A worker
-copies these values into its report.
+Every mission includes `mission_id`, `worker_role`, `actor_id`, and
+`source_revision`. `mission_id` identifies the bounded unit of work,
+`worker_role` records the assigned function, `actor_id` identifies the actor,
+and `source_revision` identifies the input state. A worker copies these values
+into its report. Prime uses `actor_id` to prevent one actor from claiming both
+Builder and Verifier independence in serial fallback.
 
 ### Objective
 
@@ -59,6 +61,16 @@ allowed paths change.
 Specify the proof the worker must return. Evidence can include test output,
 inspection results, file paths, or a reasoned finding tied to an input.
 
+### Candidate identity
+
+The candidate revision and content digest identify the post-mutation state.
+After a Builder finishes a mutation, Prime records `candidate_revision` and
+`content_digest` for the exact candidate state. Prime locks both values for that
+candidate. The Builder includes them in its report, and the Verifier must match
+both values before and after verification. A post-build mutation makes the
+recorded identity stale. Prime rejects stale evidence, marks the candidate
+unverified, and opens a bounded mission for a new candidate identity.
+
 ## Example mission
 
 The envelope below shows the shape of a mission. Hosts may carry it in another
@@ -67,6 +79,7 @@ transport while preserving these fields and meanings.
 ```yaml
 mission_id: "mission-042"
 worker_role: "verifier"
+actor_id: "actor-verifier-07"
 source_revision: "abc123"
 objective: "Identify the source of the failing validation case"
 inputs:
@@ -81,6 +94,8 @@ retry_limit: 1
 evidence:
   - "file and line reference"
   - "reproduction or test result"
+candidate_revision: null
+content_digest: null
 ```
 
 The worker reports a result against this mission. A lead may revise the next

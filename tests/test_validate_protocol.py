@@ -31,6 +31,8 @@ MISSION_FIELDS = (
     "timeout",
     "retry limit",
     "evidence",
+    "candidate revision",
+    "content digest",
 )
 
 REPORT_FIELDS = (
@@ -41,11 +43,14 @@ REPORT_FIELDS = (
     "evidence",
     "risks",
     "next action",
+    "candidate revision",
+    "content digest",
 )
 
 MISSION_ENVELOPE_KEYS = {
     "mission_id",
     "worker_role",
+    "actor_id",
     "source_revision",
     "objective",
     "inputs",
@@ -55,6 +60,8 @@ MISSION_ENVELOPE_KEYS = {
     "timeout",
     "retry_limit",
     "evidence",
+    "candidate_revision",
+    "content_digest",
 }
 REPORT_ENVELOPE_KEYS = {
     "mission_identity",
@@ -64,8 +71,10 @@ REPORT_ENVELOPE_KEYS = {
     "evidence",
     "risks",
     "next_action",
+    "candidate_revision",
+    "content_digest",
 }
-IDENTITY_KEYS = {"mission_id", "worker_role", "source_revision"}
+IDENTITY_KEYS = {"mission_id", "worker_role", "source_revision", "actor_id"}
 ALLOWED_STATUSES = {"completed", "partial", "blocked", "failed"}
 
 
@@ -183,6 +192,41 @@ class ProtocolContractTests(unittest.TestCase):
                 self.assertEqual(mission[key], report_identity[key])
         self.assertEqual(report["mission_identity"], "")
 
+    def test_candidate_identity_is_required_after_builder_mutation(self) -> None:
+        mission = read_text_or_empty(MISSION_CONTRACT_PATH).lower()
+        report = read_text_or_empty(WORKER_REPORT_PATH).lower()
+        skill = read_text_or_empty(SKILL_PATH).lower()
+
+        for field in ("candidate_revision", "content_digest"):
+            with self.subTest(field=field):
+                self.assertIn(field, mission)
+                self.assertIn(field, report)
+                self.assertIn(field, skill)
+        self.assertRegex(
+            " ".join((mission + report + skill).split()),
+            re.compile(r"post-build mutation.{0,160}(stale|reject|invalid)", re.IGNORECASE),
+        )
+        self.assertRegex(
+            " ".join((mission + report + skill).split()),
+            re.compile(
+                r"prime.{0,180}verifier.{0,180}(candidate_revision|content_digest).{0,100}match",
+                re.IGNORECASE,
+            ),
+        )
+
+    def test_post_build_mutation_rejects_stale_candidate_evidence(self) -> None:
+        content = " ".join(
+            (read_text_or_empty(SKILL_PATH) + read_text_or_empty(SAFETY_BUDGETS_PATH)).lower().split()
+        )
+        self.assertRegex(
+            content,
+            re.compile(
+                r"(candidate_revision.{0,120}content_digest|content_digest.{0,120}candidate_revision)."
+                r"{0,240}(match|same|reject|stale)",
+                re.IGNORECASE,
+            ),
+        )
+
     def test_worker_report_defines_required_fields(self) -> None:
         content = read_text_or_empty(WORKER_REPORT_PATH).lower()
 
@@ -228,6 +272,73 @@ class ProtocolContractTests(unittest.TestCase):
 
         self.assertIn("serial", content)
         self.assertRegex(content, re.compile(r"cannot spawn|unable to spawn|no worker spawn"))
+
+    def test_serial_fallback_requires_distinct_verifier_actor(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(WORKER_REPORT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+
+        for phrase in ("serial fallback", "distinct verifier identity", "same actor", "unverified", "blocked"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, content)
+        self.assertRegex(
+            content,
+            re.compile(r"serial fallback.{0,300}(builder|verifier).{0,300}(same actor|distinct)", re.IGNORECASE),
+        )
+
+    def test_denied_approval_blocks_irreversible_action(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(WORKER_REPORT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+
+        self.assertRegex(content, re.compile(r"denied.{0,100}(approval|blocked)", re.IGNORECASE))
+
+    def test_missing_approval_blocks_irreversible_action(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+
+        self.assertRegex(content, re.compile(r"missing.{0,100}approval.{0,100}blocked", re.IGNORECASE))
+
+    def test_automated_host_only_approval_does_not_satisfy_gate(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(WORKER_REPORT_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+
+        self.assertIn("automated host-only approval", content)
+        self.assertRegex(content, re.compile(r"automated host-only approval.{0,100}(not|does not).{0,100}(satisfy|grant|blocked)", re.IGNORECASE))
+        self.assertNotIn("human or host approval", content)
+
+    def test_valid_approval_requires_explicit_human_identity_and_evidence(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+
+        self.assertRegex(
+            content,
+            re.compile(
+                r"valid approval.{0,180}human approver identity.{0,180}(scope|evidence)",
+                re.IGNORECASE,
+            ),
+        )
 
     def test_codex_discovery_metadata_names_skill(self) -> None:
         content = read_text_or_empty(OPENAI_METADATA_PATH)

@@ -8,8 +8,11 @@ loses its host.
 
 ### Mission identity
 
-`mission_identity` identifies the mission, worker role, and source revision. A
-report without this identity cannot be reconciled with other reports.
+`mission_identity` identifies the mission, worker role, actor, and source
+revision. A report without this identity cannot be reconciled with other
+reports. `actor_id` identifies the actor that produced the report. In serial
+fallback, Prime rejects a report when the Builder and Verifier use the same
+actor identity.
 
 ### Status
 
@@ -54,6 +57,15 @@ additional risk within its mission.
 verification, open a bounded mission, resolve a missing input, or close the
 objective.
 
+### Candidate identity
+
+The candidate revision and content digest identify the post-mutation state.
+`candidate_revision` and `content_digest` identify the exact post-mutation
+candidate that the report describes. The Builder copies the immutable values
+from the mission ledger. The Verifier checks that both values match the ledger
+before and after its checks. Prime rejects stale evidence when a post-build
+mutation changes either value or when the report does not match the candidate.
+
 ## YAML-shaped report envelope
 
 This envelope gives hosts a portable shape. A host may serialize the same data
@@ -63,7 +75,10 @@ through another interface, but the field meanings and status values stay fixed.
 mission_identity:
   mission_id: "mission-042"
   worker_role: "verifier"
+  actor_id: "actor-verifier-07"
   source_revision: "abc123"
+candidate_revision: "candidate-043"
+content_digest: "sha256:0123456789abcdef"
 status: completed
 files_changed: []
 commands_run:
@@ -77,13 +92,16 @@ next_action: "Patton Prime may reconcile this report"
 ```
 
 Workers return evidence and leads. A lead is a reasoned direction for the next
-step, grounded in the recorded evidence. Patton Prime or a designated human
-approval gate makes approval decisions. A worker report does not approve a
-merge, deployment, deletion, publication, or other irreversible action.
+step, grounded in the recorded evidence. Only an explicit human approval gate
+makes approval decisions. A worker report does not approve a merge,
+deployment, deletion, publication, or other irreversible action.
 
 ## Serial fallback
 
 When a host cannot spawn workers, Patton Prime executes each bounded mission in
-serial order. The main loop uses the same mission fields, report envelope,
-status values, and verification step. Serial execution changes scheduling and
-keeps the contract intact.
+serial order. Prime assigns the Builder and Verifier distinct `actor_id`
+values. If the host cannot provide a distinct Verifier actor, Prime requires a
+human to perform verification. A Builder that also acts as Verifier leaves the
+candidate unverified and the mission `blocked`. The main loop uses the same
+mission fields, report envelope, candidate identity, status values, and
+verification step.
