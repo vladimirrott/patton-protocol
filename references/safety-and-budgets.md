@@ -100,12 +100,18 @@ explicit entry marked ignored is rejected.
 Prime classifies every non-ignored untracked path that can affect the objective
 or verification. Prime includes a behavior-affecting path in
 `candidate_untracked_paths`, or records an explicit non-candidate output
-classification in the mission ledger. Silent omission blocks candidate lock.
+classification in `non_candidate_untracked_paths` in the mission ledger. Prime
+discovers and records the complete post-mutation non-ignored untracked set.
+Every discovered path appears exactly once in either list. Silent omission
+blocks candidate lock.
 
 Each `candidate_untracked_paths` entry has exactly two fields: `path`, a
 nonempty lossless path token, and `executable`, an integer `0` or `1`. Prime
 records these entries from the post-mutation candidate state and does not infer
 untracked membership from a directory scan.
+`non_candidate_untracked_paths` is a sorted, unique list of lossless path
+tokens. The candidate and non-candidate lists partition the complete discovered
+non-ignored untracked set with no overlap or omission.
 
 Prime records `candidate_tracked_paths` from the post-mutation source-control
 state. A tracked deletion removes its path from the manifest. A tracked

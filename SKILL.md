@@ -132,7 +132,10 @@ effect; unlisted generated additions do not count as locked membership.
 Prime classifies every non-ignored untracked path that can affect the objective
 or verification. Prime includes a behavior-affecting path in
 `candidate_untracked_paths`, or records an explicit non-candidate output
-classification. Silent omission blocks candidate lock.
+classification in `non_candidate_untracked_paths`. Prime discovers and records
+the complete post-mutation non-ignored untracked set. Every discovered path
+appears in exactly one of those two lists. Silent omission blocks candidate
+lock.
 
 Prime locks the candidate identity after the mutation. A post-build mutation
 changes the candidate and invalidates prior evidence. Prime rejects stale

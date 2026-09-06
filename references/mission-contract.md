@@ -39,12 +39,12 @@ own immutable boundary.
 ### Phase-specific envelopes
 
 A pre-candidate Builder mission may omit `candidate_revision`,
-`content_digest`, `candidate_tracked_paths`, and `candidate_untracked_paths`, or
-carry them as nullable `null` values. The Builder does not author candidate
+`content_digest`, `candidate_tracked_paths`, `candidate_untracked_paths`, and
+`non_candidate_untracked_paths`, or carry them as nullable `null` values. The Builder does not author candidate
 identity. The Builder terminal report carries these fields as omitted or null.
 After the Builder stops mutating, Prime authors and locks a candidate record
-before the Verifier mission starts. That record has non-null
-revision, digest, and manifest membership values. Prime includes it in the
+before the Verifier mission starts. That record has non-null revision, digest,
+and complete candidate and non-candidate manifest membership values. Prime includes it in the
 Verifier mission. The Verifier authors a report that echoes the locked record.
 
 ### Candidate tracked paths
@@ -73,14 +73,23 @@ names an ignored output.
 Prime classifies every non-ignored untracked path that can affect the objective
 or verification. Prime includes a behavior-affecting path in
 `candidate_untracked_paths`, or records an explicit non-candidate output
-classification in the mission ledger. Silent omission blocks candidate lock.
+classification in `non_candidate_untracked_paths` in the mission ledger. Prime
+discovers and records the complete post-mutation non-ignored untracked set.
+Every discovered path appears exactly once, in either the candidate list or the
+non-candidate list. Silent omission blocks candidate lock.
 
 Canonical ignore input consists of repository-controlled ignore rules only.
 Clone-local rules and user-global rules do not affect the candidate manifest.
 Hosts that cannot isolate ambient rules must use the explicit manifest and
 record the repository-controlled ignore result.
 
+### Non-candidate untracked paths
+
 The canonical schema is `path: lossless token` and `executable: 0 | 1`.
+`non_candidate_untracked_paths` is a sorted list of unique lossless path tokens
+for explicitly classified non-candidate outputs. The non-candidate untracked
+paths list and the candidate list partition the
+complete discovered non-ignored untracked set, with no overlap or omission.
 
 ### Stopping condition
 
@@ -150,6 +159,7 @@ allowed_paths:
   - "tests/"
 candidate_tracked_paths: []
 candidate_untracked_paths: []
+non_candidate_untracked_paths: []
 stopping_condition: "Return a verified result with evidence or report blocked"
 budget: "20 command runs"
 timeout: "10 minutes"
@@ -175,6 +185,7 @@ candidate_revision: null
 content_digest: null
 candidate_tracked_paths: null
 candidate_untracked_paths: null
+non_candidate_untracked_paths: null
 ```
 
 The worker reports a result against this mission. A lead may revise the next

@@ -60,13 +60,14 @@ objective.
 ### Phase-specific envelopes
 
 A pre-candidate Builder report may omit `candidate_revision`, `content_digest`,
-`candidate_tracked_paths`, and `candidate_untracked_paths`, or carry them as
-nullable `null` values. The Builder reports its work and evidence, but does not
+`candidate_tracked_paths`, `candidate_untracked_paths`, and
+`non_candidate_untracked_paths`, or carry them as nullable `null` values. The Builder reports its work and evidence, but does not
 author candidate identity. The Builder terminal report carries these fields as
 omitted or null. Prime authors and locks a candidate record before the Verifier
 mission starts, then
 includes it in the Verifier mission. The Verifier authors a report that echoes
-the locked revision, digest, and manifest membership.
+the locked revision, digest, and complete candidate and non-candidate manifest
+membership.
 
 ### Candidate identity
 
@@ -89,9 +90,14 @@ unlisted generated untracked addition stays outside the locked manifest and
 does not make the report stale. A selected path addition or deletion, or an
 unapproved change to locked manifest state, leaves the mission `blocked`.
 
+### Non-candidate untracked paths
+
 The report records whether each non-ignored untracked behavior input is included
 in `candidate_untracked_paths` or explicitly classified as a non-candidate
-output. A silent omission blocks candidate lock and leaves the report
+output in `non_candidate_untracked_paths`. Prime records the complete
+post-mutation non-ignored untracked set, and each path appears exactly once in
+one of those lists. The non-candidate untracked paths list is persisted in the
+report schema. A silent omission blocks candidate lock and leaves the report
 unverified.
 
 The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
@@ -113,6 +119,7 @@ candidate_revision: "candidate:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e464
 content_digest: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 candidate_tracked_paths: []
 candidate_untracked_paths: []
+non_candidate_untracked_paths: []
 status: completed
 files_changed: []
 commands_run:
@@ -132,6 +139,7 @@ candidate_revision: null
 content_digest: null
 candidate_tracked_paths: null
 candidate_untracked_paths: null
+non_candidate_untracked_paths: null
 ```
 
 Workers return evidence and leads. A lead is a reasoned direction for the next

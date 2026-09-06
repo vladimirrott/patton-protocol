@@ -40,6 +40,7 @@ MISSION_FIELDS = (
     "content digest",
     "candidate tracked paths",
     "candidate untracked paths",
+    "non-candidate untracked paths",
 )
 
 REPORT_FIELDS = (
@@ -54,6 +55,7 @@ REPORT_FIELDS = (
     "content digest",
     "candidate tracked paths",
     "candidate untracked paths",
+    "non-candidate untracked paths",
 )
 
 MISSION_ENVELOPE_KEYS = {
@@ -73,6 +75,7 @@ MISSION_ENVELOPE_KEYS = {
     "content_digest",
     "candidate_tracked_paths",
     "candidate_untracked_paths",
+    "non_candidate_untracked_paths",
 }
 REPORT_ENVELOPE_KEYS = {
     "mission_identity",
@@ -86,6 +89,7 @@ REPORT_ENVELOPE_KEYS = {
     "content_digest",
     "candidate_tracked_paths",
     "candidate_untracked_paths",
+    "non_candidate_untracked_paths",
 }
 IDENTITY_KEYS = {"mission_id", "worker_role", "source_revision", "actor_id"}
 ALLOWED_STATUSES = {"completed", "partial", "blocked", "failed"}
@@ -199,6 +203,7 @@ def canonical_fixture_digest(
     gitlink_paths: set[str] | None = None,
     behavior_affecting_untracked_paths: set[str] | None = None,
     non_candidate_untracked_paths: set[str] | None = None,
+    discovered_nonignored_untracked_paths: set[str] | None = None,
 ) -> str:
     """Compute the deterministic digest described by the candidate contract."""
     records: list[bytes] = []
@@ -208,6 +213,11 @@ def canonical_fixture_digest(
     gitlink_paths = set(gitlink_paths or ())
     behavior_affecting_untracked_paths = set(behavior_affecting_untracked_paths or ())
     non_candidate_untracked_paths = set(non_candidate_untracked_paths or ())
+    discovered_nonignored_untracked_paths = (
+        None
+        if discovered_nonignored_untracked_paths is None
+        else set(discovered_nonignored_untracked_paths)
+    )
     tracked_paths = set(tracked_paths or ())
     tracked_tokens = set()
     for token in tracked_paths:
@@ -217,10 +227,14 @@ def canonical_fixture_digest(
         validate_path_token(root, token)
     for token in behavior_affecting_untracked_paths | non_candidate_untracked_paths:
         validate_path_token(root, token)
+    for token in discovered_nonignored_untracked_paths or ():
+        validate_path_token(root, token)
     if behavior_affecting_untracked_paths & non_candidate_untracked_paths:
         raise ValueError("untracked path has conflicting candidate classifications")
     if non_candidate_untracked_paths & tracked_tokens:
         raise ValueError("tracked path cannot be classified as non-candidate output")
+    if discovered_nonignored_untracked_paths is not None and discovered_nonignored_untracked_paths & tracked_tokens:
+        raise ValueError("discovered untracked path overlaps a tracked path")
     if not executable_paths <= tracked_tokens:
         raise ValueError("executable metadata may only name tracked paths")
     untracked_tokens: set[str] = set()
@@ -254,6 +268,12 @@ def canonical_fixture_digest(
         raise ValueError(
             "non-ignored behavior-affecting untracked path lacks candidate classification"
         )
+    if discovered_nonignored_untracked_paths is not None:
+        classified_untracked_paths = untracked_tokens | non_candidate_untracked_paths
+        if classified_untracked_paths != discovered_nonignored_untracked_paths:
+            raise ValueError(
+                "discovered non-ignored untracked paths must be classified exactly once"
+            )
     paths = [validate_path_token(root, token) for token in manifest_paths]
     for path in sorted(paths, key=lambda candidate: canonical_path_token(root, candidate)):
         ancestor = path.parent
@@ -680,6 +700,14 @@ class ProtocolContractTests(unittest.TestCase):
                 canonical_fixture_digest(
                     root,
                     tracked_paths={"main.py"},
+                    discovered_nonignored_untracked_paths={"helper.py"},
+                )
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths={"main.py"},
+                    discovered_nonignored_untracked_paths={"helper.py"},
                     behavior_affecting_untracked_paths={"helper.py"},
                 )
 
@@ -689,6 +717,7 @@ class ProtocolContractTests(unittest.TestCase):
                 root,
                 tracked_paths={"main.py"},
                 non_candidate_untracked_paths={"artifact.log"},
+                discovered_nonignored_untracked_paths={"artifact.log"},
             )
 
         self.assertRegex(
@@ -723,6 +752,7 @@ class ProtocolContractTests(unittest.TestCase):
                 tracked_paths={"main.py"},
                 candidate_untracked_paths=[{"path": "helper.py", "executable": 0}],
                 behavior_affecting_untracked_paths={"helper.py"},
+                discovered_nonignored_untracked_paths={"helper.py"},
             )
             module.write_bytes(b"value = 2\n")
             current_digest = canonical_fixture_digest(
@@ -730,6 +760,7 @@ class ProtocolContractTests(unittest.TestCase):
                 tracked_paths={"main.py"},
                 candidate_untracked_paths=[{"path": "helper.py", "executable": 0}],
                 behavior_affecting_untracked_paths={"helper.py"},
+                discovered_nonignored_untracked_paths={"helper.py"},
             )
 
         self.assertNotEqual(without_module, locked_digest)
