@@ -134,8 +134,11 @@ excludes untracked files unless the explicit manifest selects them and the
 source-control ignore state permits them. Behavior-affecting files outside the allowlist still
 participate in candidate verification. Prime records
 `candidate_tracked_paths` and `candidate_untracked_paths` from the
-post-mutation state of the candidate: tracked additions enter, tracked deletions leave,
-and a tracked generated file remains included when source control records it.
+post-mutation state of the candidate. `candidate_tracked_paths` must equal the
+complete post-mutation tracked regular-file inventory after the named
+exclusions `.git/` and `.patton/ledger/`; Prime rejects omissions and extras.
+Tracked additions enter, tracked deletions leave, and a tracked generated file
+remains included when source control records it.
 Prime locks this membership with the candidate identity. Canonical ignore input
 comes from repository-controlled ignore rules only. Clone-local rules and
 user-global rules do not affect the candidate manifest. An unlisted generated

@@ -134,11 +134,14 @@ untracked membership from a directory scan.
 tokens. The candidate and non-candidate lists partition the complete discovered
 non-ignored untracked set with no overlap or omission.
 
-Prime records `candidate_tracked_paths` from the post-mutation source-control
-state. A tracked deletion removes its path from the manifest. A tracked
-addition enters the manifest. A generated file that remains tracked in the
-post-mutation state stays in the manifest and receives normal verification;
-generated status excludes only untracked output. Prime records
+The `candidate_tracked_paths` list equals the complete post-mutation tracked
+regular-file inventory, subject to the named exclusions `.git/` and
+`.patton/ledger/`. Prime rejects an omitted or extra tracked regular file.
+Prime records this inventory from post-mutation source-control state. A
+tracked deletion removes its path from the manifest. A tracked addition enters
+the manifest. A generated file that remains tracked in the post-mutation state
+stays in the manifest and receives normal verification; generated status
+excludes only untracked output. Prime records
 `candidate_untracked_paths` at the same point and locks both membership sets
 with the candidate identity. The Verifier recomputes membership before and
 after checks. A post-lock mutation to the locked manifest makes the candidate
@@ -187,7 +190,8 @@ flag, byte length, and exact bytes define the content; line endings remain
 unchanged. Prime excludes timestamps, ownership, and other host-local metadata.
 The empty snapshot hashes the empty record stream. Prime obtains
 `candidate_revision` from the host's post-mutation revision. If the host has no
-revision, Prime uses `candidate:sha256:<digest>` as a deterministic fallback.
+revision, Prime sets `candidate_revision = "candidate:" + content_digest` as
+the deterministic fallback.
 
 Prime, not the Builder, computes and locks both candidate fields. The Builder
 may report observations, but cannot choose or rewrite the identity. The

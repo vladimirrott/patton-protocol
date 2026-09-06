@@ -198,6 +198,7 @@ def canonical_fixture_digest(
     root: Path,
     *,
     tracked_paths: set[str] | None = None,
+    post_mutation_tracked_paths: set[str] | None = None,
     candidate_untracked_paths: list[dict[str, object]] | None = None,
     executable_paths: set[str] | None = None,
     ignored_paths: set[str] | None = None,
@@ -234,6 +235,18 @@ def canonical_fixture_digest(
     for token in tracked_paths:
         validate_path_token(root, token)
         tracked_tokens.add(token)
+    if post_mutation_tracked_paths is not None:
+        expected_tracked_tokens = set()
+        for token in post_mutation_tracked_paths:
+            path = validate_path_token(root, token)
+            if path.is_symlink():
+                raise ValueError("tracked inventory cannot contain symlinks")
+            if path.is_file():
+                expected_tracked_tokens.add(token)
+        if tracked_tokens != expected_tracked_tokens:
+            raise ValueError(
+                "candidate_tracked_paths must equal the complete post-mutation tracked regular-file inventory"
+            )
     for token in gitlink_paths:
         validate_path_token(root, token)
     for token in behavior_affecting_untracked_paths | non_candidate_tokens:
@@ -461,6 +474,51 @@ class ProtocolContractTests(unittest.TestCase):
                 re.IGNORECASE,
             ),
         )
+
+    def test_candidate_tracked_paths_require_complete_post_mutation_inventory(self) -> None:
+        safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split()).replace("`", "")
+        for term in (
+            "complete post-mutation",
+            "tracked regular-file inventory",
+            "named exclusions",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, safety)
+        self.assertRegex(safety, re.compile(r"candidate_tracked_paths.{0,40}equals", re.IGNORECASE))
+
+    def test_tracked_manifest_omission_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "kept.txt").write_bytes(b"kept\n")
+            (root / "omitted.txt").write_bytes(b"omitted\n")
+
+            with self.assertRaisesRegex(ValueError, "complete post-mutation"):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths={"kept.txt"},
+                    post_mutation_tracked_paths={"kept.txt", "omitted.txt"},
+                )
+
+    def test_post_lock_tracked_membership_mutation_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "kept.txt").write_bytes(b"kept\n")
+            locked_manifest = {"kept.txt"}
+            locked_digest = canonical_fixture_digest(
+                root,
+                tracked_paths=locked_manifest,
+                post_mutation_tracked_paths=locked_manifest,
+            )
+            (root / "added.txt").write_bytes(b"added\n")
+
+            with self.assertRaisesRegex(ValueError, "complete post-mutation"):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths=locked_manifest,
+                    post_mutation_tracked_paths={"kept.txt", "added.txt"},
+                )
+
+        self.assertTrue(locked_digest.startswith("sha256:"))
 
     def test_fixture_digest_changes_after_post_build_mutation(self) -> None:
         with TemporaryDirectory() as temporary_directory:
@@ -1170,10 +1228,18 @@ class ProtocolContractTests(unittest.TestCase):
             kept.write_bytes(b"kept\n")
             deleted.write_bytes(b"deleted\n")
             source_manifest = {"kept.txt", "deleted.txt"}
-            locked_digest = canonical_fixture_digest(root, tracked_paths=source_manifest)
+            locked_digest = canonical_fixture_digest(
+                root,
+                tracked_paths=source_manifest,
+                post_mutation_tracked_paths=source_manifest,
+            )
             deleted.unlink()
             candidate_manifest = {"kept.txt"}
-            current_digest = canonical_fixture_digest(root, tracked_paths=candidate_manifest)
+            current_digest = canonical_fixture_digest(
+                root,
+                tracked_paths=candidate_manifest,
+                post_mutation_tracked_paths=source_manifest,
+            )
 
         self.assertNotEqual(locked_digest, current_digest)
 
@@ -1184,10 +1250,18 @@ class ProtocolContractTests(unittest.TestCase):
             added = root / "added.txt"
             kept.write_bytes(b"kept\n")
             source_manifest = {"kept.txt"}
-            locked_digest = canonical_fixture_digest(root, tracked_paths=source_manifest)
+            locked_digest = canonical_fixture_digest(
+                root,
+                tracked_paths=source_manifest,
+                post_mutation_tracked_paths=source_manifest,
+            )
             added.write_bytes(b"added\n")
             candidate_manifest = {"kept.txt", "added.txt"}
-            current_digest = canonical_fixture_digest(root, tracked_paths=candidate_manifest)
+            current_digest = canonical_fixture_digest(
+                root,
+                tracked_paths=candidate_manifest,
+                post_mutation_tracked_paths=candidate_manifest,
+            )
 
         self.assertNotEqual(locked_digest, current_digest)
 
@@ -1419,6 +1493,18 @@ class ProtocolContractTests(unittest.TestCase):
             digest = canonical_fixture_digest(Path(temporary_directory), tracked_paths=set())
 
         self.assertEqual(digest, "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+
+    def test_candidate_revision_fallback_is_digest_prefixed_known_answer(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            digest = canonical_fixture_digest(Path(temporary_directory), tracked_paths=set())
+            candidate_revision = "candidate:" + digest
+
+        self.assertEqual(
+            candidate_revision,
+            "candidate:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        )
+        safety = " ".join(read_text_or_empty(SAFETY_BUDGETS_PATH).lower().split())
+        self.assertIn('candidate_revision = "candidate:" + content_digest', safety)
 
     def test_digest_returns_known_answer_for_one_file_snapshot(self) -> None:
         with TemporaryDirectory() as temporary_directory:

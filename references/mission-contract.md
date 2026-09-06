@@ -54,8 +54,10 @@ mission.
 ### Candidate tracked paths
 
 `candidate_tracked_paths` records the tracked manifest membership after
-mutation. Prime records this post-mutation set before it locks the candidate
-identity. Prime includes tracked additions and omits tracked deletions. A
+mutation. The list equals the complete post-mutation tracked regular-file
+inventory after the named exclusions `.git/` and `.patton/ledger/`. Prime
+rejects omissions and extras before it locks the candidate identity. Prime
+includes tracked additions and omits tracked deletions. A
 post-lock mutation to locked manifest membership, bytes, or executable mode
 makes the candidate stale. A post-lock new non-ignored untracked path
 invalidates the lock pending classification, even when it appears to be
