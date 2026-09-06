@@ -1,6 +1,6 @@
 ---
 name: patton-protocol
-description: Coordinate coding-agent work with a portable lifecycle.
+description: Coordinate bounded coding-agent missions when independent delegation improves the task.
 ---
 
 # Patton Protocol

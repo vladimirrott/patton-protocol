@@ -54,6 +54,13 @@ class ProtocolMetadataTests(unittest.TestCase):
         self.assertEqual(metadata.get("name"), "patton-protocol")
         self.assertTrue(metadata.get("description"))
 
+    def test_description_states_delegation_trigger(self) -> None:
+        description = read_frontmatter(SKILL_PATH).get("description", "").lower()
+
+        for term in ("bounded", "independent", "delegation", "improves"):
+            with self.subTest(term=term):
+                self.assertIn(term, description)
+
     def test_skill_declares_portable_lifecycle(self) -> None:
         content = read_text_or_empty(SKILL_PATH).lower()
 
