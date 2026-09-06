@@ -274,7 +274,7 @@ def canonical_fixture_digest(
     ignored_behavior_paths = behavior_affecting_untracked_paths & ignored_paths
     if ignored_behavior_paths:
         raise ValueError(
-            "ignored behavior-affecting untracked path requires a secure manifest or blocks candidate lock"
+            "ignored behavior-affecting untracked path blocks candidate lock; no inclusion schema exists"
         )
     omitted_behavior_paths = (
         behavior_affecting_untracked_paths - untracked_tokens - non_candidate_tokens
@@ -895,12 +895,9 @@ class ProtocolContractTests(unittest.TestCase):
                 + read_text_or_empty(SAFETY_BUDGETS_PATH)
             ).lower().split()
         )
-        self.assertRegex(
+        self.assertIn(
+            "this schema has no inclusion form for ignored behavior inputs, so prime blocks candidate lock until a future schema defines one",
             content,
-            re.compile(
-                r"ignored.{0,180}behavior-affecting.{0,240}(secure manifest|block candidate lock)",
-                re.IGNORECASE,
-            ),
         )
 
     def test_non_candidate_paths_require_ordered_unique_scalar_tokens(self) -> None:
@@ -997,8 +994,8 @@ class ProtocolContractTests(unittest.TestCase):
         self.assertRegex(
             content,
             re.compile(
-                r"unlisted generated.{0,160}(?:outside|outside the).{0,160}"
-                r"(?:does not|do not).{0,80}(?:stale|identity)",
+                r"post-lock.{0,220}new non-ignored untracked.{0,220}"
+                r"pending classification",
                 re.IGNORECASE,
             ),
         )
@@ -1068,12 +1065,83 @@ class ProtocolContractTests(unittest.TestCase):
             source.parent.mkdir()
             source.write_bytes(b"candidate\n")
             tracked_paths = {"src/candidate.txt"}
-            locked_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
+            ignored_paths = {"__pycache__/candidate.cpython-312.pyc"}
+            locked_digest = canonical_fixture_digest(
+                root,
+                tracked_paths=tracked_paths,
+                ignored_paths=ignored_paths,
+                discovered_nonignored_untracked_paths=set(),
+            )
             generated.parent.mkdir()
             generated.write_bytes(b"generated\n")
-            current_digest = canonical_fixture_digest(root, tracked_paths=tracked_paths)
+            current_digest = canonical_fixture_digest(
+                root,
+                tracked_paths=tracked_paths,
+                ignored_paths=ignored_paths,
+                discovered_nonignored_untracked_paths=set(),
+            )
 
         self.assertEqual(locked_digest, current_digest)
+
+    def test_nonignored_post_lock_addition_requires_classification(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "src" / "candidate.txt"
+            source.parent.mkdir()
+            source.write_bytes(b"candidate\n")
+            locked_digest = canonical_fixture_digest(
+                root,
+                tracked_paths={"src/candidate.txt"},
+                discovered_nonignored_untracked_paths=set(),
+            )
+            added = root / "new-output.log"
+            added.write_bytes(b"new\n")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths={"src/candidate.txt"},
+                    discovered_nonignored_untracked_paths={"new-output.log"},
+                )
+
+            classified_digest = canonical_fixture_digest(
+                root,
+                tracked_paths={"src/candidate.txt"},
+                non_candidate_untracked_paths=["new-output.log"],
+                discovered_nonignored_untracked_paths={"new-output.log"},
+            )
+
+        self.assertEqual(locked_digest, classified_digest)
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+        self.assertRegex(
+            content,
+            re.compile(
+                r"post-lock.{0,220}new non-ignored untracked.{0,220}(classification|stale|invalid)",
+                re.IGNORECASE,
+            ),
+        )
+
+    def test_delegation_decision_table_exempts_mandatory_verifier(self) -> None:
+        content = " ".join(
+            (
+                read_text_or_empty(SKILL_PATH)
+                + read_text_or_empty(SAFETY_BUDGETS_PATH)
+            ).lower().split()
+        )
+        decisions = {
+            "one builder + mandatory independent read-only verifier": r"one builder.{0,180}mandatory independent read-only verifier.{0,220}(exempt|does not apply|always|required)",
+            "parallel builders": r"parallel builders.{0,220}(independent|separate mutable paths).{0,220}(delegate|parallel)",
+            "overlapping mutable paths": r"overlapping mutable paths.{0,220}(serial|serialize)",
+            "no-spawn host": r"no-spawn host.{0,220}serial fallback",
+        }
+        for decision, pattern in decisions.items():
+            with self.subTest(decision=decision):
+                self.assertRegex(content, re.compile(pattern, re.IGNORECASE))
 
     def test_tracked_deletion_changes_post_mutation_manifest_digest(self) -> None:
         with TemporaryDirectory() as temporary_directory:

@@ -16,6 +16,12 @@ least two independent bounded missions, each mission has a useful stopping
 condition, and coordination costs less than serial execution. Prime keeps one
 mission in the main loop when that threshold is not met.
 
+This threshold governs optional parallel delegation. Every candidate lifecycle
+still requires a mandatory independent read-only Verifier, which is exempt from
+the threshold and remains required after one Builder. Parallel Builders require
+independent missions with separate mutable paths. Overlapping paths force serial
+execution, and a no-spawn host always uses serial fallback.
+
 The mission and report contracts define the data exchanged across each
 lifecycle stage: [mission contract](references/mission-contract.md), [worker
 report](references/worker-report.md), and [safety and budgets](references/safety-and-budgets.md).
@@ -132,14 +138,18 @@ and a tracked generated file remains included when source control records it.
 Prime locks this membership with the candidate identity. Canonical ignore input
 comes from repository-controlled ignore rules only. Clone-local rules and
 user-global rules do not affect the candidate manifest. An unlisted generated
-untracked addition stays outside the locked manifest. A post-lock mutation to
-locked manifest membership, bytes, or executable mode makes the evidence stale
-and reopens the mission. A locked membership change after the lock has the same
-effect; unlisted generated additions do not count as locked membership.
+untracked addition is outside the locked manifest at lock time. A post-lock
+membership change, including a new non-ignored untracked path, invalidates the
+lock pending classification, even when it appears to be generated. Only a
+repository-ignored generated output remains digest-neutral without post-lock
+reclassification. A classified non-candidate output remains outside the digest
+only after Prime relocks the candidate. A change to locked manifest membership,
+bytes, or executable mode also makes the evidence stale and reopens the
+mission.
 
 An ignored untracked behavior-affecting path cannot be silently excluded as
-generated output. Prime includes its exact bytes through an explicit secure
-manifest, or blocks candidate lock when that mechanism is unavailable. Ignored
+generated output. This schema has no inclusion form for ignored behavior inputs,
+so Prime blocks candidate lock until a future schema defines one. Ignored
 generated outputs remain excluded.
 
 Prime classifies every non-ignored untracked path that can affect the objective

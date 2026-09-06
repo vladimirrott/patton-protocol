@@ -85,10 +85,13 @@ either value or when the report does not match the candidate.
 `candidate_tracked_paths` and `candidate_untracked_paths` echo the manifest
 membership Prime recorded after mutation. The Verifier compares both sets with
 the current candidate before and after checks. A post-lock mutation to locked
-manifest membership, bytes, or executable mode makes the report stale. An
-unlisted generated untracked addition stays outside the locked manifest and
-does not make the report stale. A selected path addition or deletion, or an
-unapproved change to locked manifest state, leaves the mission `blocked`.
+manifest membership, bytes, or executable mode makes the report stale. A
+post-lock new non-ignored untracked path invalidates the lock pending
+classification, even when it appears to be generated. Only a
+repository-ignored generated output remains digest-neutral without post-lock
+reclassification. A classified non-candidate output remains outside the digest
+only after Prime relocks the candidate. A selected path addition or deletion,
+or an unapproved change to locked manifest state, leaves the mission `blocked`.
 
 ### Non-candidate untracked paths
 

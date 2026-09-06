@@ -53,8 +53,11 @@ Verifier mission. The Verifier authors a report that echoes the locked record.
 mutation. Prime records this post-mutation set before it locks the candidate
 identity. Prime includes tracked additions and omits tracked deletions. A
 post-lock mutation to locked manifest membership, bytes, or executable mode
-makes the candidate stale. An unlisted generated untracked addition stays
-outside the locked manifest and does not make the candidate stale.
+makes the candidate stale. A post-lock new non-ignored untracked path
+invalidates the lock pending classification, even when it appears to be
+generated. Only a repository-ignored generated output remains digest-neutral
+without post-lock reclassification. A classified non-candidate output remains
+outside the digest only after Prime relocks the candidate.
 
 ### Candidate untracked paths
 
@@ -86,8 +89,8 @@ Hosts that cannot isolate ambient rules must use the explicit manifest and
 record the repository-controlled ignore result.
 
 An ignored untracked behavior-affecting path cannot be silently excluded as
-generated output. Prime includes its exact bytes through an explicit secure
-manifest, or blocks candidate lock when that mechanism is unavailable. Ignored
+generated output. This schema has no inclusion form for ignored behavior inputs,
+so Prime blocks candidate lock until a future schema defines one. Ignored
 generated outputs remain excluded.
 
 ### Non-candidate untracked paths

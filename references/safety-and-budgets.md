@@ -34,6 +34,17 @@ split creates overlap, when the host cannot spawn workers, or when coordination
 cost exceeds the expected gain. Serial fallback preserves the same limits,
 contracts, reports, rechecks, and approvals.
 
+The delegation threshold applies to optional parallel work. The mandatory
+independent read-only Verifier is exempt from that threshold and remains
+required after one Builder. These decisions apply:
+
+| Work shape | Decision |
+| --- | --- |
+| One Builder + mandatory independent read-only Verifier | Run the required Builder and Verifier missions, even when optional delegation is not selected. |
+| Parallel Builders with independent missions and separate mutable paths | Delegate in parallel when the threshold and coordination-cost check pass. |
+| Parallel Builders with overlapping mutable paths | Serialize the missions and record an ownership handoff. |
+| No-spawn host | Use serial fallback while preserving the mandatory independent Verifier. |
+
 Serial fallback prohibits a Builder from serving as its own Verifier. Prime
 assigns a distinct Verifier `actor_id`. If the host cannot provide one, Prime
 asks a human to verify. A same-actor Builder and Verifier result stays
@@ -103,8 +114,8 @@ non-ignored entry remains included regardless of its filename, while an
 explicit entry marked ignored is rejected.
 
 An ignored untracked behavior-affecting path cannot be silently excluded as
-generated output. Prime includes its exact bytes through an explicit secure
-manifest, or blocks candidate lock when that mechanism is unavailable. Ignored
+generated output. This schema has no inclusion form for ignored behavior inputs,
+so Prime blocks candidate lock until a future schema defines one. Ignored
 generated outputs remain excluded.
 
 Prime classifies every non-ignored untracked path that can affect the objective
@@ -132,11 +143,13 @@ generated status excludes only untracked output. Prime records
 with the candidate identity. The Verifier recomputes membership before and
 after checks. A post-lock mutation to the locked manifest makes the candidate
 stale only when it changes locked manifest membership, bytes, or executable
-mode. An unlisted generated untracked addition stays outside the locked
-manifest and does not
-make candidate identity stale. A selected path addition or deletion, or a
-change to locked bytes or executable mode, makes Prime reject the candidate and
-reopen the mission.
+mode. A post-lock new non-ignored untracked path invalidates the lock pending
+classification, even when it appears to be generated. Only a
+repository-ignored generated output remains digest-neutral without post-lock
+reclassification. A classified non-candidate output remains outside the digest
+only after Prime relocks the candidate. A selected path
+addition or deletion, or a change to locked bytes or executable mode, makes
+Prime reject the candidate and reopen the mission.
 
 The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
 these safety rules. This reference defines operational limits, ownership
