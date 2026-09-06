@@ -70,6 +70,11 @@ explicit untracked entry has a `path` field of type lossless token
 and an `executable` field of type integer `0 | 1`. Prime rejects an entry that
 names an ignored output.
 
+Prime classifies every non-ignored untracked path that can affect the objective
+or verification. Prime includes a behavior-affecting path in
+`candidate_untracked_paths`, or records an explicit non-candidate output
+classification in the mission ledger. Silent omission blocks candidate lock.
+
 Canonical ignore input consists of repository-controlled ignore rules only.
 Clone-local rules and user-global rules do not affect the candidate manifest.
 Hosts that cannot isolate ambient rules must use the explicit manifest and

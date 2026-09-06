@@ -129,6 +129,11 @@ locked manifest membership, bytes, or executable mode makes the evidence stale
 and reopens the mission. A locked membership change after the lock has the same
 effect; unlisted generated additions do not count as locked membership.
 
+Prime classifies every non-ignored untracked path that can affect the objective
+or verification. Prime includes a behavior-affecting path in
+`candidate_untracked_paths`, or records an explicit non-candidate output
+classification. Silent omission blocks candidate lock.
+
 Prime locks the candidate identity after the mutation. A post-build mutation
 changes the candidate and invalidates prior evidence. Prime rejects stale
 evidence and opens a new bounded mission instead of changing the recorded

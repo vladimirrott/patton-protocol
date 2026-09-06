@@ -97,6 +97,11 @@ manifest and record the repository-controlled ignore result. An explicit
 non-ignored entry remains included regardless of its filename, while an
 explicit entry marked ignored is rejected.
 
+Prime classifies every non-ignored untracked path that can affect the objective
+or verification. Prime includes a behavior-affecting path in
+`candidate_untracked_paths`, or records an explicit non-candidate output
+classification in the mission ledger. Silent omission blocks candidate lock.
+
 Each `candidate_untracked_paths` entry has exactly two fields: `path`, a
 nonempty lossless path token, and `executable`, an integer `0` or `1`. Prime
 records these entries from the post-mutation candidate state and does not infer

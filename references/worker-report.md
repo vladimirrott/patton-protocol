@@ -89,6 +89,11 @@ unlisted generated untracked addition stays outside the locked manifest and
 does not make the report stale. A selected path addition or deletion, or an
 unapproved change to locked manifest state, leaves the mission `blocked`.
 
+The report records whether each non-ignored untracked behavior input is included
+in `candidate_untracked_paths` or explicitly classified as a non-candidate
+output. A silent omission blocks candidate lock and leaves the report
+unverified.
+
 The [outer lifecycle and canonical phase sequence](../SKILL.md#lifecycle) govern
 this report. This reference defines the report fields, status values, evidence
 rules, and phase-specific envelope requirements used within that sequence.

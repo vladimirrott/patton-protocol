@@ -197,6 +197,8 @@ def canonical_fixture_digest(
     executable_paths: set[str] | None = None,
     ignored_paths: set[str] | None = None,
     gitlink_paths: set[str] | None = None,
+    behavior_affecting_untracked_paths: set[str] | None = None,
+    non_candidate_untracked_paths: set[str] | None = None,
 ) -> str:
     """Compute the deterministic digest described by the candidate contract."""
     records: list[bytes] = []
@@ -204,6 +206,8 @@ def canonical_fixture_digest(
     executable_paths = executable_paths or set()
     ignored_paths = ignored_paths or set()
     gitlink_paths = set(gitlink_paths or ())
+    behavior_affecting_untracked_paths = set(behavior_affecting_untracked_paths or ())
+    non_candidate_untracked_paths = set(non_candidate_untracked_paths or ())
     tracked_paths = set(tracked_paths or ())
     tracked_tokens = set()
     for token in tracked_paths:
@@ -211,6 +215,12 @@ def canonical_fixture_digest(
         tracked_tokens.add(token)
     for token in gitlink_paths:
         validate_path_token(root, token)
+    for token in behavior_affecting_untracked_paths | non_candidate_untracked_paths:
+        validate_path_token(root, token)
+    if behavior_affecting_untracked_paths & non_candidate_untracked_paths:
+        raise ValueError("untracked path has conflicting candidate classifications")
+    if non_candidate_untracked_paths & tracked_tokens:
+        raise ValueError("tracked path cannot be classified as non-candidate output")
     if not executable_paths <= tracked_tokens:
         raise ValueError("executable metadata may only name tracked paths")
     untracked_tokens: set[str] = set()
@@ -235,6 +245,15 @@ def canonical_fixture_digest(
     manifest_paths = tracked_paths | untracked_tokens
     if gitlink_paths & manifest_paths:
         raise ValueError("gitlinks are not candidate files")
+    omitted_behavior_paths = (
+        behavior_affecting_untracked_paths
+        - untracked_tokens
+        - non_candidate_untracked_paths
+    ) - ignored_paths
+    if omitted_behavior_paths:
+        raise ValueError(
+            "non-ignored behavior-affecting untracked path lacks candidate classification"
+        )
     paths = [validate_path_token(root, token) for token in manifest_paths]
     for path in sorted(paths, key=lambda candidate: canonical_path_token(root, candidate)):
         ancestor = path.parent
@@ -648,6 +667,78 @@ class ProtocolContractTests(unittest.TestCase):
             ).lower().split()
         )
         self.assertRegex(content, re.compile(r"gitlink.{0,160}(reject|excluded|not serialized)", re.IGNORECASE))
+
+    def test_untracked_behavior_input_omission_blocks_candidate_lock(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            entrypoint = root / "main.py"
+            module = root / "helper.py"
+            entrypoint.write_bytes(b"import helper\nprint(helper.value)\n")
+            module.write_bytes(b"value = 1\n")
+
+            with self.assertRaises(ValueError):
+                canonical_fixture_digest(
+                    root,
+                    tracked_paths={"main.py"},
+                    behavior_affecting_untracked_paths={"helper.py"},
+                )
+
+            output = root / "artifact.log"
+            output.write_bytes(b"diagnostic\n")
+            classified_output = canonical_fixture_digest(
+                root,
+                tracked_paths={"main.py"},
+                non_candidate_untracked_paths={"artifact.log"},
+            )
+
+        self.assertRegex(
+            " ".join(
+                (
+                    read_text_or_empty(SKILL_PATH)
+                    + read_text_or_empty(MISSION_CONTRACT_PATH)
+                    + read_text_or_empty(SAFETY_BUDGETS_PATH)
+                ).lower().split()
+            ),
+            re.compile(
+                r"non-ignored untracked.{0,220}(?:candidate_untracked_paths|non-candidate output)"
+                r".{0,220}(?:silent omission|blocks candidate lock)",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertRegex(classified_output, re.compile(r"^sha256:[0-9a-f]{64}$"))
+
+    def test_untracked_behavior_input_inclusion_and_post_lock_mutation(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            entrypoint = root / "main.py"
+            module = root / "helper.py"
+            entrypoint.write_bytes(b"import helper\nprint(helper.value)\n")
+            module.write_bytes(b"value = 1\n")
+            without_module = canonical_fixture_digest(
+                root,
+                tracked_paths={"main.py"},
+            )
+            locked_digest = canonical_fixture_digest(
+                root,
+                tracked_paths={"main.py"},
+                candidate_untracked_paths=[{"path": "helper.py", "executable": 0}],
+                behavior_affecting_untracked_paths={"helper.py"},
+            )
+            module.write_bytes(b"value = 2\n")
+            current_digest = canonical_fixture_digest(
+                root,
+                tracked_paths={"main.py"},
+                candidate_untracked_paths=[{"path": "helper.py", "executable": 0}],
+                behavior_affecting_untracked_paths={"helper.py"},
+            )
+
+        self.assertNotEqual(without_module, locked_digest)
+        self.assertNotEqual(locked_digest, current_digest)
+        self.assertNotEqual(
+            {"content_digest": locked_digest},
+            {"content_digest": current_digest},
+            "post-lock mutation makes prior behavior-input evidence stale",
+        )
 
     def test_ignore_inputs_are_repository_controlled_and_config_invariant(self) -> None:
         content = " ".join(
