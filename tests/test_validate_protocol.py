@@ -58,6 +58,9 @@ ADAPTER_FIXTURE_PATHS = {
     "approval approves contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-approves" / "adapter.md",
     "approval enables contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-enables" / "adapter.md",
     "approval lets contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-lets" / "adapter.md",
+    "approval replaces injected": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-replaces-injected" / "adapter.md",
+    "approval enables injected": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-enables-injected" / "adapter.md",
+    "approval lets injected": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-lets-injected" / "adapter.md",
 }
 ADAPTER_EXPECTED_DIAGNOSTICS = {
     "invalid status": "parallel dispatch must have one allowed status",
@@ -86,19 +89,11 @@ ADAPTER_EXPECTED_DIAGNOSTICS = {
     "approval approves contradiction": "approval boundary must reject host-only approval",
     "approval enables contradiction": "approval boundary must reject host-only approval",
     "approval lets contradiction": "approval boundary must reject host-only approval",
+    "approval replaces injected": "approval boundary must reject host-only approval",
+    "approval enables injected": "approval boundary must reject host-only approval",
+    "approval lets injected": "approval boundary must reject host-only approval",
 }
 SAFE_APPROVAL_FIXTURE_PATHS = {
-    "never satisfies": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-never-satisfies" / "adapter.md",
-    "cannot satisfy": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-cannot-satisfy" / "adapter.md",
-    "does not replace": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-does-not-replace" / "adapter.md",
-    "insufficient to grant": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-insufficient" / "adapter.md",
-    "fails to satisfy": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-fails" / "adapter.md",
-    "was sufficient": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-was-sufficient" / "adapter.md",
-    "suffices": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-suffices" / "adapter.md",
-    "plural never satisfies": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-plural" / "adapter.md",
-    "coordinated negation": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated" / "adapter.md",
-    "coordinated and bare": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated-and" / "adapter.md",
-    "coordinated or finite": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated-or" / "adapter.md",
     "canonical subject change": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-canonical-subject-change" / "adapter.md",
     "coordinated authorize": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-does-not-satisfy-or-authorize" / "adapter.md",
 }
@@ -125,6 +120,9 @@ UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "approves contradiction": ADAPTER_FIXTURE_PATHS["approval approves contradiction"],
     "enables contradiction": ADAPTER_FIXTURE_PATHS["approval enables contradiction"],
     "lets contradiction": ADAPTER_FIXTURE_PATHS["approval lets contradiction"],
+    "replaces injected": ADAPTER_FIXTURE_PATHS["approval replaces injected"],
+    "enables injected": ADAPTER_FIXTURE_PATHS["approval enables injected"],
+    "lets injected": ADAPTER_FIXTURE_PATHS["approval lets injected"],
 }
 APPROVAL_SUBJECT_PATTERN = re.compile(
     r"\b(?:automated host-only approval(?:s)?|automated approval(?:s)?|"
@@ -132,11 +130,10 @@ APPROVAL_SUBJECT_PATTERN = re.compile(
     r"sandbox(?:es)?)\b"
 )
 APPROVAL_CANONICAL_BOUNDARY_PATTERN = re.compile(
-    r"\bhost-only approval(?:s)?\s+(?:"
-    r"does not satisfy\s+or\s+replace\s+(?:the\s+)?(?:explicit\s+)?human approval\b"
-    r"[^.!?;]{0,100}\band cannot authorize\b[^.!?;]{0,100}\ban? irreversible action\b|"
-    r"does not satisfy\b[^.!?;]{0,100}(?:the\s+)?(?:explicit\s+)?human approval\b"
-    r"[^.!?;]{0,100}\bor authorize\b[^.!?;]{0,100}\ban? irreversible action\b)"
+    r"(?:\bhost-only approval does not satisfy or replace explicit human approval "
+    r"and cannot authorize an irreversible action\b\.?|"
+    r"\bhost-only approval does not satisfy explicit human approval or authorize "
+    r"an irreversible action\b\.?)"
 )
 APPROVAL_UNSAFE_PREDICATE_PATTERN = re.compile(
     r"\b(?:satisf(?:y|ies|ied|ying|ed)|count(?:s|ed|ing)?\s+as|"
@@ -180,19 +177,17 @@ def find_unsafe_approval_claim(content: str) -> str | None:
         for index, subject in enumerate(subjects):
             subject_limit = subjects[index + 1].start() if index + 1 < len(subjects) else len(clause)
             tail = clause[subject.end() : subject_limit]
-            canonical_boundary = APPROVAL_CANONICAL_BOUNDARY_PATTERN.search(
-                clause, subject.start(), subject_limit
-            )
+            canonical_safe = APPROVAL_CANONICAL_BOUNDARY_PATTERN.fullmatch(
+                clause[subject.start() : subject_limit].strip()
+            ) is not None
+            if canonical_safe:
+                continue
+            if APPROVAL_IRREVERSIBLE_SCOPE_PATTERN.search(tail) is not None:
+                return clause
             previous_end = 0
             previous_negated = False
             previous_predicate = ""
             for predicate in APPROVAL_UNSAFE_PREDICATE_PATTERN.finditer(tail):
-                absolute_end = subject.end() + predicate.end()
-                if canonical_boundary is not None and absolute_end <= canonical_boundary.end():
-                    previous_negated = True
-                    previous_end = predicate.end()
-                    previous_predicate = predicate.group(0)
-                    continue
                 raw_prefix = tail[previous_end : predicate.start()]
                 local_prefix = approval_local_prefix(raw_prefix)
                 if APPROVAL_DOUBLE_NEGATION_PATTERN.search(local_prefix) is not None:
@@ -226,8 +221,8 @@ def find_noncanonical_host_only_claim(content: str) -> str | None:
         subjects = list(APPROVAL_SUBJECT_PATTERN.finditer(clause))
         for index, subject in enumerate(subjects):
             subject_limit = subjects[index + 1].start() if index + 1 < len(subjects) else len(clause)
-            if APPROVAL_CANONICAL_BOUNDARY_PATTERN.search(
-                clause, subject.start(), subject_limit
+            if APPROVAL_CANONICAL_BOUNDARY_PATTERN.fullmatch(
+                clause[subject.start() : subject_limit].strip()
             ) is None:
                 return clause
     return None
@@ -2332,10 +2327,16 @@ class HarnessAdapterTests(unittest.TestCase):
         )
         self.assertIn(
             "document must state canonical host-only approval boundary",
-            adapter_document_errors(SAFE_APPROVAL_FIXTURE_PATHS["coordinated negation"]),
+            adapter_document_errors(
+                PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated" / "adapter.md"
+            ),
         )
         self.assertIsNotNone(
-            find_noncanonical_host_only_claim(read_text_or_empty(SAFE_APPROVAL_FIXTURE_PATHS["coordinated negation"])),
+            find_noncanonical_host_only_claim(
+                read_text_or_empty(
+                    PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated" / "adapter.md"
+                )
+            ),
         )
 
     def test_skill_claims_compatibility_with_any_agent_skills_host(self) -> None:
