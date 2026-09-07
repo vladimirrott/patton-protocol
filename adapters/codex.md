@@ -35,6 +35,9 @@ records the human approver, exact scope, `approved` decision, and verified
 evidence. Workers and Verifiers return leads; they cannot approve their own
 work.
 
+Canonical approval boundary: host-only approval does not satisfy or replace
+explicit human approval and cannot authorize an irreversible action.
+
 ## Nested-spawn limitation
 
 Codex V1 honors `agents.max_depth` as its configured nested-depth limit. That

@@ -14,7 +14,7 @@ dependency.
 | Parallel dispatch | `native` | Dispatch independent missions through Cursor subagents or plugin agents when enabled and path ownership is disjoint; use serial fallback when the surface is unavailable. |
 | Serial fallback | `prompt-mediated` | Execute missions in order in the main loop when parallel agent support is unavailable. Retain the mandatory independent Verifier and approval gate. |
 | Approval boundary | `prompt-mediated` | Obtain explicit human approval before an irreversible action. Workspace permissions or an automated agent decision do not satisfy the gate. |
-| Nested worker spawn | `native` | Cursor editor, CLI, and plugin-agent surfaces provide a two-layer root → direct child boundary with no grandchildren. Cursor SDK supports unrestricted configured nesting, as documented in the June 2026 changelog. An explicit Patton policy cap is required before enabling SDK nesting; Prime uses serial fallback beyond that cap. |
+| Nested worker spawn | `native` | Cursor editor, CLI, plugin-agent, and SDK surfaces support root → child → grandchild. A grandchild cannot spawn a great-grandchild. Prime requires an explicit Patton policy cap no greater than the host limit and uses serial fallback beyond it. |
 
 ## Mapping guidance
 
@@ -37,12 +37,15 @@ protocol approval boundary. Prime records a human approver, exact scope,
 deletion, publication, credential change, or other irreversible action. A
 worker, Verifier, or plugin agent cannot approve its own work.
 
+Canonical approval boundary: host-only approval does not satisfy or replace
+explicit human approval and cannot authorize an irreversible action.
+
 ## Nested-spawn limitation
 
-Cursor editor, CLI, and plugin-agent surfaces have a two-layer boundary:
-root → direct child, with no grandchildren. Cursor SDK supports unrestricted
-configured nesting, as documented in the June 2026 changelog. SDK capability
-does not define a safe project limit. An explicit Patton policy cap covering
-depth, tools, and permissions is required before enabling SDK nesting.
-Unknown or unconfigured policy stays `unavailable` with serial fallback. A
-nested mission retains independent identity, limits, reports, and verification.
+Cursor editor, CLI, plugin-agent, and SDK surfaces support root → child →
+grandchild. A grandchild cannot spawn a great-grandchild. The June 2026 Cursor
+SDK changelog documents this configured nesting surface. An explicit Patton
+policy cap covering depth, tools, and permissions is required, and cannot
+exceed the host limit. Unknown or unconfigured policy stays `unavailable` with
+serial fallback. A nested mission retains independent identity, limits,
+reports, and verification.

@@ -33,6 +33,9 @@ boundary. Prime must obtain a named human approver and record the exact scope,
 decision, and candidate evidence. A worker cannot approve its own change, and
 a denied or missing approval leaves the mission `blocked`.
 
+Canonical approval boundary: host-only approval does not satisfy or replace
+explicit human approval and cannot authorize an irreversible action.
+
 ## Nested-spawn limitation
 
 The Claude Code 2.1.219 changelog documents recursive spawn for subagents. The
