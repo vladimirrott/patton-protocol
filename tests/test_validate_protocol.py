@@ -53,6 +53,9 @@ ADAPTER_FIXTURE_PATHS = {
     "approval not human compound": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-not-human-compound" / "adapter.md",
     "approval does not fail": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-does-not-fail" / "adapter.md",
     "approval never fails": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-never-fails" / "adapter.md",
+    "approval allows contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-allows" / "adapter.md",
+    "approval permits contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-permits" / "adapter.md",
+    "approval approves contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-approves" / "adapter.md",
 }
 ADAPTER_EXPECTED_DIAGNOSTICS = {
     "invalid status": "parallel dispatch must have one allowed status",
@@ -76,6 +79,9 @@ ADAPTER_EXPECTED_DIAGNOSTICS = {
     "approval not human compound": "approval boundary must reject host-only approval",
     "approval does not fail": "approval boundary must reject host-only approval",
     "approval never fails": "approval boundary must reject host-only approval",
+    "approval allows contradiction": "approval boundary must reject host-only approval",
+    "approval permits contradiction": "approval boundary must reject host-only approval",
+    "approval approves contradiction": "approval boundary must reject host-only approval",
 }
 SAFE_APPROVAL_FIXTURE_PATHS = {
     "never satisfies": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-never-satisfies" / "adapter.md",
@@ -109,6 +115,9 @@ UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "not human compound": ADAPTER_FIXTURE_PATHS["approval not human compound"],
     "does not fail": ADAPTER_FIXTURE_PATHS["approval does not fail"],
     "never fails": ADAPTER_FIXTURE_PATHS["approval never fails"],
+    "allows contradiction": ADAPTER_FIXTURE_PATHS["approval allows contradiction"],
+    "permits contradiction": ADAPTER_FIXTURE_PATHS["approval permits contradiction"],
+    "approves contradiction": ADAPTER_FIXTURE_PATHS["approval approves contradiction"],
 }
 APPROVAL_SUBJECT_PATTERN = re.compile(
     r"\b(?:automated host-only approval(?:s)?|automated approval(?:s)?|"
@@ -123,7 +132,8 @@ APPROVAL_CANONICAL_BOUNDARY_PATTERN = re.compile(
 APPROVAL_UNSAFE_PREDICATE_PATTERN = re.compile(
     r"\b(?:satisf(?:y|ies|ied|ying|ed)|count(?:s|ed|ing)?\s+as|"
     r"constitut(?:e|es|ed|ing)|(?:is|are|was|were)\s+sufficient|suffices|"
-    r"grant(?:s|ed|ing)?|authoriz(?:e|es|ed|ing)|serv(?:e|es|ed|ing)\s+as|"
+    r"grant(?:s|ed|ing)?|authoriz(?:e|es|ed|ing)|allow(?:s|ed|ing)?|"
+    r"permit(?:s|ted|ting)?|approv(?:e|es|ed|ing)|serv(?:e|es|ed|ing)\s+as|"
     r"replac(?:e|es|ed|ing))\b"
 )
 APPROVAL_NEGATION_PATTERN = re.compile(
@@ -2178,10 +2188,10 @@ class HarnessAdapterTests(unittest.TestCase):
         self.assertNotRegex(overview, re.compile(r"recursive.{0,80}agent[- ]team", re.IGNORECASE))
         self.assertIn("threadspawn", overview)
         self.assertRegex(overview, re.compile(r"patton.{0,180}(default|conservative).{0,180}(serial|unavailable)", re.IGNORECASE))
-        self.assertRegex(overview, re.compile(r"editor.{0,80}cli.{0,80}plugin-agent.{0,180}root.{0,100}child.{0,100}grandchild", re.IGNORECASE))
-        self.assertRegex(overview, re.compile(r"sdk.{0,180}root.{0,100}child.{0,100}grandchild", re.IGNORECASE))
+        self.assertRegex(overview, re.compile(r"editor.{0,80}cli.{0,100}plugin[- ](?:agent|subagent).{0,180}root.{0,100}(child|grandchild)", re.IGNORECASE))
+        self.assertRegex(overview, re.compile(r"sdk.{0,180}(unrestricted|unlimited).{0,180}nest", re.IGNORECASE))
         self.assertRegex(overview, re.compile(r"grandchild.{0,120}(cannot|no).{0,120}great-grandchild", re.IGNORECASE))
-        self.assertRegex(overview, re.compile(r"policy cap.{0,180}(no greater|at most|host limit)", re.IGNORECASE))
+        self.assertRegex(overview, re.compile(r"policy cap.{0,180}(finite|required|enforce|cap)", re.IGNORECASE))
         self.assertIn("june 2026", overview)
         self.assertRegex(overview, re.compile(r"policy cap.{0,180}(required|enforce)", re.IGNORECASE))
 
@@ -2222,12 +2232,12 @@ class HarnessAdapterTests(unittest.TestCase):
     def test_cursor_documents_grandchild_nested_boundary(self) -> None:
         content = " ".join(read_text_or_empty(ADAPTER_PATHS["cursor"]).lower().split())
 
-        self.assertRegex(content, re.compile(r"editor.{0,80}cli.{0,80}plugin-agent.{0,180}root.{0,100}child.{0,100}grandchild", re.IGNORECASE))
-        self.assertRegex(content, re.compile(r"sdk.{0,180}root.{0,100}child.{0,100}grandchild", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"editor.{0,80}cli.{0,100}plugin[- ](?:agent|subagent).{0,180}root.{0,100}(child|grandchild)", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"sdk.{0,180}(unrestricted|unlimited).{0,180}nest", re.IGNORECASE))
         self.assertRegex(content, re.compile(r"grandchild.{0,120}(cannot|no).{0,120}great-grandchild", re.IGNORECASE))
-        self.assertRegex(content, re.compile(r"policy cap.{0,180}(required|enforce|no greater|host limit)", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"policy cap.{0,180}(required|enforce|finite|host limit)", re.IGNORECASE))
         self.assertIn("june 2026", content)
-        self.assertRegex(content, re.compile(r"patton.{0,180}(policy cap|cap).{0,180}(required|enforce|no greater|host limit)", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"patton.{0,180}(policy cap|cap).{0,180}(required|enforce|finite|host limit)", re.IGNORECASE))
 
     def test_cursor_parallel_dispatch_is_native_when_subagents_are_enabled(self) -> None:
         rows = dict(parse_adapter_capability_rows(ADAPTER_PATHS["cursor"]))

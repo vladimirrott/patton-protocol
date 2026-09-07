@@ -14,7 +14,7 @@ dependency.
 | Parallel dispatch | `native` | Dispatch independent missions through Cursor subagents or plugin agents when enabled and path ownership is disjoint; use serial fallback when the surface is unavailable. |
 | Serial fallback | `prompt-mediated` | Execute missions in order in the main loop when parallel agent support is unavailable. Retain the mandatory independent Verifier and approval gate. |
 | Approval boundary | `prompt-mediated` | Obtain explicit human approval before an irreversible action. Workspace permissions or an automated agent decision do not satisfy the gate. |
-| Nested worker spawn | `native` | Cursor editor, CLI, plugin-agent, and SDK surfaces support root → child → grandchild. A grandchild cannot spawn a great-grandchild. Prime requires an explicit Patton policy cap no greater than the host limit and uses serial fallback beyond it. |
+| Nested worker spawn | `native` | Cursor product surfaces, including the editor, CLI, and plugin subagents, support root → child → grandchild; a grandchild cannot spawn a great-grandchild. Cursor SDK supports unrestricted configured nesting per the June 2026 changelog. Patton Prime requires a finite policy cap no greater than the host limit and uses serial fallback beyond it. |
 
 ## Mapping guidance
 
@@ -42,10 +42,11 @@ explicit human approval and cannot authorize an irreversible action.
 
 ## Nested-spawn limitation
 
-Cursor editor, CLI, plugin-agent, and SDK surfaces support root → child →
-grandchild. A grandchild cannot spawn a great-grandchild. The June 2026 Cursor
-SDK changelog documents this configured nesting surface. An explicit Patton
-policy cap covering depth, tools, and permissions is required, and cannot
-exceed the host limit. Unknown or unconfigured policy stays `unavailable` with
-serial fallback. A nested mission retains independent identity, limits,
-reports, and verification.
+Cursor product surfaces, including the editor, CLI, and plugin subagents,
+support root → child → grandchild. A grandchild cannot spawn a great-grandchild.
+Cursor SDK supports unrestricted configured nesting per the June 2026 changelog.
+Patton Prime requires a finite policy cap covering depth, tools, and
+permissions, no greater than the host limit. Patton Prime conservatively
+defaults nested worker spawn to `unavailable` with serial fallback when the
+version, tool, or policy is unknown. A nested mission retains independent
+identity, limits, reports, and verification.
