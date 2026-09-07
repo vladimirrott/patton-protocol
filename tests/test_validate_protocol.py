@@ -19,6 +19,8 @@ from scripts import validate_protocol  # noqa: E402  (path setup must precede th
 
 VALIDATOR_SCRIPT_PATH = PACKAGE_ROOT / "scripts" / "validate_protocol.py"
 FIXTURES_ROOT = PACKAGE_ROOT / "tests" / "fixtures"
+README_PATH = PACKAGE_ROOT / "README.md"
+LOGO_PATH = PACKAGE_ROOT / "assets" / "logo.svg"
 SKILL_PATH = PACKAGE_ROOT / "SKILL.md"
 OPENAI_METADATA_PATH = PACKAGE_ROOT / "agents" / "openai.yaml"
 MISSION_CONTRACT_PATH = PACKAGE_ROOT / "references" / "mission-contract.md"
@@ -2475,6 +2477,48 @@ class StandaloneValidatorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("vendor-specific syntax", result.stderr)
         self.assertIn("invalid:", result.stderr)
+
+
+class PackageIdentityTests(unittest.TestCase):
+    """The package states its identity and ships an accessible mark."""
+
+    def test_readme_identifies_canonical_skill_and_compatibility(self) -> None:
+        self.assertTrue(README_PATH.is_file())
+        content = read_text_or_empty(README_PATH)
+        self.assertIn("SKILL.md", content)
+        self.assertRegex(
+            content.lower(),
+            re.compile(r"any agent skills[- ]compatible host|any host that implements the agent skills"),
+        )
+
+    def test_readme_links_adapter_notes(self) -> None:
+        content = read_text_or_empty(README_PATH)
+        self.assertIn("references/harness-adapters.md", content)
+        self.assertIn("adapters/", content)
+
+    def test_readme_explains_serial_fallback(self) -> None:
+        lowered = " ".join(read_text_or_empty(README_PATH).lower().split())
+        self.assertIn("serial fallback", lowered)
+        self.assertRegex(lowered, re.compile(r"serial fallback.{0,220}(same|one at a time|main loop)"))
+
+    def test_readme_states_adapters_are_not_a_whitelist_and_spawning_is_host_dependent(self) -> None:
+        lowered = " ".join(read_text_or_empty(README_PATH).lower().split())
+        self.assertRegex(lowered, re.compile(r"not a (?:support )?whitelist"))
+        self.assertRegex(lowered, re.compile(r"host[- ]dependent"))
+
+    def test_logo_is_self_contained_and_accessible(self) -> None:
+        self.assertTrue(LOGO_PATH.is_file())
+        content = read_text_or_empty(LOGO_PATH)
+        self.assertIn("viewBox=", content)
+        self.assertRegex(content, re.compile(r"<title[^>]*>[^<]+</title>"))
+        # No externally-fetched resource: the mandatory xmlns namespace URI
+        # is not a reference to an external resource, so this checks only
+        # actual href/src/url() targets, not every "http" substring.
+        self.assertNotRegex(content, re.compile(r'(?:href|src)\s*=\s*["\']https?://'))
+        self.assertNotRegex(content, re.compile(r'url\(\s*["\']?https?://'))
+
+    def test_validator_still_reports_the_real_package_valid(self) -> None:
+        self.assertEqual(validate_protocol.validate_package(PACKAGE_ROOT), [])
 
 
 if __name__ == "__main__":
