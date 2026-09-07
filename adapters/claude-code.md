@@ -13,7 +13,7 @@ configuration before a surface is available.
 | Parallel dispatch | `native` | Dispatch independent missions through subagents or agent teams when the host has enabled that surface and ownership paths are disjoint. |
 | Serial fallback | `prompt-mediated` | Run missions in order in the main loop when spawning or isolation is unavailable. Keep the distinct Verifier identity and all evidence checks. |
 | Approval boundary | `prompt-mediated` | Ask a human for explicit approval before an irreversible action. Tool permissions and host policy do not count as that decision. |
-| Nested worker spawn | `unavailable` | A worker cannot assume it may create another subagent or team. Use nested spawning only when the active host session explicitly exposes and permits it; otherwise Prime keeps the mission serial. |
+| Nested worker spawn | `native` | Claude Code supports nested subagents when enabled. The default maximum depth is 3, a host environment can override it, and Prime records the tool and policy limit before enabling nested work; otherwise Prime uses serial fallback. |
 
 ## Mapping guidance
 
@@ -35,10 +35,11 @@ a denied or missing approval leaves the mission `blocked`.
 
 ## Nested-spawn limitation
 
-Agent teams and custom subagents do not guarantee recursive worker creation.
-Even when the parent can dispatch a worker, a child may lack the same spawn
-surface, context, budget, or permissions. Treat nested worker spawn as
-`unavailable` until the host session proves it. Any nested mission must retain
-its own mission identity, immutable ownership boundary, limits, and report;
-Prime still requests an independent read-only Verifier.
-
+Claude Code supports native nested subagents up to depth 3 by default. A host
+environment override can change that depth. Even when the parent can dispatch
+a worker, a child may lack the same spawn tool, context, budget, or permission
+policy. Patton Prime conservatively defaults nested worker spawn to `unavailable`
+and serial fallback until the active session records its permitted depth, tool,
+and policy. Any nested mission must retain its own mission identity, immutable
+ownership boundary, limits, and report; Prime still requests an independent
+read-only Verifier.

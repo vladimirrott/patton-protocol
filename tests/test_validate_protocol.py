@@ -36,6 +36,14 @@ ADAPTER_FIXTURE_PATHS = {
     "missing row": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-missing-row" / "adapter.md",
     "duplicate row": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-duplicate-row" / "adapter.md",
     "missing approval": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-missing-approval" / "adapter.md",
+    "approval polarity": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-polarity" / "adapter.md",
+}
+ADAPTER_EXPECTED_DIAGNOSTICS = {
+    "invalid status": "parallel dispatch must have one allowed status",
+    "missing row": "nested worker spawn must have one row",
+    "duplicate row": "loading must have one row",
+    "missing approval": "document must state the human approval boundary",
+    "approval polarity": "approval boundary must reject host-only approval",
 }
 GITIGNORE_PATH = PACKAGE_ROOT / ".gitignore"
 LIFECYCLE_TERMS = (
@@ -191,6 +199,13 @@ def adapter_document_errors(path: Path) -> list[str]:
     content = " ".join(read_text_or_empty(path).lower().split())
     if not re.search(r"human.{0,40}approval|approval.{0,40}human", content):
         errors.append("document must state the human approval boundary")
+    positive_approval = re.compile(
+        r"(?:host-only approval|host permission|workspace permissions|sandbox|automated host-only approval)"
+        r"(?:(?!\b(?:not|does not|do not|cannot)\b).){0,100}"
+        r"\b(?:satisf(?:y|ies)|grant|replace)(?:s|ed)?\b"
+    )
+    if positive_approval.search(content):
+        errors.append("approval boundary must reject host-only approval")
     if not re.search(r"nested.{0,120}(worker|agent|subagent).{0,120}spawn", content):
         errors.append("document must state the nested worker-spawn boundary")
     return errors
@@ -2001,6 +2016,21 @@ class HarnessAdapterTests(unittest.TestCase):
             with self.subTest(adapter=name):
                 assert_valid_adapter_document(self, path)
 
+    def test_nested_spawn_is_native_only_when_host_limits_are_documented(self) -> None:
+        for name, path in ADAPTER_PATHS.items():
+            rows = dict(parse_adapter_capability_rows(path))
+            with self.subTest(adapter=name):
+                self.assertEqual(rows["nested worker spawn"], ["native"])
+                content = " ".join(read_text_or_empty(path).lower().split())
+                self.assertRegex(content, re.compile(r"nested.{0,180}(depth|tool|policy|configured|enabled)"))
+                self.assertRegex(content, re.compile(r"patton.{0,180}(default|conservative|serial|unavailable)"))
+
+        overview = " ".join(read_text_or_empty(HARNESS_ADAPTERS_PATH).lower().split())
+        self.assertRegex(overview, re.compile(r"nested worker spawn.{0,160}`native`", re.IGNORECASE))
+        self.assertRegex(overview, re.compile(r"depth 3", re.IGNORECASE))
+        self.assertIn("threadspawn", overview)
+        self.assertRegex(overview, re.compile(r"patton.{0,180}(default|conservative).{0,180}(serial|unavailable)", re.IGNORECASE))
+
     def test_cursor_parallel_dispatch_is_native_when_subagents_are_enabled(self) -> None:
         rows = dict(parse_adapter_capability_rows(ADAPTER_PATHS["cursor"]))
 
@@ -2011,7 +2041,24 @@ class HarnessAdapterTests(unittest.TestCase):
     def test_malformed_adapter_capability_fixtures_are_rejected(self) -> None:
         for label, path in ADAPTER_FIXTURE_PATHS.items():
             with self.subTest(fixture=label):
-                self.assertTrue(adapter_document_errors(path), path)
+                errors = adapter_document_errors(path)
+                self.assertTrue(errors, path)
+                self.assertTrue(
+                    any(ADAPTER_EXPECTED_DIAGNOSTICS[label] in error for error in errors),
+                    f"{path}: expected {ADAPTER_EXPECTED_DIAGNOSTICS[label]!r}, got {errors!r}",
+                )
+
+    def test_each_adapter_rejects_host_only_approval_polarity(self) -> None:
+        approval_bypass = re.compile(
+            r"(?:host-only approval|host permission|workspace permissions|sandbox|automated host-only approval)"
+            r"(?:(?!\b(?:not|does not|do not|cannot)\b).){0,100}"
+            r"\b(?:satisf(?:y|ies)|grant|replace)(?:s|ed)?\b"
+        )
+        for name, path in ADAPTER_PATHS.items():
+            content = " ".join(read_text_or_empty(path).lower().split())
+            with self.subTest(adapter=name):
+                self.assertNotRegex(content, approval_bypass)
+                self.assertRegex(content, re.compile(r"human.{0,40}approval|approval.{0,40}human"))
 
     def test_skill_claims_compatibility_with_any_agent_skills_host(self) -> None:
         content = " ".join(read_text_or_empty(SKILL_PATH).lower().split())

@@ -12,7 +12,7 @@ skills. The canonical skill and its contracts work without this adapter.
 | Parallel dispatch | `native` | Use multi-agent support where the active Codex host enables it, with one immutable mutable-path boundary per Builder. |
 | Serial fallback | `prompt-mediated` | Run each mission in the main loop when the host cannot spawn or isolate workers. Preserve the independent Verifier and candidate identity checks. |
 | Approval boundary | `prompt-mediated` | Request one explicit human approval for each irreversible action. Sandbox, confirmation, or automation state does not grant protocol approval. |
-| Nested worker spawn | `unavailable` | A worker must not assume recursive agent creation. Use it only when the active host explicitly proves the capability; default to serial execution. |
+| Nested worker spawn | `native` | Codex `ThreadSpawn` tracks nested depth when the host exposes the tool and policy permits it. Prime records the depth limit before enabling nested work; otherwise use serial fallback. |
 
 ## Mapping guidance
 
@@ -37,10 +37,11 @@ work.
 
 ## Nested-spawn limitation
 
-Custom agents can have different tools, permissions, and session context from
-the parent. A worker's ability to run a skill does not prove its ability to
-create another worker. Codex hosts may also expose multi-agent dispatch only at
-the top level. Treat nested worker spawn as `unavailable` unless the active
-session explicitly enables and records it. Nested work still needs a separate
-mission identity, boundary, budget, report, and independent verification.
-
+Codex's `ThreadSpawn` protocol records nested worker depth. Custom agents can
+have different tools, permissions, and session context from the parent, and a
+worker's ability to run a skill does not prove its ability to create another
+worker. Codex hosts may expose multi-agent dispatch only at the top level.
+Patton Prime conservatively defaults nested worker spawn to `unavailable` and
+serial fallback until the active session records the `ThreadSpawn` tool, depth
+cap, and policy. Nested work still needs a separate mission identity,
+boundary, budget, report, and independent verification.
