@@ -13,7 +13,7 @@ configuration before a surface is available.
 | Parallel dispatch | `native` | Dispatch independent missions through subagents or agent teams when the host has enabled that surface and ownership paths are disjoint. |
 | Serial fallback | `prompt-mediated` | Run missions in order in the main loop when spawning or isolation is unavailable. Keep the distinct Verifier identity and all evidence checks. |
 | Approval boundary | `prompt-mediated` | Ask a human for explicit approval before an irreversible action. Tool permissions and host policy do not count as that decision. |
-| Nested worker spawn | `unavailable` | Current Claude Code subagents and agent-team surfaces do not prove recursive worker spawn. A versioned feature must document and prove recursive spawn; Prime records the tool, policy, and depth before enabling it, otherwise uses serial fallback. |
+| Nested worker spawn | `native` | The Claude Code 2.1.263 changelog documents recursive spawn for subagents and agent teams, with default depth 3 and a host environment override. Prime records the proven version, tool, policy, and depth; unknown or version-unproven surfaces remain `unavailable` with serial fallback. |
 
 ## Mapping guidance
 
@@ -35,13 +35,13 @@ a denied or missing approval leaves the mission `blocked`.
 
 ## Nested-spawn limitation
 
-Current Claude Code subagents and agent-team surfaces support worker dispatch,
-but they do not prove recursive worker spawn. A versioned feature must prove
-recursive spawn and document that proof in the changelog, or a fork must carry
-an explicit recursive-spawn implementation. Even when the parent can dispatch
-a worker, a child may lack the same spawn tool, context, budget, or permission
-policy. Patton Prime conservatively marks nested worker spawn `unavailable` and
-uses serial fallback until the active session records the versioned feature,
-permitted depth, tool, and policy. Any nested mission must retain its own
-mission identity, immutable ownership boundary, limits, and report; Prime still
-requests an independent read-only Verifier.
+The Claude Code 2.1.263 changelog documents recursive spawn for subagents and
+agent teams. The default maximum depth is 3, and a host environment override can
+change that depth. A worker may still lack the same spawn tool, context, budget,
+or permission policy as its parent. Patton Prime marks nested worker spawn
+`native` only for the proven version and recorded depth, tool, and policy.
+Patton Prime conservatively treats an unknown version or version-unproven
+surface as `unavailable` and uses serial fallback. A fork must carry an explicit recursive-spawn implementation and
+version evidence before Prime treats it as proven. Any nested mission must
+retain its own mission identity, immutable ownership boundary, limits, and
+report; Prime still requests an independent read-only Verifier.

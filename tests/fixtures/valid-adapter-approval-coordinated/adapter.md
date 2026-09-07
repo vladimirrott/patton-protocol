@@ -1,0 +1,16 @@
+# Valid Adapter
+
+## Capability matrix
+
+| Capability | Status | Mapping |
+| --- | --- | --- |
+| Loading | `native` | discovery |
+| Worker definition | `native` | worker |
+| Parallel dispatch | `native` | dispatch |
+| Serial fallback | `prompt-mediated` | main loop |
+| Approval boundary | `prompt-mediated` | gate |
+| Nested worker spawn | `native` | configured nested spawn |
+
+Host-only approval does not satisfy or replace the irreversible-action gate.
+Host-only approvals never satisfy or grant authorization. Nested worker spawn
+is native when the tool and policy permit it.

@@ -25,7 +25,7 @@ The portable core does not require adapter dependencies.
 | Parallel dispatch | `native` subagents or agent teams when enabled | `native` multi-agent support when enabled | `native` subagents or plugin agents when enabled; serial fallback when unavailable |
 | Serial fallback | `prompt-mediated` main-loop missions | `prompt-mediated` main-loop missions | `prompt-mediated` main-loop missions |
 | Approval boundary | `prompt-mediated` explicit human decision | `prompt-mediated` explicit human decision | `prompt-mediated` explicit human decision |
-| Nested worker spawn | `unavailable` unless a versioned recursive-spawn feature is proven; conservative default uses serial fallback | `native` when documented and enabled; V2 cap unproven requires serial fallback | `native` for root, direct subagents, and grandchildren; no great-grandchild spawn |
+| Nested worker spawn | `native` for proven Claude Code 2.1.263; unknown or version-unproven surfaces are `unavailable` with serial fallback | `native` when documented and enabled; V2 cap unproven requires serial fallback | `native` for root, direct subagents, and grandchildren; no great-grandchild spawn |
 
 The table describes capability surfaces, not a support whitelist. An
 Agent-Skills-compatible host can load the package in principle. Prime checks the
@@ -58,10 +58,11 @@ approval does not satisfy that gate. Denied or missing approval leaves the
 mission blocked.
 
 Nested spawning differs by host configuration, tool availability, depth limits,
-and session policy. Claude Code's current subagents and agent-team surfaces do
-not prove recursive worker spawn. A versioned feature documented by its
-changelog, or a fork with an explicit recursive-spawn implementation, must
-prove that capability before Prime enables it. Codex V1 honors
+and session policy. The Claude Code 2.1.263 changelog documents recursive spawn
+for subagents and agent teams, with default depth 3 and a host environment
+override. Unknown or version-unproven Claude surfaces remain unavailable with
+serial fallback for an unknown version. A fork with an explicit recursive-spawn implementation must
+carry version evidence before Prime enables it. Codex V1 honors
 `agents.max_depth`; Codex V2 ignores `agents.max_depth` and `ThreadSpawn` tracks
 the effective nested depth. Cursor SDK supports configured subagents and nested
 capabilities through the exact root → child → grandchild hierarchy; a
@@ -69,12 +70,11 @@ grandchild cannot spawn a great-grandchild. A parent worker must not assume it
 can create another worker, inherit a parent's permissions, or share a mutable
 path safely.
 Patton Prime defaults nested worker spawn to `unavailable` and serial fallback,
-even when the adapter marks it `native`; Prime enables it only after recording
-the host tool, permitted depth, and policy. Claude remains serial unless a
-versioned feature or fork proves recursive spawn. If the effective Codex V2 cap
-is unproven, serial fallback is required. Cursor requests beyond its grandchild
-limit use serial fallback. A nested mission still needs its own identity,
-boundary, limits, report, and independent verification.
+even when an adapter marks it `native`; Prime enables it only after recording
+the proven version, host tool, permitted depth, and policy. If the effective
+Codex V2 cap is unproven, serial fallback is required. Cursor requests beyond
+its grandchild limit use serial fallback. A nested mission still needs its own
+identity, boundary, limits, report, and independent verification.
 
 ## Host notes
 
