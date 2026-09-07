@@ -137,8 +137,8 @@ def resolve_markdown_links(root: Path, path: Path) -> list[str]:
         except ValueError:
             errors.append(f"{path}: link {target!r} escapes the package root")
             continue
-        if not resolved.is_file():
-            errors.append(f"{path}: link {target!r} does not resolve to a file")
+        if not resolved.exists():
+            errors.append(f"{path}: link {target!r} does not resolve to a file or directory")
     return errors
 
 
@@ -243,6 +243,9 @@ def validate_package(root: Path) -> list[str]:
                   for pattern in vendor_syntax_violations(skill_text))
 
     markdown_files = [skill_path]
+    readme_path = root / "README.md"
+    if readme_path.is_file():
+        markdown_files.append(readme_path)
     references_dir = root / "references"
     if references_dir.is_dir():
         markdown_files.extend(sorted(references_dir.glob("*.md")))

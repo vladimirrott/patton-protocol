@@ -2419,6 +2419,18 @@ class StandaloneValidatorTests(unittest.TestCase):
             any("does not resolve to a file" in error for error in errors), errors
         )
 
+    def test_validator_resolves_readme_links_and_accepts_directory_targets(self) -> None:
+        errors = validate_protocol.validate_package(FIXTURES_ROOT / "invalid-readme-broken-link")
+        readme_path = FIXTURES_ROOT / "invalid-readme-broken-link" / "README.md"
+        self.assertTrue(
+            any(str(readme_path) in error and "does-not-exist.md" in error for error in errors),
+            errors,
+        )
+        self.assertFalse(
+            any("adapters/" in error and "does not resolve" in error for error in errors),
+            errors,
+        )
+
     def test_validator_reports_vendor_required_syntax(self) -> None:
         errors = validate_protocol.validate_package(FIXTURES_ROOT / "invalid-vendor-core")
         self.assertTrue(
