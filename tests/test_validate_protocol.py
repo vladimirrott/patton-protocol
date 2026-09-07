@@ -56,6 +56,8 @@ ADAPTER_FIXTURE_PATHS = {
     "approval allows contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-allows" / "adapter.md",
     "approval permits contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-permits" / "adapter.md",
     "approval approves contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-approves" / "adapter.md",
+    "approval enables contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-enables" / "adapter.md",
+    "approval lets contradiction": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-lets" / "adapter.md",
 }
 ADAPTER_EXPECTED_DIAGNOSTICS = {
     "invalid status": "parallel dispatch must have one allowed status",
@@ -82,6 +84,8 @@ ADAPTER_EXPECTED_DIAGNOSTICS = {
     "approval allows contradiction": "approval boundary must reject host-only approval",
     "approval permits contradiction": "approval boundary must reject host-only approval",
     "approval approves contradiction": "approval boundary must reject host-only approval",
+    "approval enables contradiction": "approval boundary must reject host-only approval",
+    "approval lets contradiction": "approval boundary must reject host-only approval",
 }
 SAFE_APPROVAL_FIXTURE_PATHS = {
     "never satisfies": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-never-satisfies" / "adapter.md",
@@ -96,6 +100,7 @@ SAFE_APPROVAL_FIXTURE_PATHS = {
     "coordinated and bare": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated-and" / "adapter.md",
     "coordinated or finite": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated-or" / "adapter.md",
     "canonical subject change": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-canonical-subject-change" / "adapter.md",
+    "coordinated authorize": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-does-not-satisfy-or-authorize" / "adapter.md",
 }
 UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "satisfies": ADAPTER_FIXTURE_PATHS["approval polarity"],
@@ -118,6 +123,8 @@ UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "allows contradiction": ADAPTER_FIXTURE_PATHS["approval allows contradiction"],
     "permits contradiction": ADAPTER_FIXTURE_PATHS["approval permits contradiction"],
     "approves contradiction": ADAPTER_FIXTURE_PATHS["approval approves contradiction"],
+    "enables contradiction": ADAPTER_FIXTURE_PATHS["approval enables contradiction"],
+    "lets contradiction": ADAPTER_FIXTURE_PATHS["approval lets contradiction"],
 }
 APPROVAL_SUBJECT_PATTERN = re.compile(
     r"\b(?:automated host-only approval(?:s)?|automated approval(?:s)?|"
@@ -125,17 +132,20 @@ APPROVAL_SUBJECT_PATTERN = re.compile(
     r"sandbox(?:es)?)\b"
 )
 APPROVAL_CANONICAL_BOUNDARY_PATTERN = re.compile(
-    r"\bhost-only approval(?:s)?\s+does not satisfy\s+or\s+replace\s+"
-    r"(?:the\s+)?(?:explicit\s+)?human approval\b.{0,100}"
-    r"\band cannot authorize\b.{0,100}\ban? irreversible action\b"
+    r"\bhost-only approval(?:s)?\s+(?:"
+    r"does not satisfy\s+or\s+replace\s+(?:the\s+)?(?:explicit\s+)?human approval\b"
+    r"[^.!?;]{0,100}\band cannot authorize\b[^.!?;]{0,100}\ban? irreversible action\b|"
+    r"does not satisfy\b[^.!?;]{0,100}(?:the\s+)?(?:explicit\s+)?human approval\b"
+    r"[^.!?;]{0,100}\bor authorize\b[^.!?;]{0,100}\ban? irreversible action\b)"
 )
 APPROVAL_UNSAFE_PREDICATE_PATTERN = re.compile(
     r"\b(?:satisf(?:y|ies|ied|ying|ed)|count(?:s|ed|ing)?\s+as|"
     r"constitut(?:e|es|ed|ing)|(?:is|are|was|were)\s+sufficient|suffices|"
     r"grant(?:s|ed|ing)?|authoriz(?:e|es|ed|ing)|allow(?:s|ed|ing)?|"
     r"permit(?:s|ted|ting)?|approv(?:e|es|ed|ing)|serv(?:e|es|ed|ing)\s+as|"
-    r"replac(?:e|es|ed|ing))\b"
+    r"replac(?:e|es|ed|ing)|enabl(?:e|es|ed|ing)|let(?:s|ting)?)\b"
 )
+APPROVAL_IRREVERSIBLE_SCOPE_PATTERN = re.compile(r"\birreversible[- ]action(?:s)?\b")
 APPROVAL_NEGATION_PATTERN = re.compile(
     r"\b(?:not|never|cannot|can't|do not|does not|fails? to|insufficient to|"
     r"isn't|is not|no)\b"
@@ -166,12 +176,23 @@ def find_unsafe_approval_claim(content: str) -> str | None:
     normalized = " ".join(content.lower().split())
     clauses = re.split(r"(?<=[.!?;])\s+", normalized)
     for clause in clauses:
-        for subject in APPROVAL_SUBJECT_PATTERN.finditer(clause):
-            tail = clause[subject.end() :]
+        subjects = list(APPROVAL_SUBJECT_PATTERN.finditer(clause))
+        for index, subject in enumerate(subjects):
+            subject_limit = subjects[index + 1].start() if index + 1 < len(subjects) else len(clause)
+            tail = clause[subject.end() : subject_limit]
+            canonical_boundary = APPROVAL_CANONICAL_BOUNDARY_PATTERN.search(
+                clause, subject.start(), subject_limit
+            )
             previous_end = 0
             previous_negated = False
             previous_predicate = ""
             for predicate in APPROVAL_UNSAFE_PREDICATE_PATTERN.finditer(tail):
+                absolute_end = subject.end() + predicate.end()
+                if canonical_boundary is not None and absolute_end <= canonical_boundary.end():
+                    previous_negated = True
+                    previous_end = predicate.end()
+                    previous_predicate = predicate.group(0)
+                    continue
                 raw_prefix = tail[previous_end : predicate.start()]
                 local_prefix = approval_local_prefix(raw_prefix)
                 if APPROVAL_DOUBLE_NEGATION_PATTERN.search(local_prefix) is not None:
@@ -192,6 +213,23 @@ def find_unsafe_approval_claim(content: str) -> str | None:
                 previous_negated = has_negation or continues_negated_phrase
                 previous_end = predicate.end()
                 previous_predicate = predicate.group(0)
+    return None
+
+
+def find_noncanonical_host_only_claim(content: str) -> str | None:
+    """Find an irreversible host-only claim outside the constrained grammar."""
+    normalized = " ".join(content.lower().split())
+    clauses = re.split(r"(?<=[.!?;])\s+", normalized)
+    for clause in clauses:
+        if APPROVAL_IRREVERSIBLE_SCOPE_PATTERN.search(clause) is None:
+            continue
+        subjects = list(APPROVAL_SUBJECT_PATTERN.finditer(clause))
+        for index, subject in enumerate(subjects):
+            subject_limit = subjects[index + 1].start() if index + 1 < len(subjects) else len(clause)
+            if APPROVAL_CANONICAL_BOUNDARY_PATTERN.search(
+                clause, subject.start(), subject_limit
+            ) is None:
+                return clause
     return None
 
 
@@ -351,7 +389,10 @@ def adapter_document_errors(path: Path) -> list[str]:
         errors.append("document must state the human approval boundary")
     if APPROVAL_CANONICAL_BOUNDARY_PATTERN.search(content) is None:
         errors.append("document must state canonical host-only approval boundary")
-    if find_unsafe_approval_claim(content) is not None:
+    if (
+        find_unsafe_approval_claim(content) is not None
+        or find_noncanonical_host_only_claim(content) is not None
+    ):
         errors.append("approval boundary must reject host-only approval")
     if not re.search(r"nested.{0,120}(worker|agent|subagent).{0,120}spawn", content):
         errors.append("document must state the nested worker-spawn boundary")
@@ -2166,7 +2207,7 @@ class HarnessAdapterTests(unittest.TestCase):
     def test_nested_spawn_is_native_only_when_host_limits_are_documented(self) -> None:
         expected_nested_status = {
             "claude-code": "native",
-            "codex": "native",
+            "codex": "unavailable",
             "cursor": "native",
         }
         for name, path in ADAPTER_PATHS.items():
@@ -2187,6 +2228,8 @@ class HarnessAdapterTests(unittest.TestCase):
         self.assertIn("unknown or version-unproven", overview)
         self.assertNotRegex(overview, re.compile(r"recursive.{0,80}agent[- ]team", re.IGNORECASE))
         self.assertIn("threadspawn", overview)
+        self.assertRegex(overview, re.compile(r"codex.{0,220}nested worker spawn.{0,220}`unavailable`", re.IGNORECASE))
+        self.assertRegex(overview, re.compile(r"threadspawn.{0,180}(records|tracks).{0,180}(no|not|without).{0,180}cap", re.IGNORECASE))
         self.assertRegex(overview, re.compile(r"patton.{0,180}(default|conservative).{0,180}(serial|unavailable)", re.IGNORECASE))
         self.assertRegex(overview, re.compile(r"editor.{0,80}cli.{0,100}plugin[- ](?:agent|subagent).{0,180}root.{0,100}(child|grandchild)", re.IGNORECASE))
         self.assertRegex(overview, re.compile(r"sdk.{0,180}(unrestricted|unlimited).{0,180}nest", re.IGNORECASE))
@@ -2197,8 +2240,10 @@ class HarnessAdapterTests(unittest.TestCase):
 
     def test_codex_documents_v1_v2_depth_and_requires_v2_proof(self) -> None:
         content = " ".join(read_text_or_empty(ADAPTER_PATHS["codex"]).lower().split())
+        rows = dict(parse_adapter_capability_rows(ADAPTER_PATHS["codex"]))
+        self.assertEqual(rows["nested worker spawn"], ["unavailable"])
 
-        for term in ("v1", "v2", "agents.max_depth", "threadspawn", "v1-only", "effective v2 cap"):
+        for term in ("v1", "v2", "agents.max_depth", "threadspawn", "v1-only", "separate finite cap source", "serial fallback"):
             with self.subTest(term=term):
                 self.assertIn(term, content)
         self.assertRegex(content, re.compile(r"v1.{0,220}agents\.max_depth.{0,220}(honor|control|limit)", re.IGNORECASE))
@@ -2209,7 +2254,9 @@ class HarnessAdapterTests(unittest.TestCase):
                 re.IGNORECASE,
             ),
         )
-        self.assertRegex(content, re.compile(r"effective v2 cap.{0,160}(unproven|unknown).{0,160}(serial fallback|required|must)", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"threadspawn.{0,220}(records|tracks).{0,220}(does not enforce|no enforced|not enforced).{0,220}cap", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"finite cap source.{0,180}(proof|proven).{0,180}(unavailable|serial fallback|required)", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"without.{0,80}cap proof.{0,160}(unavailable|serial fallback|required)", re.IGNORECASE))
 
     def test_claude_documents_versioned_recursive_spawn_caveat(self) -> None:
         content = " ".join(read_text_or_empty(ADAPTER_PATHS["claude-code"]).lower().split())
@@ -2279,9 +2326,16 @@ class HarnessAdapterTests(unittest.TestCase):
 
         safe_path = SAFE_APPROVAL_FIXTURE_PATHS["canonical subject change"]
         self.assertEqual(adapter_document_errors(safe_path), [])
+        self.assertEqual(
+            adapter_document_errors(SAFE_APPROVAL_FIXTURE_PATHS["coordinated authorize"]),
+            [],
+        )
         self.assertIn(
             "document must state canonical host-only approval boundary",
             adapter_document_errors(SAFE_APPROVAL_FIXTURE_PATHS["coordinated negation"]),
+        )
+        self.assertIsNotNone(
+            find_noncanonical_host_only_claim(read_text_or_empty(SAFE_APPROVAL_FIXTURE_PATHS["coordinated negation"])),
         )
 
     def test_skill_claims_compatibility_with_any_agent_skills_host(self) -> None:

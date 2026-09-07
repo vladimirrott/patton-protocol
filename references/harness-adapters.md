@@ -25,7 +25,7 @@ The portable core does not require adapter dependencies.
 | Parallel dispatch | `native` subagents or agent teams when enabled | `native` multi-agent support when enabled | `native` subagents or plugin agents when enabled; serial fallback when unavailable |
 | Serial fallback | `prompt-mediated` main-loop missions | `prompt-mediated` main-loop missions | `prompt-mediated` main-loop missions |
 | Approval boundary | `prompt-mediated` explicit human decision | `prompt-mediated` explicit human decision | `prompt-mediated` explicit human decision |
-| Nested worker spawn | `native` for proven Claude Code 2.1.219 and inherited 2.1.263; unknown or version-unproven surfaces are `unavailable` with serial fallback | `native` when documented and enabled; V2 cap unproven requires serial fallback | `native` for Cursor product surfaces, including editor, CLI, and plugin subagents, at root → child → grandchild; SDK supports unrestricted nesting per the June 2026 changelog; a finite Patton policy cap no greater than the host limit is required |
+| Nested worker spawn | `native` for proven Claude Code 2.1.219 and inherited 2.1.263; unknown or version-unproven surfaces are `unavailable` with serial fallback | `unavailable` unless a separate finite V2 cap source and proof are recorded; serial fallback required | `native` for Cursor product surfaces, including editor, CLI, and plugin subagents, at root → child → grandchild; SDK supports unrestricted nesting per the June 2026 changelog; a finite Patton policy cap no greater than the host limit is required |
 
 The table describes capability surfaces, not a support whitelist. An
 Agent-Skills-compatible host can load the package in principle. Prime checks the
@@ -68,15 +68,17 @@ their current surface does not add recursive nesting proof. Unknown or
 version-unproven Claude surfaces remain unavailable with serial fallback for an
 unknown version. A fork with an explicit recursive-spawn implementation must
 carry version evidence before Prime enables it. Codex V1 honors
-`agents.max_depth`; Codex V2 ignores `agents.max_depth` and `ThreadSpawn` tracks
-the effective nested depth. Cursor product surfaces, including editor, CLI, and
-plugin subagents, support root → child → grandchild; a grandchild cannot spawn
-a great-grandchild. Cursor SDK supports unrestricted configured nesting per the
+`agents.max_depth`; Codex V2 ignores `agents.max_depth` and `ThreadSpawn` records
+the effective nested depth but does not enforce a cap. Codex V2 nested worker
+spawn stays `unavailable` unless a separate finite cap source and proof are
+recorded, with serial fallback meanwhile. Cursor product surfaces, including
+editor, CLI, and plugin subagents, support root → child → grandchild; a
+grandchild cannot spawn a great-grandchild. Cursor SDK supports unrestricted
+configured nesting per the
 June 2026 changelog. Patton Prime requires a finite policy cap covering depth,
 tools, and permissions, and the cap cannot exceed the host limit. A parent
-worker must
-not assume it can create another worker, inherit a parent's permissions, or
-share a mutable path safely.
+worker must not assume it can create another worker, inherit a parent's
+permissions, or share a mutable path safely.
 Patton Prime defaults nested worker spawn to `unavailable` and serial fallback,
 even when an adapter marks it `native`; Prime enables it only after recording
 the proven version, host tool, permitted depth, and policy. If the effective

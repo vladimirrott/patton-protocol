@@ -12,7 +12,7 @@ skills. The canonical skill and its contracts work without this adapter.
 | Parallel dispatch | `native` | Use multi-agent support where the active Codex host enables it, with one immutable mutable-path boundary per Builder. |
 | Serial fallback | `prompt-mediated` | Run each mission in the main loop when the host cannot spawn or isolate workers. Preserve the independent Verifier and candidate identity checks. |
 | Approval boundary | `prompt-mediated` | Request one explicit human approval for each irreversible action. Sandbox, confirmation, or automation state does not grant protocol approval. |
-| Nested worker spawn | `native` | Codex V1 honors `agents.max_depth`; Codex V2 ignores `agents.max_depth` and relies on the effective depth tracked by `ThreadSpawn`. Prime records the V2 cap before enabling nested work; an unproven cap requires serial fallback. |
+| Nested worker spawn | `unavailable` | Codex V1 honors `agents.max_depth`; Codex V2 `ThreadSpawn` records depth but does not enforce a cap. Nested spawn stays unavailable with serial fallback unless a separate finite cap source and proof are recorded. |
 
 ## Mapping guidance
 
@@ -42,12 +42,14 @@ explicit human approval and cannot authorize an irreversible action.
 
 Codex V1 honors `agents.max_depth` as its configured nested-depth limit. That
 setting is V1-only and Codex V2 ignores `agents.max_depth`; V2's
-`ThreadSpawn` protocol records the effective nested depth and its cap. Custom
+`ThreadSpawn` protocol records the effective nested depth but does not enforce a
+cap. Custom
 agents can have different tools, permissions, and session context from the
 parent, and a worker's ability to run a skill does not prove its ability to
 create another worker. Codex hosts may expose multi-agent dispatch only at the
 top level. Patton Prime conservatively defaults nested worker spawn to
 `unavailable` and serial fallback until the active session records the
-`ThreadSpawn` tool, effective V2 cap, and policy. If that effective V2 cap is
-unproven, serial fallback is required. Nested work still needs a separate
+`ThreadSpawn` tool, a separate finite cap source and proof, and policy. Without
+that cap proof, nested worker spawn stays `unavailable` and serial fallback is
+required. Nested work still needs a separate
 mission identity, boundary, budget, report, and independent verification.
