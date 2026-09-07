@@ -1,5 +1,8 @@
 # Patton Protocol
 
+![CI](https://github.com/vladimirrott/patton-protocol/actions/workflows/ci.yml/badge.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Patton Protocol is a portable Agent Skills package for coordinating bounded
 coding-agent missions. The canonical entrypoint is [`SKILL.md`](SKILL.md); it
 alone is normative. Everything else here, the reference contracts, the host
@@ -70,3 +73,16 @@ diagnostic per problem otherwise.
 ```
 python3 -m unittest discover -s tests -v
 ```
+
+## Contributing
+
+Bug reports, new host adapters, and protocol proposals are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for how this repository is organized, the
+test-driven workflow it expects, and what a new adapter needs. This project
+follows the [Contributor Covenant](CODE_OF_CONDUCT.md). Security issues in
+the validator should go through the process in [SECURITY.md](SECURITY.md)
+rather than a public issue.
+
+## License
+
+[MIT](LICENSE)
