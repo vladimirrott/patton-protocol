@@ -14,7 +14,7 @@ dependency.
 | Parallel dispatch | `native` | Dispatch independent missions through Cursor subagents or plugin agents when enabled and path ownership is disjoint; use serial fallback when the surface is unavailable. |
 | Serial fallback | `prompt-mediated` | Execute missions in order in the main loop when parallel agent support is unavailable. Retain the mandatory independent Verifier and approval gate. |
 | Approval boundary | `prompt-mediated` | Obtain explicit human approval before an irreversible action. Workspace permissions or an automated agent decision do not satisfy the gate. |
-| Nested worker spawn | `native` | Cursor SDK supports configured subagents and nested capabilities at the exact two-layer boundary of the root and direct subagents, with no grandchildren. Prime records the configured tools, depth cap, and workspace policy; otherwise use serial fallback. |
+| Nested worker spawn | `native` | Cursor SDK supports configured subagents and nested capabilities through root → child → grandchild. A grandchild cannot spawn a great-grandchild. Prime records the configured tools, depth cap, and workspace policy; beyond that limit use serial fallback. |
 
 ## Mapping guidance
 
@@ -39,12 +39,12 @@ worker, Verifier, or plugin agent cannot approve its own work.
 
 ## Nested-spawn limitation
 
-Cursor SDK supports native nested capabilities for configured subagents at an
-exact two-layer boundary: the root agent and its direct subagents. Grandchildren
-are unavailable. Plugin agents and subagents may run with separate context,
+Cursor SDK supports native nested capabilities for configured subagents through
+the exact hierarchy root → child → grandchild. A grandchild cannot spawn a
+great-grandchild. Plugin agents and subagents may run with separate context,
 tools, and permissions, and a parent agent's dispatch surface does not prove
-that a child can spawn another worker. Depth beyond two layers requires serial
-fallback. Patton Prime conservatively defaults nested worker spawn to
-`unavailable` and serial fallback until the active workspace records the
-configured tool, depth cap, and policy. Nested missions retain independent
+that a child can spawn another worker. Depth beyond the grandchild limit
+requires serial fallback. Patton Prime conservatively defaults nested worker
+spawn to `unavailable` and serial fallback until the active workspace records
+the configured tool, depth cap, and policy. Nested missions retain independent
 identity, limits, reports, and verification.

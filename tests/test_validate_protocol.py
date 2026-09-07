@@ -44,6 +44,7 @@ ADAPTER_FIXTURE_PATHS = {
     "approval counted": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-counted" / "adapter.md",
     "approval satisfied": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-satisfied" / "adapter.md",
     "approval replaced": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-replaced" / "adapter.md",
+    "approval replaced compound": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-replaced-compound" / "adapter.md",
 }
 ADAPTER_EXPECTED_DIAGNOSTICS = {
     "invalid status": "parallel dispatch must have one allowed status",
@@ -58,6 +59,7 @@ ADAPTER_EXPECTED_DIAGNOSTICS = {
     "approval counted": "approval boundary must reject host-only approval",
     "approval satisfied": "approval boundary must reject host-only approval",
     "approval replaced": "approval boundary must reject host-only approval",
+    "approval replaced compound": "approval boundary must reject host-only approval",
 }
 SAFE_APPROVAL_FIXTURE_PATHS = {
     "never satisfies": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-never-satisfies" / "adapter.md",
@@ -65,6 +67,9 @@ SAFE_APPROVAL_FIXTURE_PATHS = {
     "does not replace": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-does-not-replace" / "adapter.md",
     "insufficient to grant": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-insufficient" / "adapter.md",
     "fails to satisfy": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-fails" / "adapter.md",
+    "was sufficient": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-was-sufficient" / "adapter.md",
+    "suffices": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-suffices" / "adapter.md",
+    "plural never satisfies": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-plural" / "adapter.md",
 }
 UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "satisfies": ADAPTER_FIXTURE_PATHS["approval polarity"],
@@ -75,13 +80,16 @@ UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "counted as": ADAPTER_FIXTURE_PATHS["approval counted"],
     "satisfied": ADAPTER_FIXTURE_PATHS["approval satisfied"],
     "replaced": ADAPTER_FIXTURE_PATHS["approval replaced"],
+    "replaced compound": ADAPTER_FIXTURE_PATHS["approval replaced compound"],
 }
 APPROVAL_SUBJECT_PATTERN = re.compile(
-    r"\b(?:host-only approval|host permission|workspace permissions|sandbox|automated host-only approval)\b"
+    r"\b(?:automated host-only approval(?:s)?|host-only approval(?:s)?|"
+    r"host permission(?:s)?|workspace permission(?:s)?|sandbox(?:es)?)\b"
 )
 APPROVAL_UNSAFE_PREDICATE_PATTERN = re.compile(
     r"\b(?:satisf(?:y|ies|ied|ying|ed)|count(?:s|ed|ing)?\s+as|"
-    r"constitut(?:e|es|ed|ing)|is\s+sufficient|grant(?:s|ed|ing)?|"
+    r"constitut(?:e|es|ed|ing)|(?:is|are|was|were)\s+sufficient|suffices|"
+    r"grant(?:s|ed|ing)?|"
     r"replac(?:e|es|ed|ing))\b"
 )
 APPROVAL_NEGATION_PATTERN = re.compile(
@@ -97,9 +105,18 @@ def find_unsafe_approval_claim(content: str) -> str | None:
     for clause in clauses:
         for subject in APPROVAL_SUBJECT_PATTERN.finditer(clause):
             tail = clause[subject.end() :]
-            predicate = APPROVAL_UNSAFE_PREDICATE_PATTERN.search(tail)
-            if predicate and not APPROVAL_NEGATION_PATTERN.search(tail[: predicate.start()]):
-                return clause
+            previous_end = 0
+            previous_negated = False
+            for predicate in APPROVAL_UNSAFE_PREDICATE_PATTERN.finditer(tail):
+                local_prefix = tail[previous_end : predicate.start()]
+                has_negation = APPROVAL_NEGATION_PATTERN.search(local_prefix) is not None
+                continues_negated_phrase = previous_negated and not re.search(
+                    r"\b(?:and|but|or|nor|however|though|while)\b", local_prefix
+                )
+                if not has_negation and not continues_negated_phrase:
+                    return clause
+                previous_negated = has_negation or continues_negated_phrase
+                previous_end = predicate.end()
     return None
 
 
@@ -2070,17 +2087,23 @@ class HarnessAdapterTests(unittest.TestCase):
                 assert_valid_adapter_document(self, path)
 
     def test_nested_spawn_is_native_only_when_host_limits_are_documented(self) -> None:
+        expected_nested_status = {
+            "claude-code": "unavailable",
+            "codex": "native",
+            "cursor": "native",
+        }
         for name, path in ADAPTER_PATHS.items():
             rows = dict(parse_adapter_capability_rows(path))
             with self.subTest(adapter=name):
-                self.assertEqual(rows["nested worker spawn"], ["native"])
+                self.assertEqual(rows["nested worker spawn"], [expected_nested_status[name]])
                 content = " ".join(read_text_or_empty(path).lower().split())
                 self.assertRegex(content, re.compile(r"nested.{0,180}(depth|tool|policy|configured|enabled)"))
                 self.assertRegex(content, re.compile(r"patton.{0,180}(default|conservative|serial|unavailable)"))
 
-        overview = " ".join(read_text_or_empty(HARNESS_ADAPTERS_PATH).lower().split())
+        overview_raw = read_text_or_empty(HARNESS_ADAPTERS_PATH)
+        overview = " ".join(overview_raw.lower().split())
         self.assertRegex(overview, re.compile(r"nested worker spawn.{0,160}`native`", re.IGNORECASE))
-        self.assertRegex(overview, re.compile(r"depth 3", re.IGNORECASE))
+        self.assertIn("| Nested worker spawn | `unavailable`", overview_raw)
         self.assertIn("threadspawn", overview)
         self.assertRegex(overview, re.compile(r"patton.{0,180}(default|conservative).{0,180}(serial|unavailable)", re.IGNORECASE))
 
@@ -2100,12 +2123,22 @@ class HarnessAdapterTests(unittest.TestCase):
         )
         self.assertRegex(content, re.compile(r"effective v2 cap.{0,160}(unproven|unknown).{0,160}(serial fallback|required|must)", re.IGNORECASE))
 
+    def test_claude_documents_versioned_recursive_spawn_caveat(self) -> None:
+        content = " ".join(read_text_or_empty(ADAPTER_PATHS["claude-code"]).lower().split())
+
+        self.assertIn("versioned feature", content)
+        self.assertIn("recursive spawn", content)
+        self.assertIn("changelog", content)
+        self.assertIn("fork", content)
+        self.assertRegex(content, re.compile(r"versioned feature.{0,180}(prove|proves).{0,180}(recursive[- ]spawn|spawn)" , re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"conservative.{0,120}(serial fallback|unavailable)", re.IGNORECASE))
+
     def test_cursor_documents_exact_two_layer_nested_boundary(self) -> None:
         content = " ".join(read_text_or_empty(ADAPTER_PATHS["cursor"]).lower().split())
 
-        self.assertRegex(content, re.compile(r"two-layer boundary|root.{0,80}direct subagents", re.IGNORECASE))
-        self.assertRegex(content, re.compile(r"no grandchildren|grandchildren.{0,120}(unavailable|serial)", re.IGNORECASE))
-        self.assertRegex(content, re.compile(r"depth.{0,160}(two|2).{0,160}(serial fallback|unavailable)", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"root.{0,80}(child|direct subagents).{0,80}grandchild", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"grandchild.{0,120}(cannot|no).{0,120}great-grandchild", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"depth.{0,160}(grandchild|three|3).{0,160}(serial fallback|unavailable)", re.IGNORECASE))
 
     def test_cursor_parallel_dispatch_is_native_when_subagents_are_enabled(self) -> None:
         rows = dict(parse_adapter_capability_rows(ADAPTER_PATHS["cursor"]))
