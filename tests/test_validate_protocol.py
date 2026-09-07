@@ -134,108 +134,18 @@ UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "enables injected": ADAPTER_FIXTURE_PATHS["approval enables injected"],
     "lets injected": ADAPTER_FIXTURE_PATHS["approval lets injected"],
 }
-APPROVAL_SUBJECT_PATTERN = re.compile(
-    r"\b(?:automated host-only approval(?:s)?|automated approval(?:s)?|"
-    r"host-only approval(?:s)?|host permission(?:s)?|workspace permission(?:s)?|"
-    r"sandbox(?:es)?)\b"
+# The approval-polarity regex machinery, the frontmatter/adapter-capability
+# parsers, and adapter_document_errors below are the canonical
+# implementation in scripts/validate_protocol.py; importing them here (rather
+# than keeping a second copy) is what actually makes that module the single
+# source of truth, per the fix that closed the drift risk a review found.
+from scripts.validate_protocol import (  # noqa: E402  (path setup above must precede this import)
+    APPROVAL_CANONICAL_BOUNDARY_PATTERN,
+    APPROVAL_IRREVERSIBLE_SCOPE_PATTERN,
+    approval_local_prefix,
+    find_noncanonical_host_only_claim,
+    find_unsafe_approval_claim,
 )
-APPROVAL_CANONICAL_BOUNDARY_PATTERN = re.compile(
-    r"(?:\bhost-only approval does not satisfy or replace explicit human approval "
-    r"and cannot authorize an irreversible action\b\.?|"
-    r"\bhost-only approval does not satisfy explicit human approval or authorize "
-    r"an irreversible action\b\.?)"
-)
-APPROVAL_UNSAFE_PREDICATE_PATTERN = re.compile(
-    r"\b(?:satisf(?:y|ies|ied|ying|ed)|count(?:s|ed|ing)?\s+as|"
-    r"constitut(?:e|es|ed|ing)|(?:is|are|was|were)\s+sufficient|suffices|"
-    r"grant(?:s|ed|ing)?|authoriz(?:e|es|ed|ing)|allow(?:s|ed|ing)?|"
-    r"permit(?:s|ted|ting)?|approv(?:e|es|ed|ing)|serv(?:e|es|ed|ing)\s+as|"
-    r"replac(?:e|es|ed|ing)|enabl(?:e|es|ed|ing)|let(?:s|ting)?)\b"
-)
-APPROVAL_IRREVERSIBLE_SCOPE_PATTERN = re.compile(r"\birreversible[- ]action(?:s)?\b")
-APPROVAL_NEGATION_PATTERN = re.compile(
-    r"\b(?:not|never|cannot|can't|do not|does not|fails? to|insufficient to|"
-    r"isn't|is not|no)\b"
-)
-APPROVAL_DOUBLE_NEGATION_PATTERN = re.compile(
-    r"\b(?:not|never|cannot|can't|do not|does not|fails? to)\s+"
-    r"fail(?:s|ed|ing)?\s+to\b"
-)
-APPROVAL_LOCAL_BOUNDARY_PATTERN = re.compile(
-    r"(?:[,;]|\b(?:and|or|nor|but|however|though|while|yet)\b)"
-)
-APPROVAL_BARE_COORDINATION_PATTERN = re.compile(r"^\s*,?\s*(?:or|nor)\s*,?\s*$")
-APPROVAL_BARE_AND_PATTERN = re.compile(r"^\s*,?\s*and\s*,?\s*$")
-APPROVAL_TO_COMPLEMENT_PATTERN = re.compile(r"^\s+to\s+$")
-APPROVAL_BARE_PREDICATES = {"replace", "grant", "satisfy"}
-
-
-def approval_local_prefix(prefix: str) -> str:
-    """Keep only the predicate's local condition after the latest boundary."""
-    boundaries = list(APPROVAL_LOCAL_BOUNDARY_PATTERN.finditer(prefix))
-    if not boundaries:
-        return prefix
-    return prefix[boundaries[-1].end() :]
-
-
-def find_unsafe_approval_claim(content: str) -> str | None:
-    """Find an unsafe approval predicate with no negation in its clause."""
-    normalized = " ".join(content.lower().split())
-    clauses = re.split(r"(?<=[.!?;])\s+", normalized)
-    for clause in clauses:
-        subjects = list(APPROVAL_SUBJECT_PATTERN.finditer(clause))
-        for index, subject in enumerate(subjects):
-            subject_limit = subjects[index + 1].start() if index + 1 < len(subjects) else len(clause)
-            tail = clause[subject.end() : subject_limit]
-            canonical_safe = APPROVAL_CANONICAL_BOUNDARY_PATTERN.fullmatch(
-                clause[subject.start() : subject_limit].strip()
-            ) is not None
-            if canonical_safe:
-                continue
-            if APPROVAL_IRREVERSIBLE_SCOPE_PATTERN.search(tail) is not None:
-                return clause
-            previous_end = 0
-            previous_negated = False
-            previous_predicate = ""
-            for predicate in APPROVAL_UNSAFE_PREDICATE_PATTERN.finditer(tail):
-                raw_prefix = tail[previous_end : predicate.start()]
-                local_prefix = approval_local_prefix(raw_prefix)
-                if APPROVAL_DOUBLE_NEGATION_PATTERN.search(local_prefix) is not None:
-                    return clause
-                has_negation = APPROVAL_NEGATION_PATTERN.search(local_prefix) is not None
-                coordinated = APPROVAL_BARE_COORDINATION_PATTERN.fullmatch(raw_prefix) is not None
-                bare_and = (
-                    APPROVAL_BARE_AND_PATTERN.fullmatch(raw_prefix) is not None
-                    and predicate.group(0) in APPROVAL_BARE_PREDICATES
-                )
-                to_complement = (
-                    APPROVAL_TO_COMPLEMENT_PATTERN.fullmatch(raw_prefix) is not None
-                    and previous_predicate == "suffices"
-                )
-                continues_negated_phrase = previous_negated and (coordinated or bare_and or to_complement)
-                if not has_negation and not continues_negated_phrase:
-                    return clause
-                previous_negated = has_negation or continues_negated_phrase
-                previous_end = predicate.end()
-                previous_predicate = predicate.group(0)
-    return None
-
-
-def find_noncanonical_host_only_claim(content: str) -> str | None:
-    """Find an irreversible host-only claim outside the constrained grammar."""
-    normalized = " ".join(content.lower().split())
-    clauses = re.split(r"(?<=[.!?;])\s+", normalized)
-    for clause in clauses:
-        if APPROVAL_IRREVERSIBLE_SCOPE_PATTERN.search(clause) is None:
-            continue
-        subjects = list(APPROVAL_SUBJECT_PATTERN.finditer(clause))
-        for index, subject in enumerate(subjects):
-            subject_limit = subjects[index + 1].start() if index + 1 < len(subjects) else len(clause)
-            if APPROVAL_CANONICAL_BOUNDARY_PATTERN.fullmatch(
-                clause[subject.start() : subject_limit].strip()
-            ) is None:
-                return clause
-    return None
 
 
 GITIGNORE_PATH = PACKAGE_ROOT / ".gitignore"
@@ -320,88 +230,17 @@ UNRESERVED_PATH_BYTES = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 UPPERCASE_HEX_DIGITS = frozenset("0123456789ABCDEF")
 
 
-def read_frontmatter(path: Path) -> dict[str, str]:
-    """Read the simple scalar YAML frontmatter used by an Agent Skill."""
-    if not path.is_file():
-        return {}
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
-
-    try:
-        end = lines.index("---", 1)
-    except ValueError:
-        return {}
-
-    frontmatter: dict[str, str] = {}
-    for line in lines[1:end]:
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        frontmatter[key.strip()] = value.strip().strip('"\'')
-    return frontmatter
-
-
-def read_text_or_empty(path: Path) -> str:
-    """Return an empty document while a package artifact is absent."""
-    return path.read_text(encoding="utf-8") if path.is_file() else ""
-
-
-def parse_adapter_capability_rows(path: Path) -> list[tuple[str, list[str]]]:
-    """Parse capability/status cells from an adapter's capability matrix."""
-    content = read_text_or_empty(path)
-    match = re.search(r"^## Capability matrix\s*$", content, re.MULTILINE | re.IGNORECASE)
-    if not match:
-        return []
-    section = content[match.end() :]
-    next_heading = re.search(r"^##\s+", section, re.MULTILINE)
-    if next_heading:
-        section = section[: next_heading.start()]
-
-    rows: list[tuple[str, list[str]]] = []
-    for line in section.splitlines():
-        if not line.lstrip().startswith("|"):
-            continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) < 3:
-            continue
-        capability = cells[0].lower()
-        if capability in ADAPTER_REQUIRED_CAPABILITIES:
-            rows.append((capability, re.findall(r"`([^`]+)`", cells[1])))
-    return rows
-
-
-def adapter_document_errors(path: Path) -> list[str]:
-    """Return structural and boundary errors found in an adapter document."""
-    rows = parse_adapter_capability_rows(path)
-    by_capability: dict[str, list[list[str]]] = {}
-    for capability, statuses in rows:
-        by_capability.setdefault(capability, []).append(statuses)
-
-    errors: list[str] = []
-    if set(by_capability) != set(ADAPTER_REQUIRED_CAPABILITIES):
-        errors.append("matrix must contain every required capability")
-    for capability in ADAPTER_REQUIRED_CAPABILITIES:
-        statuses = by_capability.get(capability, [])
-        if len(statuses) != 1:
-            errors.append(f"{capability} must have one row")
-        elif len(statuses[0]) != 1 or statuses[0][0] not in ADAPTER_ALLOWED_STATUSES:
-            errors.append(f"{capability} must have one allowed status")
-
-    content = " ".join(read_text_or_empty(path).lower().split())
-    if not re.search(r"human.{0,40}approval|approval.{0,40}human", content):
-        errors.append("document must state the human approval boundary")
-    if APPROVAL_CANONICAL_BOUNDARY_PATTERN.search(content) is None:
-        errors.append("document must state canonical host-only approval boundary")
-    if (
-        find_unsafe_approval_claim(content) is not None
-        or find_noncanonical_host_only_claim(content) is not None
-    ):
-        errors.append("approval boundary must reject host-only approval")
-    if not re.search(r"nested.{0,120}(worker|agent|subagent).{0,120}spawn", content):
-        errors.append("document must state the nested worker-spawn boundary")
-    return errors
+# read_frontmatter, read_text_or_empty, parse_adapter_capability_rows, and
+# adapter_document_errors (imported here as the script's adapter_capability_errors,
+# which is the fuller, canonical version including the approval-polarity and
+# nested-spawn-boundary checks, not a re-typed duplicate) all now live in
+# scripts/validate_protocol.py; see the import block near the top of this file.
+from scripts.validate_protocol import (  # noqa: E402  (path setup above must precede this import)
+    adapter_capability_errors as adapter_document_errors,
+    parse_adapter_capability_rows,
+    read_frontmatter,
+    read_text_or_empty,
+)
 
 
 def assert_valid_adapter_document(test_case: unittest.TestCase, path: Path) -> None:
@@ -2335,11 +2174,12 @@ class HarnessAdapterTests(unittest.TestCase):
             adapter_document_errors(SAFE_APPROVAL_FIXTURE_PATHS["coordinated authorize"]),
             [],
         )
-        self.assertIn(
-            "document must state canonical host-only approval boundary",
-            adapter_document_errors(
-                PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated" / "adapter.md"
-            ),
+        coordinated_errors = adapter_document_errors(
+            PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-coordinated" / "adapter.md"
+        )
+        self.assertTrue(
+            any("document must state canonical host-only approval boundary" in error for error in coordinated_errors),
+            coordinated_errors,
         )
         self.assertIsNotNone(
             find_noncanonical_host_only_claim(
@@ -2450,14 +2290,10 @@ class StandaloneValidatorTests(unittest.TestCase):
         self.assertTrue(any("candidate revision" in error for error in errors), errors)
 
     def test_validator_reports_malformed_adapter_capability_labels(self) -> None:
-        # The validator's adapter check covers capability-matrix structure
-        # (rows and status labels), not the separate approval-polarity prose
-        # check that `adapter_document_errors` also performs above; the
-        # remaining fixtures in ADAPTER_FIXTURE_PATHS exercise that check
-        # instead and are already covered by test_malformed_adapter_capability_fixtures_are_rejected.
-        capability_structure_fixtures = ("invalid status", "missing row", "duplicate row")
-        for label in capability_structure_fixtures:
-            path = ADAPTER_FIXTURE_PATHS[label]
+        # adapter_capability_errors is now the fuller, canonical check (moved
+        # from the test file into the script), so it catches every fixture in
+        # ADAPTER_FIXTURE_PATHS, not just the capability-matrix-structure ones.
+        for label, path in ADAPTER_FIXTURE_PATHS.items():
             with self.subTest(fixture=label):
                 errors = validate_protocol.adapter_capability_errors(path)
                 self.assertTrue(errors, path)

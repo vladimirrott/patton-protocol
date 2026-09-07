@@ -50,6 +50,19 @@ can accidentally satisfy the very check it's supposed to violate (this bit
 the project once already: see the git history around
 `tests/fixtures/invalid-report-schema/`).
 
+## The candidate-manifest rules are deliberately repeated, not shared
+
+`SKILL.md`'s Plan section, `references/mission-contract.md`, and
+`references/safety-and-budgets.md` each restate the untracked/candidate-digest
+rules (symlink and gitlink rejection, the candidate/non-candidate path
+partition, post-lock reclassification) in near-identical prose. That's
+intentional, each file's tests substring-match the rule independently in
+that file's own context, but it means **no test enforces that the three
+copies stay semantically equivalent**. If you correct one of these rules,
+update all three, and read the other two closely rather than assuming a grep
+for the same phrase will catch every copy; the wording differs slightly
+between files on purpose.
+
 ## Adding a fourth host adapter
 
 `adapters/claude-code.md`, `adapters/codex.md`, and `adapters/cursor.md` are

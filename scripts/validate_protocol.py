@@ -2,10 +2,13 @@
 
 Checks the canonical `SKILL.md`, its linked references, and any host
 adapters against the structural rules the package must satisfy: valid
-frontmatter, resolvable relative links, the required lifecycle and
-orchestration terms, no vendor-required syntax in the canonical core, a
-complete worker-report field schema, and well-formed adapter capability
-matrices. This module has no third-party dependencies so it runs anywhere
+frontmatter, resolvable relative links (including README.md's own), the
+required lifecycle and orchestration terms, no vendor-required syntax in the
+canonical core, a complete worker-report field schema, and well-formed
+adapter documents (capability matrix rows and statuses, the human-approval
+and nested-worker-spawn boundaries, and rejection of any unnegated claim that
+a host-only approval satisfies, replaces, or authorizes an irreversible
+action). This module has no third-party dependencies so it runs anywhere
 Python 3.11+ runs.
 """
 
@@ -72,6 +75,109 @@ FORBIDDEN_VENDOR_SYNTAX = (
 MARKDOWN_LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 EXTERNAL_LINK_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 
+APPROVAL_SUBJECT_PATTERN = re.compile(
+    r"\b(?:automated host-only approval(?:s)?|automated approval(?:s)?|"
+    r"host-only approval(?:s)?|host permission(?:s)?|workspace permission(?:s)?|"
+    r"sandbox(?:es)?)\b"
+)
+APPROVAL_CANONICAL_BOUNDARY_PATTERN = re.compile(
+    r"(?:\bhost-only approval does not satisfy or replace explicit human approval "
+    r"and cannot authorize an irreversible action\b\.?|"
+    r"\bhost-only approval does not satisfy explicit human approval or authorize "
+    r"an irreversible action\b\.?)"
+)
+APPROVAL_UNSAFE_PREDICATE_PATTERN = re.compile(
+    r"\b(?:satisf(?:y|ies|ied|ying|ed)|count(?:s|ed|ing)?\s+as|"
+    r"constitut(?:e|es|ed|ing)|(?:is|are|was|were)\s+sufficient|suffices|"
+    r"grant(?:s|ed|ing)?|authoriz(?:e|es|ed|ing)|allow(?:s|ed|ing)?|"
+    r"permit(?:s|ted|ting)?|approv(?:e|es|ed|ing)|serv(?:e|es|ed|ing)\s+as|"
+    r"replac(?:e|es|ed|ing)|enabl(?:e|es|ed|ing)|let(?:s|ting)?)\b"
+)
+APPROVAL_IRREVERSIBLE_SCOPE_PATTERN = re.compile(r"\birreversible[- ]action(?:s)?\b")
+APPROVAL_NEGATION_PATTERN = re.compile(
+    r"\b(?:not|never|cannot|can't|do not|does not|fails? to|insufficient to|"
+    r"isn't|is not|no)\b"
+)
+APPROVAL_DOUBLE_NEGATION_PATTERN = re.compile(
+    r"\b(?:not|never|cannot|can't|do not|does not|fails? to)\s+"
+    r"fail(?:s|ed|ing)?\s+to\b"
+)
+APPROVAL_LOCAL_BOUNDARY_PATTERN = re.compile(
+    r"(?:[,;]|\b(?:and|or|nor|but|however|though|while|yet)\b)"
+)
+APPROVAL_BARE_COORDINATION_PATTERN = re.compile(r"^\s*,?\s*(?:or|nor)\s*,?\s*$")
+APPROVAL_BARE_AND_PATTERN = re.compile(r"^\s*,?\s*and\s*,?\s*$")
+APPROVAL_TO_COMPLEMENT_PATTERN = re.compile(r"^\s+to\s+$")
+APPROVAL_BARE_PREDICATES = {"replace", "grant", "satisfy"}
+
+
+def approval_local_prefix(prefix: str) -> str:
+    """Keep only the predicate's local condition after the latest boundary."""
+    boundaries = list(APPROVAL_LOCAL_BOUNDARY_PATTERN.finditer(prefix))
+    if not boundaries:
+        return prefix
+    return prefix[boundaries[-1].end():]
+
+
+def find_unsafe_approval_claim(content: str) -> str | None:
+    """Find an unsafe approval predicate with no negation in its clause."""
+    normalized = " ".join(content.lower().split())
+    clauses = re.split(r"(?<=[.!?;])\s+", normalized)
+    for clause in clauses:
+        subjects = list(APPROVAL_SUBJECT_PATTERN.finditer(clause))
+        for index, subject in enumerate(subjects):
+            subject_limit = subjects[index + 1].start() if index + 1 < len(subjects) else len(clause)
+            tail = clause[subject.end():subject_limit]
+            canonical_safe = APPROVAL_CANONICAL_BOUNDARY_PATTERN.fullmatch(
+                clause[subject.start():subject_limit].strip()
+            ) is not None
+            if canonical_safe:
+                continue
+            if APPROVAL_IRREVERSIBLE_SCOPE_PATTERN.search(tail) is not None:
+                return clause
+            previous_end = 0
+            previous_negated = False
+            previous_predicate = ""
+            for predicate in APPROVAL_UNSAFE_PREDICATE_PATTERN.finditer(tail):
+                raw_prefix = tail[previous_end:predicate.start()]
+                local_prefix = approval_local_prefix(raw_prefix)
+                if APPROVAL_DOUBLE_NEGATION_PATTERN.search(local_prefix) is not None:
+                    return clause
+                has_negation = APPROVAL_NEGATION_PATTERN.search(local_prefix) is not None
+                coordinated = APPROVAL_BARE_COORDINATION_PATTERN.fullmatch(raw_prefix) is not None
+                bare_and = (
+                    APPROVAL_BARE_AND_PATTERN.fullmatch(raw_prefix) is not None
+                    and predicate.group(0) in APPROVAL_BARE_PREDICATES
+                )
+                to_complement = (
+                    APPROVAL_TO_COMPLEMENT_PATTERN.fullmatch(raw_prefix) is not None
+                    and previous_predicate == "suffices"
+                )
+                continues_negated_phrase = previous_negated and (coordinated or bare_and or to_complement)
+                if not has_negation and not continues_negated_phrase:
+                    return clause
+                previous_negated = has_negation or continues_negated_phrase
+                previous_end = predicate.end()
+                previous_predicate = predicate.group(0)
+    return None
+
+
+def find_noncanonical_host_only_claim(content: str) -> str | None:
+    """Find an irreversible host-only claim outside the constrained grammar."""
+    normalized = " ".join(content.lower().split())
+    clauses = re.split(r"(?<=[.!?;])\s+", normalized)
+    for clause in clauses:
+        if APPROVAL_IRREVERSIBLE_SCOPE_PATTERN.search(clause) is None:
+            continue
+        subjects = list(APPROVAL_SUBJECT_PATTERN.finditer(clause))
+        for index, subject in enumerate(subjects):
+            subject_limit = subjects[index + 1].start() if index + 1 < len(subjects) else len(clause)
+            if APPROVAL_CANONICAL_BOUNDARY_PATTERN.fullmatch(
+                clause[subject.start():subject_limit].strip()
+            ) is None:
+                return clause
+    return None
+
 
 def read_text_or_empty(path: Path) -> str:
     """Return a file's text, or an empty string when the file is absent."""
@@ -137,7 +243,7 @@ def resolve_markdown_links(root: Path, path: Path) -> list[str]:
         except ValueError:
             errors.append(f"{path}: link {target!r} escapes the package root")
             continue
-        if not resolved.exists():
+        if not (resolved.is_file() or resolved.is_dir()):
             errors.append(f"{path}: link {target!r} does not resolve to a file or directory")
     return errors
 
@@ -201,7 +307,14 @@ def parse_adapter_capability_rows(path: Path) -> list[tuple[str, list[str]]]:
 
 
 def adapter_capability_errors(path: Path) -> list[str]:
-    """Return structural errors in an adapter's capability matrix."""
+    """Return structural and boundary errors found in an adapter document.
+
+    Covers the full adapter contract, not just the capability matrix: the
+    human-approval boundary, the canonical host-only-approval disclaimer, the
+    approval-polarity claim (no unnegated claim that a host-only approval
+    satisfies, replaces, or authorizes an irreversible action), and the
+    nested-worker-spawn boundary, in addition to matrix row/status structure.
+    """
     rows = parse_adapter_capability_rows(path)
     by_capability: dict[str, list[list[str]]] = {}
     for capability, statuses in rows:
@@ -216,6 +329,19 @@ def adapter_capability_errors(path: Path) -> list[str]:
             errors.append(f"{path}: {capability} must have one row")
         elif len(statuses[0]) != 1 or statuses[0][0] not in ADAPTER_ALLOWED_STATUSES:
             errors.append(f"{path}: {capability} must have one allowed status")
+
+    content = " ".join(read_text_or_empty(path).lower().split())
+    if not re.search(r"human.{0,40}approval|approval.{0,40}human", content):
+        errors.append(f"{path}: document must state the human approval boundary")
+    if APPROVAL_CANONICAL_BOUNDARY_PATTERN.search(content) is None:
+        errors.append(f"{path}: document must state canonical host-only approval boundary")
+    if (
+        find_unsafe_approval_claim(content) is not None
+        or find_noncanonical_host_only_claim(content) is not None
+    ):
+        errors.append(f"{path}: approval boundary must reject host-only approval")
+    if not re.search(r"nested.{0,120}(worker|agent|subagent).{0,120}spawn", content):
+        errors.append(f"{path}: document must state the nested worker-spawn boundary")
     return errors
 
 
