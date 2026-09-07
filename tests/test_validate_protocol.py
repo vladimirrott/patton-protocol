@@ -6,11 +6,19 @@ import inspect
 import os
 import re
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+if str(PACKAGE_ROOT) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_ROOT))
+
+from scripts import validate_protocol  # noqa: E402  (path setup must precede this import)
+
+VALIDATOR_SCRIPT_PATH = PACKAGE_ROOT / "scripts" / "validate_protocol.py"
+FIXTURES_ROOT = PACKAGE_ROOT / "tests" / "fixtures"
 SKILL_PATH = PACKAGE_ROOT / "SKILL.md"
 OPENAI_METADATA_PATH = PACKAGE_ROOT / "agents" / "openai.yaml"
 MISSION_CONTRACT_PATH = PACKAGE_ROOT / "references" / "mission-contract.md"
@@ -2391,6 +2399,82 @@ class HarnessAdapterTests(unittest.TestCase):
         self.assertIn("nested", combined)
         self.assertRegex(combined, re.compile(r"nested.{0,160}(spawn|agent|subagent)", re.IGNORECASE))
         self.assertRegex(combined, re.compile(r"serial fallback.{0,220}(same contract|verification|approval)", re.IGNORECASE))
+
+
+class StandaloneValidatorTests(unittest.TestCase):
+    """The standalone validator enforces the package's structural rules."""
+
+    def test_validator_accepts_the_real_package(self) -> None:
+        self.assertEqual(validate_protocol.validate_package(PACKAGE_ROOT), [])
+
+    def test_validator_reports_missing_frontmatter(self) -> None:
+        errors = validate_protocol.validate_package(FIXTURES_ROOT / "invalid-missing-frontmatter")
+        self.assertTrue(any("missing YAML frontmatter" in error for error in errors), errors)
+
+    def test_validator_reports_broken_relative_link(self) -> None:
+        errors = validate_protocol.validate_package(FIXTURES_ROOT / "invalid-broken-link")
+        self.assertTrue(
+            any("does not resolve to a file" in error for error in errors), errors
+        )
+
+    def test_validator_reports_vendor_required_syntax(self) -> None:
+        errors = validate_protocol.validate_package(FIXTURES_ROOT / "invalid-vendor-core")
+        self.assertTrue(
+            any("vendor-specific syntax" in error for error in errors), errors
+        )
+
+    def test_validator_reports_missing_serial_fallback_wording(self) -> None:
+        errors = validate_protocol.validate_package(FIXTURES_ROOT / "invalid-missing-serial-fallback")
+        self.assertTrue(
+            any("serial fallback" in error for error in errors), errors
+        )
+
+    def test_validator_reports_missing_report_fields(self) -> None:
+        fixture_path = FIXTURES_ROOT / "invalid-report-schema" / "references" / "worker-report.md"
+        errors = validate_protocol.validate_report_fields(fixture_path)
+        self.assertTrue(any("next action" in error for error in errors), errors)
+        self.assertTrue(any("candidate revision" in error for error in errors), errors)
+
+    def test_validator_reports_malformed_adapter_capability_labels(self) -> None:
+        # The validator's adapter check covers capability-matrix structure
+        # (rows and status labels), not the separate approval-polarity prose
+        # check that `adapter_document_errors` also performs above; the
+        # remaining fixtures in ADAPTER_FIXTURE_PATHS exercise that check
+        # instead and are already covered by test_malformed_adapter_capability_fixtures_are_rejected.
+        capability_structure_fixtures = ("invalid status", "missing row", "duplicate row")
+        for label in capability_structure_fixtures:
+            path = ADAPTER_FIXTURE_PATHS[label]
+            with self.subTest(fixture=label):
+                errors = validate_protocol.adapter_capability_errors(path)
+                self.assertTrue(errors, path)
+                self.assertTrue(
+                    any(ADAPTER_EXPECTED_DIAGNOSTICS[label] in error for error in errors),
+                    f"{path}: expected {ADAPTER_EXPECTED_DIAGNOSTICS[label]!r}, got {errors!r}",
+                )
+        for name, path in ADAPTER_PATHS.items():
+            with self.subTest(adapter=name):
+                self.assertEqual(validate_protocol.adapter_capability_errors(path), [])
+
+    def test_validator_cli_exits_zero_and_prints_valid_for_the_real_package(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(VALIDATOR_SCRIPT_PATH), str(PACKAGE_ROOT)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("valid", result.stdout)
+
+    def test_validator_cli_exits_nonzero_with_diagnostics_for_an_invalid_fixture(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(VALIDATOR_SCRIPT_PATH), str(FIXTURES_ROOT / "invalid-vendor-core")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("vendor-specific syntax", result.stderr)
+        self.assertIn("invalid:", result.stderr)
 
 
 if __name__ == "__main__":
