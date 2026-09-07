@@ -13,7 +13,7 @@ configuration before a surface is available.
 | Parallel dispatch | `native` | Dispatch independent missions through subagents or agent teams when the host has enabled that surface and ownership paths are disjoint. |
 | Serial fallback | `prompt-mediated` | Run missions in order in the main loop when spawning or isolation is unavailable. Keep the distinct Verifier identity and all evidence checks. |
 | Approval boundary | `prompt-mediated` | Ask a human for explicit approval before an irreversible action. Tool permissions and host policy do not count as that decision. |
-| Nested worker spawn | `native` | The Claude Code 2.1.263 changelog documents recursive spawn for subagents and agent teams, with default depth 3 and a host environment override. Prime records the proven version, tool, policy, and depth; unknown or version-unproven surfaces remain `unavailable` with serial fallback. |
+| Nested worker spawn | `native` | The Claude Code 2.1.219 changelog documents recursive subagent spawn, with default depth 3 and a host environment override; 2.1.263 inherits that capability. Prime records the proven version, tool, policy, and depth; unknown or version-unproven surfaces remain `unavailable` with serial fallback. |
 
 ## Mapping guidance
 
@@ -35,10 +35,12 @@ a denied or missing approval leaves the mission `blocked`.
 
 ## Nested-spawn limitation
 
-The Claude Code 2.1.263 changelog documents recursive spawn for subagents and
-agent teams. The default maximum depth is 3, and a host environment override can
-change that depth. A worker may still lack the same spawn tool, context, budget,
-or permission policy as its parent. Patton Prime marks nested worker spawn
+The Claude Code 2.1.219 changelog documents recursive spawn for subagents. The
+default maximum depth is 3, and a host environment override can change that
+depth. Claude Code 2.1.263 inherits this documented capability. Agent teams can
+dispatch workers, but their current surface does not add recursive nesting
+proof. A worker may still lack the same spawn tool, context, budget, or
+permission policy as its parent. Patton Prime marks nested worker spawn
 `native` only for the proven version and recorded depth, tool, and policy.
 Patton Prime conservatively treats an unknown version or version-unproven
 surface as `unavailable` and uses serial fallback. A fork must carry an explicit recursive-spawn implementation and
