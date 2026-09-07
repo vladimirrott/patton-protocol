@@ -25,7 +25,7 @@ The portable core does not require adapter dependencies.
 | Parallel dispatch | `native` subagents or agent teams when enabled | `native` multi-agent support when enabled | `native` subagents or plugin agents when enabled; serial fallback when unavailable |
 | Serial fallback | `prompt-mediated` main-loop missions | `prompt-mediated` main-loop missions | `prompt-mediated` main-loop missions |
 | Approval boundary | `prompt-mediated` explicit human decision | `prompt-mediated` explicit human decision | `prompt-mediated` explicit human decision |
-| Nested worker spawn | `native` when documented and enabled; conservative default uses serial fallback | `native` when documented and enabled; conservative default uses serial fallback | `native` when documented and enabled; conservative default uses serial fallback |
+| Nested worker spawn | `native` when documented and enabled; conservative default uses serial fallback | `native` when documented and enabled; V2 cap unproven requires serial fallback | `native` for the configured root and direct subagents; conservative default uses serial fallback |
 
 The table describes capability surfaces, not a support whitelist. An
 Agent-Skills-compatible host can load the package in principle. Prime checks the
@@ -59,14 +59,17 @@ mission blocked.
 
 Nested spawning differs by host configuration, tool availability, depth limits,
 and session policy. Claude Code supports nested subagents to depth 3 by default,
-with a host environment override. Codex `ThreadSpawn` tracks nested depth.
-Cursor SDK supports configured subagents and nested capabilities, subject to
-workspace tools and policy. A parent worker must not assume it can create
-another worker, inherit a parent's permissions, or share a mutable path safely.
+with a host environment override. Codex V1 honors `agents.max_depth`; Codex V2
+ignores `agents.max_depth` and `ThreadSpawn` tracks the effective nested depth.
+Cursor SDK supports configured subagents and nested capabilities at the exact
+two-layer boundary of the root and direct subagents, with no grandchildren,
+subject to workspace tools and policy. A parent worker must not assume it can
+create another worker, inherit a parent's permissions, or share a mutable path safely.
 Patton Prime defaults nested worker spawn to `unavailable` and serial fallback,
 even when the adapter marks it `native`; Prime enables it only after recording
-the host tool, permitted depth, and policy. A nested mission still needs its
-own identity, boundary, limits, report, and independent verification.
+the host tool, permitted depth, and policy. If the effective Codex V2 cap is
+unproven, serial fallback is required. A nested mission still needs its own
+identity, boundary, limits, report, and independent verification.
 
 ## Host notes
 
