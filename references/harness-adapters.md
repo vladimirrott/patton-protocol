@@ -22,7 +22,7 @@ The portable core does not require adapter dependencies.
 | --- | --- | --- | --- |
 | Loading | `native` skill discovery or explicit invocation | `native` skill discovery or explicit invocation | `native` Agent Skills discovery or explicit invocation |
 | Worker definition | `native` custom subagents or agent teams | `native` custom agents and skills | `native` plugin agents and skills |
-| Parallel dispatch | `native` subagents or agent teams when enabled | `native` multi-agent support when enabled | `prompt-mediated` agent or plugin dispatch where enabled |
+| Parallel dispatch | `native` subagents or agent teams when enabled | `native` multi-agent support when enabled | `native` subagents or plugin agents when enabled; serial fallback when unavailable |
 | Serial fallback | `prompt-mediated` main-loop missions | `prompt-mediated` main-loop missions | `prompt-mediated` main-loop missions |
 | Approval boundary | `prompt-mediated` explicit human decision | `prompt-mediated` explicit human decision | `prompt-mediated` explicit human decision |
 | Nested worker spawn | `unavailable` unless the host explicitly exposes and permits it | `unavailable` unless the host explicitly exposes and permits it | `unavailable` unless the host explicitly exposes and permits it |
@@ -30,7 +30,9 @@ The portable core does not require adapter dependencies.
 The table describes capability surfaces, not a support whitelist. An
 Agent-Skills-compatible host can load the package in principle. Prime checks the
 actual host capability matrix at dispatch time, records the selected status,
-and preserves serial fallback when parallel dispatch is unavailable.
+and preserves serial fallback when parallel dispatch is unavailable. A host
+surface that can only coordinate dispatch through prompts is
+`prompt-mediated`.
 
 ## Shared adapter rules
 

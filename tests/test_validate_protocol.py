@@ -22,6 +22,21 @@ ADAPTER_PATHS = {
     "codex": PACKAGE_ROOT / "adapters" / "codex.md",
     "cursor": PACKAGE_ROOT / "adapters" / "cursor.md",
 }
+ADAPTER_REQUIRED_CAPABILITIES = (
+    "loading",
+    "worker definition",
+    "parallel dispatch",
+    "serial fallback",
+    "approval boundary",
+    "nested worker spawn",
+)
+ADAPTER_ALLOWED_STATUSES = {"native", "prompt-mediated", "unavailable"}
+ADAPTER_FIXTURE_PATHS = {
+    "invalid status": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-status" / "adapter.md",
+    "missing row": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-missing-row" / "adapter.md",
+    "duplicate row": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-duplicate-row" / "adapter.md",
+    "missing approval": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-missing-approval" / "adapter.md",
+}
 GITIGNORE_PATH = PACKAGE_ROOT / ".gitignore"
 LIFECYCLE_TERMS = (
     "scope",
@@ -130,6 +145,60 @@ def read_frontmatter(path: Path) -> dict[str, str]:
 def read_text_or_empty(path: Path) -> str:
     """Return an empty document while a package artifact is absent."""
     return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def parse_adapter_capability_rows(path: Path) -> list[tuple[str, list[str]]]:
+    """Parse capability/status cells from an adapter's capability matrix."""
+    content = read_text_or_empty(path)
+    match = re.search(r"^## Capability matrix\s*$", content, re.MULTILINE | re.IGNORECASE)
+    if not match:
+        return []
+    section = content[match.end() :]
+    next_heading = re.search(r"^##\s+", section, re.MULTILINE)
+    if next_heading:
+        section = section[: next_heading.start()]
+
+    rows: list[tuple[str, list[str]]] = []
+    for line in section.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        capability = cells[0].lower()
+        if capability in ADAPTER_REQUIRED_CAPABILITIES:
+            rows.append((capability, re.findall(r"`([^`]+)`", cells[1])))
+    return rows
+
+
+def adapter_document_errors(path: Path) -> list[str]:
+    """Return structural and boundary errors found in an adapter document."""
+    rows = parse_adapter_capability_rows(path)
+    by_capability: dict[str, list[list[str]]] = {}
+    for capability, statuses in rows:
+        by_capability.setdefault(capability, []).append(statuses)
+
+    errors: list[str] = []
+    if set(by_capability) != set(ADAPTER_REQUIRED_CAPABILITIES):
+        errors.append("matrix must contain every required capability")
+    for capability in ADAPTER_REQUIRED_CAPABILITIES:
+        statuses = by_capability.get(capability, [])
+        if len(statuses) != 1:
+            errors.append(f"{capability} must have one row")
+        elif len(statuses[0]) != 1 or statuses[0][0] not in ADAPTER_ALLOWED_STATUSES:
+            errors.append(f"{capability} must have one allowed status")
+
+    content = " ".join(read_text_or_empty(path).lower().split())
+    if not re.search(r"human.{0,40}approval|approval.{0,40}human", content):
+        errors.append("document must state the human approval boundary")
+    if not re.search(r"nested.{0,120}(worker|agent|subagent).{0,120}spawn", content):
+        errors.append("document must state the nested worker-spawn boundary")
+    return errors
+
+
+def assert_valid_adapter_document(test_case: unittest.TestCase, path: Path) -> None:
+    """Require one allowed status row and control prose for every adapter."""
+    test_case.assertEqual(adapter_document_errors(path), [], str(path))
 
 
 def canonical_path_token(root: Path, path: Path) -> bytes:
@@ -1926,6 +1995,23 @@ class HarnessAdapterTests(unittest.TestCase):
         "serial fallback",
         "approval",
     )
+
+    def test_each_adapter_matrix_has_one_allowed_status_per_capability(self) -> None:
+        for name, path in ADAPTER_PATHS.items():
+            with self.subTest(adapter=name):
+                assert_valid_adapter_document(self, path)
+
+    def test_cursor_parallel_dispatch_is_native_when_subagents_are_enabled(self) -> None:
+        rows = dict(parse_adapter_capability_rows(ADAPTER_PATHS["cursor"]))
+
+        self.assertEqual(rows["parallel dispatch"], ["native"])
+        content = " ".join(read_text_or_empty(ADAPTER_PATHS["cursor"]).lower().split())
+        self.assertRegex(content, re.compile(r"parallel dispatch.{0,180}native.{0,180}(subagent|plugin).{0,180}(serial fallback|unavailable)"))
+
+    def test_malformed_adapter_capability_fixtures_are_rejected(self) -> None:
+        for label, path in ADAPTER_FIXTURE_PATHS.items():
+            with self.subTest(fixture=label):
+                self.assertTrue(adapter_document_errors(path), path)
 
     def test_skill_claims_compatibility_with_any_agent_skills_host(self) -> None:
         content = " ".join(read_text_or_empty(SKILL_PATH).lower().split())

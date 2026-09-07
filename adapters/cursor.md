@@ -11,7 +11,7 @@ dependency.
 | --- | --- | --- |
 | Loading | `native` | Load the package through Agent Skills discovery or an explicit skill invocation. |
 | Worker definition | `native` | Define a plugin agent or subagent for one mission, with the role, immutable allowed paths, limits, and evidence contract. |
-| Parallel dispatch | `prompt-mediated` | Ask the active agent or plugin surface to dispatch independent missions when that support is enabled and path ownership is disjoint. |
+| Parallel dispatch | `native` | Dispatch independent missions through Cursor subagents or plugin agents when enabled and path ownership is disjoint; use serial fallback when the surface is unavailable. |
 | Serial fallback | `prompt-mediated` | Execute missions in order in the main loop when parallel agent support is unavailable. Retain the mandatory independent Verifier and approval gate. |
 | Approval boundary | `prompt-mediated` | Obtain explicit human approval before an irreversible action. Workspace permissions or an automated agent decision do not satisfy the gate. |
 | Nested worker spawn | `unavailable` | Plugin agents and subagents cannot assume recursive spawning or inherited permissions. Prime defaults to serial execution unless the active session proves otherwise. |
@@ -19,11 +19,11 @@ dependency.
 ## Mapping guidance
 
 Cursor skills provide the loading and worker-instruction surface. Plugin agents
-or subagents may provide worker definitions, and some workspaces may expose
-parallel dispatch. Because plugin installation, workspace policy, and agent
-surfaces vary, Prime records `prompt-mediated` when a human or host prompt
-coordinates dispatch and uses serial fallback when the surface cannot be
-verified.
+or subagents provide worker definitions and native parallel dispatch when the
+active workspace enables them. When the parallel surface is unavailable, Prime
+uses serial fallback. If a workspace exposes only a prompt-coordinated
+dispatch surface, Prime records `prompt-mediated` and checks the same ownership
+boundary before dispatch.
 
 Serial fallback preserves the mission and report envelopes, immutable
 ownership, timeout and budget limits, candidate identity, evidence rechecking,
@@ -45,4 +45,3 @@ spawn another worker. Treat nested worker spawn as `unavailable` unless the
 active workspace explicitly proves it and Prime records the separate mission
 boundary. Nested missions retain independent identity, limits, reports, and
 verification; absent that proof, Prime runs serially.
-
