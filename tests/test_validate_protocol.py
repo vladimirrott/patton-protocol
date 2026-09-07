@@ -50,6 +50,8 @@ ADAPTER_FIXTURE_PATHS = {
     "approval without human": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-without-human" / "adapter.md",
     "approval authorizes compound": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-authorizes-compound" / "adapter.md",
     "approval conditional": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-conditional" / "adapter.md",
+    "approval not human compound": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-not-human-compound" / "adapter.md",
+    "approval does not fail": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-does-not-fail" / "adapter.md",
 }
 ADAPTER_EXPECTED_DIAGNOSTICS = {
     "invalid status": "parallel dispatch must have one allowed status",
@@ -70,6 +72,8 @@ ADAPTER_EXPECTED_DIAGNOSTICS = {
     "approval without human": "approval boundary must reject host-only approval",
     "approval authorizes compound": "approval boundary must reject host-only approval",
     "approval conditional": "approval boundary must reject host-only approval",
+    "approval not human compound": "approval boundary must reject host-only approval",
+    "approval does not fail": "approval boundary must reject host-only approval",
 }
 SAFE_APPROVAL_FIXTURE_PATHS = {
     "never satisfies": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-never-satisfies" / "adapter.md",
@@ -99,6 +103,8 @@ UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "without human approval": ADAPTER_FIXTURE_PATHS["approval without human"],
     "authorizes compound": ADAPTER_FIXTURE_PATHS["approval authorizes compound"],
     "conditional negation": ADAPTER_FIXTURE_PATHS["approval conditional"],
+    "not human compound": ADAPTER_FIXTURE_PATHS["approval not human compound"],
+    "does not fail": ADAPTER_FIXTURE_PATHS["approval does not fail"],
 }
 APPROVAL_SUBJECT_PATTERN = re.compile(
     r"\b(?:automated host-only approval(?:s)?|automated approval(?:s)?|"
@@ -115,10 +121,25 @@ APPROVAL_NEGATION_PATTERN = re.compile(
     r"\b(?:not|never|cannot|can't|do not|does not|fails? to|insufficient to|"
     r"isn't|is not|no)\b"
 )
+APPROVAL_DOUBLE_NEGATION_PATTERN = re.compile(
+    r"\b(?:not|never|cannot|can't|do not|does not|fails? to)\s+"
+    r"fail(?:s|ed|ing)?\s+to\b"
+)
+APPROVAL_LOCAL_BOUNDARY_PATTERN = re.compile(
+    r"(?:[,;]|\b(?:and|or|nor|but|however|though|while|yet)\b)"
+)
 APPROVAL_BARE_COORDINATION_PATTERN = re.compile(r"^\s*,?\s*(?:or|nor)\s*,?\s*$")
 APPROVAL_BARE_AND_PATTERN = re.compile(r"^\s*,?\s*and\s*,?\s*$")
 APPROVAL_TO_COMPLEMENT_PATTERN = re.compile(r"^\s+to\s+$")
 APPROVAL_BARE_PREDICATES = {"replace", "grant", "satisfy"}
+
+
+def approval_local_prefix(prefix: str) -> str:
+    """Keep only the predicate's local condition after the latest boundary."""
+    boundaries = list(APPROVAL_LOCAL_BOUNDARY_PATTERN.finditer(prefix))
+    if not boundaries:
+        return prefix
+    return prefix[boundaries[-1].end() :]
 
 
 def find_unsafe_approval_claim(content: str) -> str | None:
@@ -132,15 +153,18 @@ def find_unsafe_approval_claim(content: str) -> str | None:
             previous_negated = False
             previous_predicate = ""
             for predicate in APPROVAL_UNSAFE_PREDICATE_PATTERN.finditer(tail):
-                local_prefix = tail[previous_end : predicate.start()]
+                raw_prefix = tail[previous_end : predicate.start()]
+                local_prefix = approval_local_prefix(raw_prefix)
+                if APPROVAL_DOUBLE_NEGATION_PATTERN.search(local_prefix) is not None:
+                    return clause
                 has_negation = APPROVAL_NEGATION_PATTERN.search(local_prefix) is not None
-                coordinated = APPROVAL_BARE_COORDINATION_PATTERN.fullmatch(local_prefix) is not None
+                coordinated = APPROVAL_BARE_COORDINATION_PATTERN.fullmatch(raw_prefix) is not None
                 bare_and = (
-                    APPROVAL_BARE_AND_PATTERN.fullmatch(local_prefix) is not None
+                    APPROVAL_BARE_AND_PATTERN.fullmatch(raw_prefix) is not None
                     and predicate.group(0) in APPROVAL_BARE_PREDICATES
                 )
                 to_complement = (
-                    APPROVAL_TO_COMPLEMENT_PATTERN.fullmatch(local_prefix) is not None
+                    APPROVAL_TO_COMPLEMENT_PATTERN.fullmatch(raw_prefix) is not None
                     and previous_predicate == "suffices"
                 )
                 continues_negated_phrase = previous_negated and (coordinated or bare_and or to_complement)
@@ -2143,6 +2167,10 @@ class HarnessAdapterTests(unittest.TestCase):
         self.assertNotRegex(overview, re.compile(r"recursive.{0,80}agent[- ]team", re.IGNORECASE))
         self.assertIn("threadspawn", overview)
         self.assertRegex(overview, re.compile(r"patton.{0,180}(default|conservative).{0,180}(serial|unavailable)", re.IGNORECASE))
+        self.assertRegex(overview, re.compile(r"editor.{0,80}cli.{0,80}plugin-agent.{0,160}two-layer", re.IGNORECASE))
+        self.assertRegex(overview, re.compile(r"sdk.{0,160}(unrestricted|unlimited).{0,160}nest", re.IGNORECASE))
+        self.assertIn("june 2026", overview)
+        self.assertRegex(overview, re.compile(r"policy cap.{0,100}(required|enforce)", re.IGNORECASE))
 
     def test_codex_documents_v1_v2_depth_and_requires_v2_proof(self) -> None:
         content = " ".join(read_text_or_empty(ADAPTER_PATHS["codex"]).lower().split())
@@ -2181,9 +2209,11 @@ class HarnessAdapterTests(unittest.TestCase):
     def test_cursor_documents_exact_two_layer_nested_boundary(self) -> None:
         content = " ".join(read_text_or_empty(ADAPTER_PATHS["cursor"]).lower().split())
 
-        self.assertRegex(content, re.compile(r"root.{0,80}(child|direct subagents).{0,80}grandchild", re.IGNORECASE))
-        self.assertRegex(content, re.compile(r"grandchild.{0,120}(cannot|no).{0,120}great-grandchild", re.IGNORECASE))
-        self.assertRegex(content, re.compile(r"depth.{0,160}(grandchild|three|3).{0,160}(serial fallback|unavailable)", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"editor.{0,80}cli.{0,80}plugin-agent.{0,180}two-layer", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"root.{0,100}(direct child|child).{0,100}no grandchildren", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"sdk.{0,160}unrestricted.{0,160}nest", re.IGNORECASE))
+        self.assertIn("june 2026", content)
+        self.assertRegex(content, re.compile(r"patton.{0,180}(policy cap|cap).{0,180}(required|enforce)", re.IGNORECASE))
 
     def test_cursor_parallel_dispatch_is_native_when_subagents_are_enabled(self) -> None:
         rows = dict(parse_adapter_capability_rows(ADAPTER_PATHS["cursor"]))
