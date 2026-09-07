@@ -40,6 +40,10 @@ ADAPTER_FIXTURE_PATHS = {
     "approval counts as": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-counts" / "adapter.md",
     "approval constitutes": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-constitutes" / "adapter.md",
     "approval sufficient": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-sufficient" / "adapter.md",
+    "approval constituted": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-constituted" / "adapter.md",
+    "approval counted": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-counted" / "adapter.md",
+    "approval satisfied": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-satisfied" / "adapter.md",
+    "approval replaced": PACKAGE_ROOT / "tests" / "fixtures" / "invalid-adapter-approval-replaced" / "adapter.md",
 }
 ADAPTER_EXPECTED_DIAGNOSTICS = {
     "invalid status": "parallel dispatch must have one allowed status",
@@ -50,23 +54,55 @@ ADAPTER_EXPECTED_DIAGNOSTICS = {
     "approval counts as": "approval boundary must reject host-only approval",
     "approval constitutes": "approval boundary must reject host-only approval",
     "approval sufficient": "approval boundary must reject host-only approval",
+    "approval constituted": "approval boundary must reject host-only approval",
+    "approval counted": "approval boundary must reject host-only approval",
+    "approval satisfied": "approval boundary must reject host-only approval",
+    "approval replaced": "approval boundary must reject host-only approval",
 }
 SAFE_APPROVAL_FIXTURE_PATHS = {
     "never satisfies": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-never-satisfies" / "adapter.md",
     "cannot satisfy": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-cannot-satisfy" / "adapter.md",
     "does not replace": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-does-not-replace" / "adapter.md",
+    "insufficient to grant": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-insufficient" / "adapter.md",
+    "fails to satisfy": PACKAGE_ROOT / "tests" / "fixtures" / "valid-adapter-approval-fails" / "adapter.md",
 }
 UNSAFE_APPROVAL_FIXTURE_PATHS = {
     "satisfies": ADAPTER_FIXTURE_PATHS["approval polarity"],
     "counts as": ADAPTER_FIXTURE_PATHS["approval counts as"],
     "constitutes": ADAPTER_FIXTURE_PATHS["approval constitutes"],
     "is sufficient": ADAPTER_FIXTURE_PATHS["approval sufficient"],
+    "constituted": ADAPTER_FIXTURE_PATHS["approval constituted"],
+    "counted as": ADAPTER_FIXTURE_PATHS["approval counted"],
+    "satisfied": ADAPTER_FIXTURE_PATHS["approval satisfied"],
+    "replaced": ADAPTER_FIXTURE_PATHS["approval replaced"],
 }
-APPROVAL_BYPASS_PATTERN = re.compile(
-    r"(?:host-only approval|host permission|workspace permissions|sandbox|automated host-only approval)"
-    r"(?:(?!\b(?:not|does not|do not|cannot|never)\b).){0,100}"
-    r"\b(?:satisf(?:y|ies)|count(?:s)?\s+as|constitut(?:e|es)|is\s+sufficient|grant|replace)(?:s|ed)?\b"
+APPROVAL_SUBJECT_PATTERN = re.compile(
+    r"\b(?:host-only approval|host permission|workspace permissions|sandbox|automated host-only approval)\b"
 )
+APPROVAL_UNSAFE_PREDICATE_PATTERN = re.compile(
+    r"\b(?:satisf(?:y|ies|ied|ying|ed)|count(?:s|ed|ing)?\s+as|"
+    r"constitut(?:e|es|ed|ing)|is\s+sufficient|grant(?:s|ed|ing)?|"
+    r"replac(?:e|es|ed|ing))\b"
+)
+APPROVAL_NEGATION_PATTERN = re.compile(
+    r"\b(?:not|never|cannot|can't|do not|does not|fails? to|insufficient to|"
+    r"isn't|is not|no)\b"
+)
+
+
+def find_unsafe_approval_claim(content: str) -> str | None:
+    """Find an unsafe approval predicate with no negation in its clause."""
+    normalized = " ".join(content.lower().split())
+    clauses = re.split(r"(?<=[.!?;])\s+", normalized)
+    for clause in clauses:
+        for subject in APPROVAL_SUBJECT_PATTERN.finditer(clause):
+            tail = clause[subject.end() :]
+            predicate = APPROVAL_UNSAFE_PREDICATE_PATTERN.search(tail)
+            if predicate and not APPROVAL_NEGATION_PATTERN.search(tail[: predicate.start()]):
+                return clause
+    return None
+
+
 GITIGNORE_PATH = PACKAGE_ROOT / ".gitignore"
 LIFECYCLE_TERMS = (
     "scope",
@@ -221,7 +257,7 @@ def adapter_document_errors(path: Path) -> list[str]:
     content = " ".join(read_text_or_empty(path).lower().split())
     if not re.search(r"human.{0,40}approval|approval.{0,40}human", content):
         errors.append("document must state the human approval boundary")
-    if APPROVAL_BYPASS_PATTERN.search(content):
+    if find_unsafe_approval_claim(content) is not None:
         errors.append("approval boundary must reject host-only approval")
     if not re.search(r"nested.{0,120}(worker|agent|subagent).{0,120}spawn", content):
         errors.append("document must state the nested worker-spawn boundary")
@@ -2092,16 +2128,16 @@ class HarnessAdapterTests(unittest.TestCase):
         for name, path in ADAPTER_PATHS.items():
             content = " ".join(read_text_or_empty(path).lower().split())
             with self.subTest(adapter=name):
-                self.assertIsNone(APPROVAL_BYPASS_PATTERN.search(content))
+                self.assertIsNone(find_unsafe_approval_claim(content))
                 self.assertRegex(content, re.compile(r"human.{0,40}approval|approval.{0,40}human"))
 
     def test_shared_approval_polarity_matcher_handles_unsafe_and_safe_fixtures(self) -> None:
         for label, path in UNSAFE_APPROVAL_FIXTURE_PATHS.items():
             with self.subTest(fixture=label):
-                self.assertIsNotNone(APPROVAL_BYPASS_PATTERN.search(read_text_or_empty(path).lower()))
+                self.assertIsNotNone(find_unsafe_approval_claim(read_text_or_empty(path)))
         for label, path in SAFE_APPROVAL_FIXTURE_PATHS.items():
             with self.subTest(fixture=label):
-                self.assertIsNone(APPROVAL_BYPASS_PATTERN.search(read_text_or_empty(path).lower()))
+                self.assertIsNone(find_unsafe_approval_claim(read_text_or_empty(path)))
 
     def test_skill_claims_compatibility_with_any_agent_skills_host(self) -> None:
         content = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
