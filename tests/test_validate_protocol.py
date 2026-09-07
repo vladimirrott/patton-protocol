@@ -16,6 +16,12 @@ OPENAI_METADATA_PATH = PACKAGE_ROOT / "agents" / "openai.yaml"
 MISSION_CONTRACT_PATH = PACKAGE_ROOT / "references" / "mission-contract.md"
 WORKER_REPORT_PATH = PACKAGE_ROOT / "references" / "worker-report.md"
 SAFETY_BUDGETS_PATH = PACKAGE_ROOT / "references" / "safety-and-budgets.md"
+HARNESS_ADAPTERS_PATH = PACKAGE_ROOT / "references" / "harness-adapters.md"
+ADAPTER_PATHS = {
+    "claude-code": PACKAGE_ROOT / "adapters" / "claude-code.md",
+    "codex": PACKAGE_ROOT / "adapters" / "codex.md",
+    "cursor": PACKAGE_ROOT / "adapters" / "cursor.md",
+}
 GITIGNORE_PATH = PACKAGE_ROOT / ".gitignore"
 LIFECYCLE_TERMS = (
     "scope",
@@ -1908,6 +1914,71 @@ class PortableWorkflowTests(unittest.TestCase):
         for pattern in forbidden_required_syntax:
             with self.subTest(pattern=pattern):
                 self.assertNotRegex(content, re.compile(pattern))
+
+
+class HarnessAdapterTests(unittest.TestCase):
+    """Host notes map portable capabilities without making them dependencies."""
+
+    CAPABILITY_TERMS = (
+        "loading",
+        "worker definition",
+        "parallel dispatch",
+        "serial fallback",
+        "approval",
+    )
+
+    def test_skill_claims_compatibility_with_any_agent_skills_host(self) -> None:
+        content = " ".join(read_text_or_empty(SKILL_PATH).lower().split())
+
+        self.assertRegex(
+            content,
+            re.compile(
+                r"any agent skills[- ]compatible host|any host that implements the agent skills",
+                re.IGNORECASE,
+            ),
+        )
+
+    def test_skill_links_adapter_overview_and_adapters(self) -> None:
+        skill = read_text_or_empty(SKILL_PATH)
+        self.assertIn("](references/harness-adapters.md)", skill)
+        self.assertTrue(HARNESS_ADAPTERS_PATH.is_file())
+        overview = read_text_or_empty(HARNESS_ADAPTERS_PATH)
+        for name in ADAPTER_PATHS:
+            with self.subTest(adapter=name):
+                reference = f"adapters/{name}.md"
+                self.assertIn(f"](../{reference})", overview)
+                self.assertTrue(ADAPTER_PATHS[name].is_file())
+
+    def test_adapter_overview_keeps_core_and_host_mapping_separate(self) -> None:
+        content = read_text_or_empty(HARNESS_ADAPTERS_PATH).lower()
+
+        self.assertIn("portable core", content)
+        self.assertIn("adapter", content)
+        self.assertRegex(content, re.compile(r"capabilit(?:y|ies).{0,100}(native|prompt-mediated|unavailable)", re.IGNORECASE))
+        self.assertRegex(content, re.compile(r"core.{0,180}(does not|never).{0,180}(require|depend)", re.IGNORECASE))
+
+    def test_each_adapter_labels_required_capabilities(self) -> None:
+        required_labels = {"native", "prompt-mediated", "unavailable"}
+        for name, path in ADAPTER_PATHS.items():
+            content = " ".join(read_text_or_empty(path).lower().split())
+            with self.subTest(adapter=name):
+                self.assertTrue(path.is_file())
+                self.assertTrue(required_labels <= set(re.findall(r"\b(native|prompt-mediated|unavailable)\b", content)))
+                for term in self.CAPABILITY_TERMS:
+                    with self.subTest(capability=term):
+                        self.assertIn(term, content)
+
+    def test_adapters_state_approval_boundary_and_nested_spawn_limits(self) -> None:
+        combined = " ".join(
+            " ".join(read_text_or_empty(path).lower().split())
+            for path in (HARNESS_ADAPTERS_PATH, *ADAPTER_PATHS.values())
+        )
+
+        self.assertRegex(combined, re.compile(r"human approval.{0,160}(irreversible|merge|deploy|publish)", re.IGNORECASE))
+        self.assertRegex(combined, re.compile(r"worker.{0,100}(cannot|must not).{0,100}approv", re.IGNORECASE))
+        self.assertIn("nested", combined)
+        self.assertRegex(combined, re.compile(r"nested.{0,160}(spawn|agent|subagent)", re.IGNORECASE))
+        self.assertRegex(combined, re.compile(r"serial fallback.{0,220}(same contract|verification|approval)", re.IGNORECASE))
 
 
 if __name__ == "__main__":

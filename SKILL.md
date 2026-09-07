@@ -25,6 +25,10 @@ execution, and a no-spawn host always uses serial fallback.
 The mission and report contracts define the data exchanged across each
 lifecycle stage: [mission contract](references/mission-contract.md), [worker
 report](references/worker-report.md), and [safety and budgets](references/safety-and-budgets.md).
+The optional [harness adapter overview](references/harness-adapters.md) maps
+these capabilities to host surfaces. Any Agent Skills-compatible host is
+supported in principle; adapters document available behavior without shrinking
+that compatibility claim.
 When a host cannot spawn workers, Patton Prime uses serial fallback and keeps
 the same contracts, evidence checks, and human approval gates.
 
