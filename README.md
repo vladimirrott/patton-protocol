@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="160" alt="Patton Protocol mark: an olive star with three red arrows branching outward">
+</p>
+
 # Patton Protocol
 
 ![CI](https://github.com/vladimirrott/patton-protocol/actions/workflows/ci.yml/badge.svg)
