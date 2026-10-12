@@ -7,6 +7,7 @@ than altered.
 """
 
 from contextlib import redirect_stdout
+import gzip
 from pathlib import Path
 import hashlib
 import importlib.util
@@ -151,35 +152,60 @@ class CommittedVerificationTests(unittest.TestCase):
         self.assertEqual(len(verify_cassettes.find_trial_dirs(VERIFICATION_ROOT)), 9)
 
 
-class PrivacyGateTests(unittest.TestCase):
-    """Recorded transcripts must not carry the author's machine identity."""
+KEY_SHAPES = re.compile(r"(gsk_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|Bearer [A-Za-z0-9._-]{20,})")
+SCANNED_ROOTS = (VERIFICATION_ROOT, PACKAGE_ROOT / "lab")
 
-    def text_files(self):
-        return [
-            path
-            for path in sorted(VERIFICATION_ROOT.rglob("*"))
-            if path.is_file() and "__pycache__" not in path.parts
-        ]
 
-    def test_scan_covers_files(self):
-        self.assertGreater(len(self.text_files()), 60)
+def readable_text(path):
+    """File text, decompressing gzip cassettes so their recorded content is scanned too."""
+    data = path.read_bytes()
+    if path.suffix == ".gz":
+        data = gzip.decompress(data)
+    return data.decode("utf-8", errors="replace")
 
-    def test_no_employer_token_anywhere(self):
-        offenders = [
-            str(path.relative_to(PACKAGE_ROOT))
-            for path in self.text_files()
-            if EMPLOYER_TOKEN in path.read_text(encoding="utf-8", errors="replace").lower()
-        ]
-        self.assertEqual(offenders, [])
 
-    def test_no_real_home_directory(self):
-        offenders = []
-        for path in self.text_files():
-            text = path.read_text(encoding="utf-8", errors="replace")
+def privacy_offenders(roots):
+    offenders = []
+    for root in roots:
+        for path in sorted(Path(root).rglob("*")):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            text = readable_text(path)
+            name = str(path)
+            if EMPLOYER_TOKEN in text.lower():
+                offenders.append(f"{name}: employer name")
             for match in HOME_PATH.finditer(text):
                 if match.group(1) != "user":
-                    offenders.append(f"{path.relative_to(PACKAGE_ROOT)}: {match.group(0)}")
-        self.assertEqual(offenders, [])
+                    offenders.append(f"{name}: {match.group(0)}")
+            for match in KEY_SHAPES.finditer(text):
+                offenders.append(f"{name}: key-shaped string {match.group(0)[:8]}...")
+    return offenders
+
+
+def scanned_files(roots):
+    return [p for root in roots for p in Path(root).rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+
+
+class PrivacyGateTests(unittest.TestCase):
+    """Recorded transcripts and lab artifacts must not carry the machine's identity or a key."""
+
+    def test_scan_covers_files(self):
+        self.assertGreater(len(scanned_files([VERIFICATION_ROOT])), 60)
+        self.assertGreater(len(scanned_files([PACKAGE_ROOT / "lab"])), 20)
+
+    def test_verification_and_lab_are_clean(self):
+        self.assertEqual(privacy_offenders(SCANNED_ROOTS), [])
+
+    def test_the_scanner_catches_each_kind_of_leak(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "a.txt").write_text("path /home/alice/x", encoding="utf-8")
+            (root / "b.jsonl.gz").write_bytes(gzip.compress(("key gsk_" + "A1" * 15).encode("utf-8")))
+            (root / "c.md").write_text("works at " + EMPLOYER_TOKEN.title(), encoding="utf-8")
+            (root / "d.md").write_text("clean /home/user/x", encoding="utf-8")
+            offenders = privacy_offenders([root])
+        self.assertEqual(len(offenders), 3, offenders)
+        self.assertTrue(any("b.jsonl.gz" in o and "key-shaped" in o for o in offenders))
 
 
 if __name__ == "__main__":

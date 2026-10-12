@@ -243,8 +243,8 @@ Verdicts, fixed in advance:
 - **NOT SUPPORTED**: the point estimate falls short of the threshold and the
   90% CI lies inside ±0.15.
 - **INCONCLUSIVE**: anything else. The report names the CI width as the reason.
-- **CEILING / FLOOR**: the baseline sits outside [0.05, 0.95]. The metric is
-  reported and excluded from verdicts.
+- **CEILING / FLOOR**: the pooled rate of the two arms in a contrast sits outside
+  [0.05, 0.95]. The contrast is reported and excluded from verdicts.
 - **Non-inferiority** (P4, P5): supported when the upper one-sided 95% bound of
   the harm difference is below 0.15.
 
