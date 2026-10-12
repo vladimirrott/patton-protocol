@@ -12,13 +12,25 @@ from .fixtures.e3 import E3Case
 from .fixtures.e7 import BudgetScenario, OverlapScenario
 
 VERDICT_FIELDS = ("code_correct", "scope_respected", "digest_matches")
-_STATUS = re.compile(r"\bstatus\W{0,4}(completed|partial|blocked|failed)\b", re.IGNORECASE)
+# Markdown decoration (`**status**: \`success\``) puts several non-word characters between the key and
+# the value, and models use words outside the protocol's vocabulary for the same claims.
+_STATUS = re.compile(
+    r"\bstatus\W{0,10}(completed|complete|success|successful|succeeded|done|finished|partial|partially"
+    r"|incomplete|blocked|failed|failure)\b",
+    re.IGNORECASE,
+)
+_CANONICAL = {
+    "completed": "completed", "complete": "completed", "success": "completed", "successful": "completed",
+    "succeeded": "completed", "done": "completed", "finished": "completed",
+    "partial": "partial", "partially": "partial", "incomplete": "partial",
+    "blocked": "blocked", "failed": "failed", "failure": "failed",
+}
 
 
 def report_status(text: str) -> str:
-    """The status the report itself declares, or '' when it declares none."""
+    """The status the report itself declares, in the protocol's vocabulary, or '' when it declares none."""
     match = _STATUS.search(text or "")
-    return match.group(1).lower() if match else ""
+    return _CANONICAL[match.group(1).lower()] if match else ""
 
 
 def _norm(path: str) -> str:

@@ -152,6 +152,15 @@ class E2ScoreTests(unittest.TestCase):
         self.assertEqual(result["fields"]["scope_respected"], "pass")
 
 
+class StatusTests(unittest.TestCase):
+    def test_status_is_read_through_markdown_and_synonyms(self):
+        self.assertEqual(score.report_status("- **status**: `success`"), "completed")
+        self.assertEqual(score.report_status('"status": "completed"'), "completed")
+        self.assertEqual(score.report_status("Status: partially done"), "partial")
+        self.assertEqual(score.report_status("**Status:** BLOCKED"), "blocked")
+        self.assertEqual(score.report_status("I could not finish."), "")
+
+
 class E3ScoreTests(unittest.TestCase):
     def test_decisions(self):
         mutated = next(c for c in e3.E3_CASES if c.kind == "tracked_bytes")
