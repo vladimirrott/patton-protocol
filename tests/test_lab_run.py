@@ -213,6 +213,17 @@ class StopTests(RunnerTestCase):
         self.assertIn("BudgetExceeded", out)
         self.assertEqual(self.server.requests, 0)
 
+    def test_code_running_experiments_refuse_without_isolation(self):
+        original = run_mod.isolate.available
+        run_mod.isolate.available = lambda: False
+        try:
+            rc, out = self.cli("record", "--exp", "E4", "--limit", "1")
+        finally:
+            run_mod.isolate.available = original
+        self.assertEqual(rc, 4, out)
+        self.assertIn("isolated runner", out)
+        self.assertEqual(self.server.requests, 0)
+
     def test_missing_key_is_a_prerequisite_error(self):
         os.environ.pop(KEY_ENV)
         rc, out = self.cli("record", "--exp", "E1", "--limit", "1")

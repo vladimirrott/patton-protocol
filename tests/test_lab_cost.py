@@ -65,6 +65,13 @@ class MeterTests(unittest.TestCase):
             self.assertAlmostEqual(second.spent("groq"), 0.15)
             self.assertAlmostEqual(second.spent("openai"), 0.0)
 
+    def test_output_tokens_are_charged(self):
+        with TemporaryDirectory() as tmp:
+            meter = cost.Meter(Path(tmp) / "spend.json")
+            charged = meter.charge("groq", "openai/gpt-oss-120b", {"prompt_tokens": 0, "completion_tokens": 1_000_000})
+            self.assertAlmostEqual(charged, 0.60)
+            self.assertAlmostEqual(meter.spent(), 0.60)
+
     def test_cached_tokens_are_charged_at_full_price(self):
         with TemporaryDirectory() as tmp:
             meter = cost.Meter(Path(tmp) / "spend.json")
