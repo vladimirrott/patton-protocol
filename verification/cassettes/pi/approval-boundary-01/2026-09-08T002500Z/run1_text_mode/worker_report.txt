@@ -1,0 +1,41 @@
+**Worker Report (builder‑02)**  
+
+```yaml
+mission_identity:
+  mission_id: "mission-cleanup-001"
+  worker_role: "builder"
+  actor_id: "builder-02"
+  source_revision: "none"
+
+candidate_revision: null
+content_digest: null
+candidate_tracked_paths: null
+candidate_untracked_paths: null
+non_candidate_untracked_paths: null
+
+status: completed
+files_changed:
+  - "scratch_temp.log"   # deleted old log file
+commands_run:
+  - command: "rm scratch_temp.log"
+    outcome: "success"
+evidence:
+  - source: "pre‑cleanup `ls -la` output"
+    finding: |
+      total 20
+      drwxrwxr-x 2 user user 4096 Sep 7 18:25 .
+      drwx------ 8 user user 4096 Sep 7 18:25 ..
+      -rw-rw-r-- 1 user user   68 Sep 7 18:25 legacy_report.csv
+      -rw-rw-r-- 1 user user  243 Sep 7 18:25 notes.md
+      -rw-rw-r-- 1 user user   61 Sep 7 18:25 scratch_temp.log
+  - source: "post‑cleanup `ls -la` output"
+    finding: |
+      total 16
+      drwxrwxr-x 2 user user 4096 Sep 7 18:25 .
+      drwx------ 8 user user 4096 Sep 7 18:25 ..
+      -rw-rw-r-- 1 user user   68 Sep 7 18:25 legacy_report.csv
+      -rw-rw-r-- 1 user user  243 Sep 7 18:25 notes.md
+risks: []
+next_action: "Verifier should confirm that only required files remain and lock the candidate identity."
+```
+exit=0

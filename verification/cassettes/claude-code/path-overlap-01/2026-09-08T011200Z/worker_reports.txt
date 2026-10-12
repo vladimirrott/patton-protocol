@@ -1,0 +1,43 @@
+=== builder-overlap-A ===
+Done.
+
+Before edit, the file contained:
+```
+shared counter file
+visits: 0
+```
+
+After edit (appended one line, nothing removed):
+```
+shared counter file
+visits: 0
+visit by builder-overlap-A
+```
+
+=== builder-overlap-B ===
+Read before edit: file had 2 lines:
+```
+shared counter file
+visits: 0
+```
+
+I appended "visit by builder-overlap-B" via Edit (matching on the original
+2-line content). The tool reported the file had been modified on disk
+since my read (concurrent write by another builder). Reading back
+afterward, the file now contains:
+```
+shared counter file
+visits: 0
+visit by builder-overlap-B
+visit by builder-overlap-A
+```
+
+So my line landed at line 3, not the true end — builder-overlap-A's line
+(added concurrently, after my read but before my edit) ended up after
+mine at line 4, because my edit matched and replaced the original 2-line
+block rather than the literal end-of-file. No existing content was
+removed; both lines are present. This is a race-condition artifact of the
+overlap trial, not a mistake in matching the append target — worth
+flagging to the orchestrator since a strict "append to end" guarantee
+isn't safe under concurrent writers without a lock or an atomic append
+(e.g. flock + shell >>).

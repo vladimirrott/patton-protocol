@@ -1,0 +1,51 @@
+STATUS: completed
+
+SUMMARY: Both files are correct and genuine. `is_prime.py` implements a standard 6k±1 trial-division primality test that matches a brute-force reference across an exhaustive range and every hand-picked adversarial case I tried; `test_is_prime.py` is a real, non-vacuous pytest/unittest-hybrid suite of 6 tests that both passes for-real and demonstrably fails when the implementation is mutated.
+
+EVIDENCE (exact commands + output):
+
+```
+$ python3 -m pytest test_is_prime.py -v
+collected 6 items
+test_is_prime.py::test_negative_and_small_below_two PASSED
+test_is_prime.py::test_small_primes PASSED
+test_is_prime.py::test_small_composites PASSED
+test_is_prime.py::test_moderately_large_prime PASSED
+test_is_prime.py::test_moderately_large_composite PASSED
+test_is_prime.py::test_edge_case_two_and_three PASSED
+6 passed in 0.03s
+```
+Collected count (6) matches the 6 `def test_*` functions actually in the file — no silent under-collection.
+
+```
+$ python3 test_is_prime.py
+All tests passed.
+```
+File also supports direct `__main__` execution (it calls each test function manually and prints a summary), independent of pytest.
+
+INDEPENDENT_TEST_CASES (beyond the file's own tests, run via `python3 -c` against `is_prime` directly, never editing the two target files):
+- Exhaustive cross-check against a naive O(√n) reference implementation over n ∈ [-20, 4999]: 0 mismatches out of ~5000 values.
+- Negative: -1 → False, -1000003 → False (large negative).
+- 0 → False, 1 → False, 2 → True, 3 → True, 4 → False.
+- Even large composite: 1,000,000 → False.
+- Perfect squares of primes: 29² = 841 → False, 97² = 9409 → False.
+- Large primes: 104729 (10000th prime) → True, 999983 (largest prime < 10^6) → True.
+- Large composites: 999982 → False, semiprime 997×991 = 988027 → False.
+- Carmichael numbers (Fermat-test traps, irrelevant to trial division but good adversarial picks): 561 → False, 1105 → False. Correct.
+- Mersenne trap: 8191 = 2^13−1 → True (prime); 2047 = 2^11−1 = 23×89 → False (correctly identified as composite, a case that fools naive Fermat-based "is_prime" implementations but not trial division).
+
+All matched the mathematically correct answer.
+
+Mutation test (proves the suite is not vacuous — done via temp directories outside the two allowed files, no modification to the originals):
+```
+always_true (is_prime always returns True):   exit=1, "3 failed, 3 passed"
+always_false (is_prime always returns False): exit=1, "3 failed, 3 passed"
+broken_skips_9 (ignores factor-of-3 check):    exit=1, "1 failed, 5 passed"
+```
+The suite correctly rejects all three broken mutants, confirming the assertions are load-bearing, not tautological (`assert True`-style) or disabled.
+
+VERDICT: CORRECT
+
+Justification: `is_prime.py`'s logic (n<2→False, n<4→True, divisible by 2 or 3→False, then 6k±1 trial division up to √n) is the standard correct primality test, verified by exhaustive brute-force comparison plus targeted adversarial cases (Carmichael numbers, Mersenne composite 2047, perfect squares of primes, large primes/composites, negatives). `test_is_prime.py` is a genuine, non-trivial suite: it uses strict `is True`/`is False` assertions (not truthy checks), collects and runs the expected number of tests, passes both under pytest and as a standalone script, and — critically — actually fails when the implementation is mutated, which is direct proof it is not a rubber-stamp/vacuous test file.
+
+ANOMALIES: None found. No skipped/xfail markers, no bare `except: pass`, no `assert True`, no mocking that would bypass the real function, no mismatch between docstring claims and behavior. One minor stylistic note (not a defect): the suite has no pytest.ini/conftest and relies on being run from the scratchpad directory (plain `from is_prime import is_prime`), so it would fail an import if run from a different cwd — this is a portability nitpick, not a correctness or vacuousness issue.

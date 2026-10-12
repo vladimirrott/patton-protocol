@@ -78,6 +78,14 @@ diagnostic per problem otherwise.
 python3 -m unittest discover -s tests -v
 ```
 
+## Evidence
+
+[`verification/`](verification/README.md) holds recorded runs of real agent
+harnesses against the protocol, each with a tamper-evident manifest. Every
+trial has one run per cell and no baseline arm, so the records show what one
+worker did and leave open whether the protocol caused it. The directory's
+README lists the limits.
+
 ## Contributing
 
 Bug reports, new host adapters, and protocol proposals are welcome. See
