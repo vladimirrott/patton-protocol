@@ -41,6 +41,7 @@ SERVER_RETRY_WAITS = (2.0, 4.0, 8.0)
 DEFAULT_RATE_LIMIT_WAIT = 2.0
 REQUEST_TIMEOUT_S = 180
 FAILED_GENERATION_LIMIT = 2000
+MODEL_OUTPUT_FAILURES = frozenset({"tool_use_failed", "output_parse_failed", "json_validate_failed"})
 
 
 class AuthError(Exception):
@@ -221,8 +222,11 @@ class HttpTransport:
                 if status in (401, 403):
                     raise AuthError(f"{self.provider.name} rejected the key (HTTP {status}): {_error_excerpt(body_text)}") from None
                 error = _error_object(body_text)
-                if status == 400 and error.get("code") == "tool_use_failed":
+                if status == 400 and (error.get("code") in MODEL_OUTPUT_FAILURES or "failed_generation" in error):
+                    # The model produced output the provider could not parse (a malformed tool call or
+                    # unparseable text). That is the model's behaviour, recorded as a turn, not an outage.
                     return PostResult(None, headers, self.uncertain_attempts, {
+                        "code": str(error.get("code", "")),
                         "message": redact(str(error.get("message", "")))[:300],
                         "failed_generation": redact(str(error.get("failed_generation", "")))[:FAILED_GENERATION_LIMIT],
                     })

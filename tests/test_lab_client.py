@@ -343,6 +343,31 @@ class ToolUseFailedTests(ClientTestCase):
         cassette.assert_no_misses()
 
 
+class ParseFailureTests(ClientTestCase):
+    def test_unparseable_model_output_is_a_recorded_turn(self):
+        error = {"error": {"message": "Parsing failed. The model generated output that could not be parsed.",
+                           "type": "invalid_request_error", "code": "output_parse_failed",
+                           "failed_generation": "half a thought"}}
+        self.server.queue.append((400, {}, error))
+        client, _ = self.make_client()
+        completion = self.chat(client)
+        self.assertEqual(completion.finish_reason, "tool_use_failed")
+        self.assertEqual(completion.message["tool_use_failed"]["code"], "output_parse_failed")
+        self.assertGreater(self.meter.spent(), 0)
+
+    def test_any_400_with_a_failed_generation_counts(self):
+        error = {"error": {"message": "something new", "code": "brand_new_code", "failed_generation": "x"}}
+        self.server.queue.append((400, {}, error))
+        client, _ = self.make_client()
+        self.assertEqual(self.chat(client).finish_reason, "tool_use_failed")
+
+    def test_a_plain_400_still_stops(self):
+        self.server.queue.append((400, {}, {"error": {"message": "bad schema", "code": "invalid"}}))
+        client, _ = self.make_client()
+        with self.assertRaises(client_mod.ProviderError):
+            self.chat(client)
+
+
 class RedactionTests(ClientTestCase):
     def test_masked_key_in_an_auth_error_is_removed(self):
         body = {"error": {"message": "Incorrect API key provided: sk-proj-ab********************wxyz. Find your key."}}
