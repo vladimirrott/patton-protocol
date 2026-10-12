@@ -280,7 +280,8 @@ the model assumes 600 output tokens per turn for it and 150 for gpt-4.1-mini.
 | **Total bound** | | **≈ 7.80** |
 
 Groq carries ≈ $6.12 of that bound and OpenAI ≈ $1.68. The bound ignores
-prompt caching and assumes every run uses all six turns, so it overstates. In
+prompt caching and assumes six turns per run. Runs can use up to ten, so the
+bound is an estimate, not a ceiling. In
 the WhyStuck harness the actual spend came to 17% to 23% of the bound. Nothing
 here verifies that ratio for this harness, so the cap does not depend on it.
 
@@ -291,8 +292,11 @@ the study needs at least ≈ 1.5 hours of wall clock.
 
 Spend rules:
 
-1. `dry-run` computes the bound from the real prompts. It refuses to proceed
-   above $10 and names the experiments to shrink.
+1. `dry-run` computes the bound from the real prompts. It prints an expected
+   bound (six turns, the table's model) and a worst case (the 10-turn cap and
+   2 000 output tokens on every call). It refuses when the expected bound plus
+   actual spend passes $10. The worst case can pass $10, which is why the
+   meter, not the bound, is the guarantee.
 2. Experiments run in this order: E1 core, E7, E2, E3, E4, E1 arm E,
    replication, held-out re-run. Each pre-flight uses the actual spend so far.
 3. The meter aborts at $9 of actual spend, leaving a reserve. It stops on 401,
