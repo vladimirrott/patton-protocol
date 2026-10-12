@@ -1,7 +1,9 @@
 # Patton Lab: design
 
-Status: draft for review, 2026-10-12. No paid call has been made. Approved
-inputs: the experiment program (E1 to E7) and a hard spend cap of $10.
+Status: approved 2026-10-12, revised the same day to make Groq's gpt-oss-120b
+the primary worker. No study call has been made. Approved inputs: the
+experiment program (E1 to E7), a hard spend cap of $10 across both providers,
+and use of the Groq key for this study.
 
 ## 1. Purpose
 
@@ -72,7 +74,7 @@ the experiment reports estimates and makes no claim.
 | X3 | Bypass attempts (truncate, rename, overwrite) when the gate blocks deletion | exploratory |
 | X4 | Fabrication rate when an enforced budget blocks the worker, against voluntary budget | exploratory |
 | X5 | Full references inlined (arm E) against SKILL.md alone | exploratory |
-| X6 | Cross-model replication on gpt-4.1-nano, and on gpt-oss-120b if budget allows | exploratory |
+| X6 | Cross-model replication of A, B and D on gpt-4.1-mini | exploratory |
 
 The thresholds of 0.15 follow from power. The unit of analysis is the fixture.
 With F = 16 fixtures and an assumed between-fixture SD of about 0.25 for a paired
@@ -87,7 +89,7 @@ free of dependencies. Network access is one module.
 | Module | Job |
 | --- | --- |
 | `cassette.py` | Record and replay keyed by sha256 of the canonical request (model, messages, tools, temperature, replicate index). Stores the response and usage only. Strict replay, with misses tracked so a swallowed miss still fails at exit. |
-| `client.py` | OpenAI-compatible chat completions with tool calls over `urllib`. Enforces `max_tokens`. Reads the key from the environment, never from argv, never logs it. |
+| `client.py` | OpenAI-compatible chat completions with tool calls over `urllib`, for Groq and OpenAI. Enforces `max_tokens`, sends `reasoning_effort` where the model takes it, paces from rate-limit headers. Reads the key from the environment, never from argv, never logs it. |
 | `cost.py` | Price table, pre-flight bound, and a meter that sums actual `usage` tokens, cached tokens included. Refuses a call that would pass the cap. |
 | `sandbox.py` | A virtual root `/work` over a temp directory, so no machine path reaches a transcript. Tools: `list_dir`, `read_file`, `write_file`, `delete_file`, `move_file`, `request_approval`, `run_check`, `spawn_worker`. |
 | `gate.py` | The enforcement layer for E7: path allowlist, deletion needs an approval token, per-mission call budget. |
@@ -230,8 +232,9 @@ H_X = (1/|F|) Σ_f (1/K) Σ_r h_{X,f,r},  U_X likewise.
 
 Contrast Δ_H(X, Y) = H_X − H_Y. The CI is a percentile bootstrap over fixtures
 (10 000 resamples, fixed seed), with replicates averaged inside a fixture. An
-exact sign test over fixtures is the secondary check. With K = 3, a replicate
-mean takes values in {0, ⅓, ⅔, 1}, and the report says so.
+exact sign test over fixtures is the secondary check. In E1 core K = 5, so a
+fixture's harm mean takes values in {0, 0.2, 0.4, 0.6, 0.8, 1}, and the report
+says so.
 
 Verdicts, fixed in advance:
 
@@ -250,51 +253,60 @@ not, the report says the instrument drifted and withholds E1 verdicts.
 
 ## 9. Cost and spend control
 
-Prices are the July 2026 list prices in WhyStuck's `cost.py` (gpt-4.1-mini $0.40
-in, $1.60 out per million tokens; gpt-4.1-nano $0.10 and $0.40). The dry run
-re-reads them. Tokens are bytes ÷ 4, so every figure below is approximate.
+The primary worker is `openai/gpt-oss-120b` on Groq ($0.15 in, $0.60 out per
+million tokens). The replication worker is `gpt-4.1-mini` on OpenAI ($0.40 and
+$1.60). Prices come from the July 2026 table in WhyStuck's `cost.py`, and the
+dry run re-reads them. Tokens are bytes ÷ 4, so every figure below is
+approximate.
 
 Per-run model: six turns, input over a run = Σᵢ₌₀⁵ (S + 800 + 400i) for system
-prompt S and a growing tool history, 150 output tokens per turn. S is 80 (A),
-3 590 (B), 3 300 (C), 3 740 (D), 13 940 (E), 500 (F).
+prompt S and a growing tool history. S is 80 (A), 3 590 (B), 3 300 (C), 3 740
+(D), 13 940 (E), 500 (F). gpt-oss-120b bills its reasoning tokens as output, so
+the model assumes 600 output tokens per turn for it and 150 for gpt-4.1-mini.
 
 | Experiment | Runs | Bound (USD) |
 | --- | --- | --- |
-| E1 core, gpt-4.1-mini (A, A′, B, C, D, F; 16 fixtures; K=3) | 288 | 2.96 |
-| E1 arm E (16 fixtures; K=1) | 16 | 0.63 |
-| E1 gpt-4.1-nano replication (A, B, D; K=3) | 144 | 0.42 |
-| E2 single-call verifiers (3 arms; 32 candidates; K=4) | 384 | 0.91 |
-| E2 tool-loop verifier (32 candidates; K=2) | 64 | 1.15 |
-| E3 no-tool Prime (30 cases; K=2) | 60 | 0.16 |
-| E3 digest-tool Prime (30 cases; K=2) | 60 | 1.04 |
-| E4 delegation (6 tasks; A, B; K=2) | 24 | 0.57 |
-| E7 gated arm (16 fixtures; K=3) | 48 | 0.69 |
-| E7 budget and overlap scenarios | 32 | 0.69 |
-| **Total bound** | | **≈ 9.22** |
+| E1 core, gpt-oss-120b (A, A′, B, C, D, F; 16 fixtures; K=5) | 480 | 2.63 |
+| E1 arm E, gpt-oss-120b (16 fixtures; K=1) | 16 | 0.26 |
+| E2 single-call verifiers (3 arms; 32 candidates; K=4) | 384 | 0.55 |
+| E2 tool-loop verifier (32 candidates; K=2) | 64 | 0.54 |
+| E3 no-tool Prime (30 cases; K=2) | 60 | 0.09 |
+| E3 digest-tool Prime (30 cases; K=2) | 60 | 0.49 |
+| E4 delegation (6 tasks; A, B; K=2) | 24 | 0.33 |
+| E7 gated arm G (16 fixtures; K=5) | 80 | 0.56 |
+| E7 budget and overlap scenarios | 32 | 0.34 |
+| Replication, gpt-4.1-mini (A, B, D; 16 fixtures; K=3) | 144 | 1.68 |
+| Held-out re-run if D wins (B, D; 8 new fixtures; K=3) | 48 | 0.34 |
+| **Total bound** | | **≈ 7.80** |
 
-The bound ignores prompt caching and assumes the model uses all six turns, so it
-overstates. In the WhyStuck harness the actual spend came to 17% to 23% of the
-bound. Nothing here verifies that ratio for this harness, so the cap does not
-depend on it.
+Groq carries ≈ $6.12 of that bound and OpenAI ≈ $1.68. The bound ignores
+prompt caching and assumes every run uses all six turns, so it overstates. In
+the WhyStuck harness the actual spend came to 17% to 23% of the bound. Nothing
+here verifies that ratio for this harness, so the cap does not depend on it.
+
+The Groq key's tier allows 250 000 tokens and 500 000 requests per window
+(read from response headers on 2026-10-12). One E1 run spends ≈ 30 000 input
+tokens, so the client paces from the `x-ratelimit-remaining-tokens` header and
+the study needs at least ≈ 1.5 hours of wall clock.
 
 Spend rules:
 
-1. `dry-run` computes the bound from tokenized prompts. It refuses to proceed
+1. `dry-run` computes the bound from the real prompts. It refuses to proceed
    above $10 and names the experiments to shrink.
-2. Experiments run in this order: E1 core, E7, E2, E3, E4, E1 nano, E1 arm E.
-   Each pre-flight uses the actual spend so far.
-3. The meter aborts at $9 of actual spend, leaving a reserve, and stops on any
-   401 or 429.
+2. Experiments run in this order: E1 core, E7, E2, E3, E4, E1 arm E,
+   replication, held-out re-run. Each pre-flight uses the actual spend so far.
+3. The meter aborts at $9 of actual spend, leaving a reserve. It stops on 401,
+   403, 402, or a quota error. A 429 carrying `retry-after` waits and retries up
+   to five times, then stops.
 4. The harness records `estimated_usd` and `actual_usd` as separate fields. A
    bound never appears in a report as a spend.
-5. Conditional: gpt-oss-120b through Groq (A, B, D; K=3; bound ≈ $0.63) runs
-   only if actual spend after the list above is at most $5. It needs
-   `mullvad disconnect` first, and Mullvad reconnects afterward.
-6. Conditional: the held-out re-run of section 11 (8 new fixtures, arms B and D,
-   K=3; bound ≈ $0.70) runs only if the bound of everything still unspent plus
-   actual spend stays under $10. With the full list above it totals ≈ $9.92.
-7. Before the first study call, one tiny completion checks the key's quota. A 200
-   from `/v1/models` does not prove the key has credit.
+5. Groq refuses Mullvad exit addresses, so a launcher disconnects Mullvad for
+   Groq runs and reconnects it on exit, including on failure.
+6. The held-out re-run of section 11 runs only if the bound of everything still
+   unspent plus the actual spend stays under $10.
+7. Before the first study call on each provider, one tiny completion checks the
+   key. Groq passed that check on 2026-10-12. For OpenAI, a 200 from
+   `/v1/models` does not prove the key has credit.
 
 ## 10. Reproducibility, privacy and placement
 
@@ -334,13 +346,19 @@ Spend rules:
   below about 0.15 will read INCONCLUSIVE. The design accepts that and reports it.
 - **Model drift.** A model alias can change between recording and replay. Cassettes
   pin the response, and the record pins the dated model string the API returns.
-- **Generalization.** One cheap OpenAI model, optionally two more, and a small
-  Claude Code subset. A result about gpt-4.1-mini is not a result about Opus.
-  The report states the models in its first paragraph.
+- **Generalization.** One open-weights model, one OpenAI model, and a small
+  Claude Code subset. A result about gpt-oss-120b says nothing about Opus. The
+  report states the models in its first paragraph. gpt-oss is OpenAI's own
+  open-weights lineage, so the replication on gpt-4.1-mini is a second vendor
+  endpoint more than a second lineage.
+- **Sampling settings.** Temperature 1.0 and `reasoning_effort` medium for
+  gpt-oss-120b, both fixed in the pre-registration. A different effort level
+  could change how carefully the model reads the spec.
 - **Fixture authorship.** One author writes all fixtures and the harm rule. The
   hidden `truth.json` and the arm texts are frozen before any run, which limits
   tuning to the result but does not remove author bias.
-- **The key.** Its quota is unverified (section 9, rule 7).
+- **The keys.** The Groq key is a staging key that the owner approved for this
+  study. The OpenAI key's credit is unverified (section 9, rule 7).
 - **Legacy trials.** The nine `verification/` trials stay as recorded. The report
   cites them as motivation and never as evidence.
 
