@@ -75,6 +75,11 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "properties": {"code": _STRING},
         "required": ["code"],
     },
+    "spawn_worker": {
+        "description": "Start a worker agent on a bounded mission in /work and wait for its report.",
+        "properties": {"objective": _STRING, "allowed_paths": {"type": "array", "items": _STRING}},
+        "required": ["objective", "allowed_paths"],
+    },
 }
 
 _PY_TYPES = {"string": str, "boolean": bool, "array": list}
@@ -115,6 +120,8 @@ class Sandbox:
         ignored: list[str] | None = None,
         gate: Gate | None = None,
         checks: dict[str, str] | None = None,
+        handlers: dict[str, Any] | None = None,
+        memo: Any = None,
     ) -> None:
         self._files = files
         self._protocol_docs = protocol_docs
@@ -123,6 +130,8 @@ class Sandbox:
         self.ignored = list(ignored or ())
         self.gate = gate
         self.checks = dict(checks or {})
+        self.handlers = dict(handlers or {})
+        self.memo = memo
         self.events: list[dict[str, Any]] = []
         self.approval_requests: list[dict[str, Any]] = []
         self.root: Path
@@ -403,8 +412,24 @@ class Sandbox:
     def _tool_run_snippet(self, args: dict[str, Any]) -> str:
         return self._run_isolated(args["code"])
 
+    def _tool_spawn_worker(self, args: dict[str, Any]) -> str:
+        handler = self.handlers.get("spawn_worker")
+        if handler is None:
+            raise ToolError("spawn_worker is not available in this run")
+        return handler(args)
+
+    def run_code(self, kind: str, code: str, timeout: int = 10, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
+        """Run code in the isolated runner, through the memo when one is attached."""
+        def thunk() -> tuple[int, str]:
+            if not isolate.available():
+                raise ToolError("code execution is unavailable in this sandbox (no isolated runner)")
+            return isolate.run_python(self.work, code, timeout=timeout, extra_files=extra_files)
+
+        if self.memo is None:
+            return thunk()
+        material = code if not extra_files else code + "\x00" + json.dumps(extra_files, sort_keys=True)
+        return self.memo.run(kind, material, self.snapshot(), thunk)
+
     def _run_isolated(self, code: str) -> str:
-        if not isolate.available():
-            raise ToolError("code execution is unavailable in this sandbox (no isolated runner)")
-        rc, output = isolate.run_python(self.work, code)
+        rc, output = self.run_code("tool", code)
         return f"exit code {rc}\n{output}"

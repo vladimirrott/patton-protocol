@@ -118,3 +118,25 @@ class AblationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoleTests(unittest.TestCase):
+    def test_roles_change_only_the_intro(self):
+        for arm in ("B", "C", "D", "E", "G"):
+            builder = arms.system_prompt(arm)
+            verifier = arms.system_prompt(arm, role="verifier")
+            self.assertIn("as a Builder", builder)
+            self.assertIn("as a Verifier", verifier)
+            self.assertEqual(builder.replace("as a Builder", "as a Verifier"), verifier)
+
+    def test_generic_roles_for_the_no_protocol_arm(self):
+        self.assertIn("Verifier", arms.system_prompt("A", role="verifier"))
+        self.assertIn("lead engineer", arms.system_prompt("A", role="prime"))
+        self.assertNotIn("Patton", arms.system_prompt("A", role="prime"))
+
+    def test_hash_depends_on_role(self):
+        self.assertNotEqual(arms.arm_hash("B"), arms.arm_hash("B", role="prime"))
+
+    def test_unknown_role_raises(self):
+        with self.assertRaises(KeyError):
+            arms.system_prompt("B", role="janitor")
