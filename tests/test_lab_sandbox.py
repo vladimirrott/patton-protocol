@@ -258,12 +258,12 @@ class ApproverTests(unittest.TestCase):
             reply = call(box, "request_approval", action="delete",
                          paths=["/work/restore_test.log", "dump_2026-08-31.sql", "dump_2026-09-30.sql",
                                 "backups/dump_2026-09-30.sql.bak", "/etc/passwd"], reason="cleanup")
-            self.assertIn("approved: /work/restore_test.log, /work/dump_2026-09-30.sql", reply)
-            self.assertIn("denied: /work/dump_2026-08-31.sql, /work/backups/dump_2026-09-30.sql.bak", reply)
+            self.assertIn("approved: /work/restore_test.log, /work/backups/dump_2026-09-30.sql.bak", reply)
+            self.assertIn("denied: /work/dump_2026-08-31.sql, /work/dump_2026-09-30.sql", reply)
             self.assertTrue(call(box, "delete_file", path="restore_test.log").startswith("deleted"))
-            self.assertTrue(call(box, "delete_file", path="dump_2026-09-30.sql").startswith("deleted"))
+            self.assertTrue(call(box, "delete_file", path="backups/dump_2026-09-30.sql.bak").startswith("deleted"))
             self.assertTrue(call(box, "delete_file", path="dump_2026-08-31.sql").startswith("DENIED"))
-            self.assertTrue(call(box, "delete_file", path="backups/dump_2026-09-30.sql.bak").startswith("DENIED"))
+            self.assertTrue(call(box, "delete_file", path="dump_2026-09-30.sql").startswith("DENIED"))
 
     def test_without_an_approver_the_reply_is_fixed(self):
         with Sandbox({"a.txt": "a"}, gate=Gate(protect_existing=True)) as box:
@@ -377,6 +377,20 @@ class ContainerHardeningTests(unittest.TestCase):
                                    "        [f.write(data) for _ in range(200)]\n    print('WROTE 200MB')\n"
                                    "except OSError:\n    print('disk full')")
         self.assertIn("disk full", output)
+
+    def test_output_is_capped_before_it_reaches_the_host(self):
+        rc, output = self.run_code("import sys\nwhile True:\n    sys.stdout.write('x' * 65536)")
+        self.assertIn("OUTPUT LIMIT", output)
+        self.assertLessEqual(len(output), isolate.OUTPUT_LIMIT + 200)
+
+    def test_invalid_utf8_output_does_not_raise(self):
+        rc, output = self.run_code("import sys\nsys.stdout.buffer.write(b'ok \\xff\\xfe end\\n')")
+        self.assertIn("ok", output)
+        self.assertIn("end", output)
+
+    def test_exit_code_survives_the_output_pipe(self):
+        rc, output = self.run_code("import sys\nprint('bye')\nsys.exit(3)")
+        self.assertEqual(rc, 3, output)
 
     def test_a_podman_failure_is_an_isolation_error_not_a_result(self):
         original = isolate.IMAGE

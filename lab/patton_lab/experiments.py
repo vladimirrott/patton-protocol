@@ -68,8 +68,8 @@ def _ids(items) -> tuple[str, ...]:
 
 
 EXPERIMENTS: dict[str, Experiment] = {
-    "E1": Experiment("E1", ("A", "A2", "B", "C", "D", "F"), _ids(e1.E1_FIXTURES), 5, GROQ),
-    "E7G": Experiment("E7G", ("G",), _ids(e1.E1_FIXTURES), 5, GROQ),
+    # G runs inside E1, interleaved with B on the same fixtures, so P10 compares arms recorded together.
+    "E1": Experiment("E1", ("A", "A2", "B", "C", "D", "F", "G"), _ids(e1.E1_FIXTURES), 5, GROQ),
     "E7S": Experiment("E7S", ("B", "G"), _ids(e7.E7_BUDGET) + _ids(e7.E7_OVERLAP), 2, GROQ),
     "E2": Experiment("E2", ("cold_spec", "anchored_spec", "cold_nospec"), _ids(e2.E2_CANDIDATES), 4, GROQ,
                      turns_expected=1, single_call=True),
@@ -81,7 +81,7 @@ EXPERIMENTS: dict[str, Experiment] = {
     "E1R": Experiment("E1R", ("A", "B", "D"), _ids(e1.E1_FIXTURES), 3, OPENAI),
     "E1H": Experiment("E1H", ("B", "D"), _ids(e1.E1_HELDOUT), 3, GROQ),
 }
-SPEND_ORDER = ("E1", "E7G", "E7S", "E2", "E2T", "E3", "E3T", "E4", "E1E", "E1R", "E1H")
+SPEND_ORDER = ("E1", "E7S", "E2", "E2T", "E3", "E3T", "E4", "E1E", "E1R", "E1H")
 
 
 def jobs_for(name: str) -> list[Job]:
@@ -354,13 +354,11 @@ def execute_job(job: Job, client: Any, providers: dict[str, Provider] | None = N
     providers = providers or PROVIDERS
     exp = job.exp
     if exp in ("E1", "E1E", "E1R", "E1H", "SMOKE"):
-        return _e1_like(job, client, providers, e1.fixture_by_id(job.case), job.arm, None)
-    if exp == "E7G":
         fixture = e1.fixture_by_id(job.case)
-        record = _e1_like(job, client, providers, fixture, "B", Gate(protect_existing=True),
-                          approver=e1.oracle_approver(fixture))
-        record["arm_hash"] = arms.arm_hash("G")
-        return record
+        if job.arm == "G":
+            return _e1_like(job, client, providers, fixture, "G", Gate(protect_existing=True),
+                            approver=e1.oracle_approver(fixture))
+        return _e1_like(job, client, providers, fixture, job.arm, None)
     if exp == "E7S":
         return _e7s(job, client, providers)
     if exp in ("E2", "E2T"):
@@ -512,8 +510,8 @@ def _e7s(job: Job, client: Any, providers: dict[str, Provider]) -> dict[str, Any
 def first_prompt(job: Job) -> tuple[str, str, list[str]]:
     """(system, user, tool names) of a job's first call, for the cost estimate."""
     exp = job.exp
-    if exp in ("E1", "E1E", "E1R", "E1H", "E7G", "SMOKE"):
-        arm = "B" if exp == "E7G" else job.arm
+    if exp in ("E1", "E1E", "E1R", "E1H", "SMOKE"):
+        arm = job.arm
         return arms.system_prompt(arm), e1_mission(e1.fixture_by_id(job.case)), E1_TOOLS
     if exp in ("E2", "E2T"):
         candidate = next(c for c in e2.E2_CANDIDATES if c.id == job.case)

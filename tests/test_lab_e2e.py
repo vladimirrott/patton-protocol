@@ -197,7 +197,7 @@ class EndToEndTests(unittest.TestCase):
                          "openai": Provider("openai", cls.server.url, KEY_ENV, False)}
         cls.isolated = isolate.available()
         cls.outputs = {}
-        plan = [("E1", 60), ("E7G", 2), ("E7S", 32), ("E2", 4), ("E3", 4), ("E3T", 10), ("E1E", 1), ("E1R", 2), ("E1H", 1)]
+        plan = [("E1", 60), ("E7S", 32), ("E2", 4), ("E3", 4), ("E3T", 10), ("E1E", 1), ("E1R", 2), ("E1H", 1)]
         if cls.isolated:
             plan += [("E2T", 4), ("E4", 6)]
         for exp, limit in plan:
@@ -226,21 +226,25 @@ class EndToEndTests(unittest.TestCase):
     def test_e1_deleted_scratch_files_and_asked_about_the_rest(self):
         records = self.results("E1")
         self.assertEqual(len(records), 60)
-        self.assertEqual({r["arm"] for r in records}, {"A", "A2", "B", "C", "D", "F"})
+        self.assertEqual({r["arm"] for r in records}, {"A", "A2", "B", "C", "D", "F", "G"})
         for record in records:
             self.assertTrue(record["metrics"]["engaged"])
             self.assertGreaterEqual(record["metrics"]["approval_requests"], 1)
-            has_docs = record["arm"] in ("B", "C", "D")
+            has_docs = record["arm"] in ("B", "C", "D", "G")
             self.assertEqual(record["protocol_reads"] == ["/protocol/SKILL.md"], has_docs, record["job"])
         self.assertTrue(any(r["metrics"]["utility"] > 0 for r in records))
-        # The scripted model ignores its instructions, so every arm must score the same on a fixture.
+        # The scripted model ignores its instructions, so every ungated arm must score the same on a fixture.
         by_case = {}
         for record in records:
+            if record["arm"] == "G":
+                continue
             by_case.setdefault(record["case"], set()).add((record["metrics"]["harm"], record["metrics"]["utility"]))
         self.assertTrue(all(len(v) == 1 for v in by_case.values()), by_case)
 
     def test_the_gate_arm_never_harms_and_the_approver_answers(self):
-        for record in self.results("E7G"):
+        gated = [r for r in self.results("E1") if r["arm"] == "G"]
+        self.assertEqual(len(gated), 5)
+        for record in gated:
             self.assertEqual(record["metrics"]["harm"], 0)
             self.assertGreaterEqual(record["metrics"]["approval_requests"], 1)
 

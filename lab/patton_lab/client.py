@@ -114,9 +114,10 @@ def redact(text: str) -> str:
     return _KEYISH.sub(lambda m: (m.group(2) or "") + "[redacted]", text)
 
 
-def _is_quota_error(body_text: str) -> bool:
-    lowered = body_text.lower()
-    return "insufficient_quota" in lowered or ("quota" in lowered and "exceeded" in lowered)
+def _is_quota_error(error: dict[str, Any]) -> bool:
+    """Read only the provider's own fields: `failed_generation` is model text and must not decide this."""
+    fields = " ".join(str(error.get(key, "")) for key in ("code", "type", "message")).lower()
+    return "insufficient_quota" in fields or ("quota" in fields and "exceeded" in fields)
 
 
 def _error_object(body_text: str) -> dict[str, Any]:
@@ -155,6 +156,9 @@ class HttpTransport:
         self._timeout = timeout
         self._remaining_tokens: int | None = None
         self._reset_seconds: float | None = None
+        #: Attempts of the current post() that may have been billed without a usable reply.
+        #: The client reads it after post() returns or raises, so none goes uncharged.
+        self.uncertain_attempts = 0
 
     def _pace(self, estimated_tokens: int) -> None:
         if self._remaining_tokens is None or self._reset_seconds is None:
@@ -181,7 +185,7 @@ class HttpTransport:
         url = self.provider.base_url.rstrip("/") + "/chat/completions"
         rate_waits = 0
         failures = 0
-        uncertain = 0
+        self.uncertain_attempts = 0
         self._pace(estimated_tokens)
         while True:
             request = urllib.request.Request(
@@ -202,28 +206,28 @@ class HttpTransport:
                 try:
                     body = json.loads(raw.decode("utf-8"))
                 except (json.JSONDecodeError, UnicodeDecodeError):
-                    uncertain += 1
+                    self.uncertain_attempts += 1
                     failures = self._retry_or_raise(failures, "a 200 response with an unreadable body")
                     continue
                 if not isinstance(body, dict):
-                    uncertain += 1
+                    self.uncertain_attempts += 1
                     failures = self._retry_or_raise(failures, "a 200 response that is not a JSON object")
                     continue
-                return PostResult(body, headers, uncertain)
+                return PostResult(body, headers, self.uncertain_attempts)
             except urllib.error.HTTPError as exc:
                 headers = {k.lower(): v for k, v in (exc.headers or {}).items()}
                 body_text = exc.read().decode("utf-8", errors="replace")
                 status = exc.code
                 if status in (401, 403):
                     raise AuthError(f"{self.provider.name} rejected the key (HTTP {status}): {_error_excerpt(body_text)}") from None
-                if status == 402 or _is_quota_error(body_text):
-                    raise QuotaError(f"{self.provider.name} reports no credit (HTTP {status}): {_error_excerpt(body_text)}") from None
                 error = _error_object(body_text)
                 if status == 400 and error.get("code") == "tool_use_failed":
-                    return PostResult(None, headers, uncertain, {
+                    return PostResult(None, headers, self.uncertain_attempts, {
                         "message": redact(str(error.get("message", "")))[:300],
                         "failed_generation": redact(str(error.get("failed_generation", "")))[:FAILED_GENERATION_LIMIT],
                     })
+                if status == 402 or _is_quota_error(error):
+                    raise QuotaError(f"{self.provider.name} reports no credit (HTTP {status}): {_error_excerpt(body_text)}") from None
                 if status == 429:
                     if rate_waits >= MAX_RATE_LIMIT_WAITS:
                         raise RateLimitError(f"{self.provider.name} rate-limited after {rate_waits} waits") from None
@@ -237,12 +241,14 @@ class HttpTransport:
                     self._sleep(wait)
                     continue
                 if 500 <= status <= 599:
+                    # A gateway error can arrive after the model generated (and billed) a reply.
+                    self.uncertain_attempts += 1
                     failures = self._retry_or_raise(failures, f"HTTP {status}: {_error_excerpt(body_text)}")
                     continue
                 raise ProviderError(f"{self.provider.name} HTTP {status}: {_error_excerpt(body_text)}") from None
             except _TRANSIENT as exc:
                 # The provider may have generated (and billed) a reply that never arrived.
-                uncertain += 1
+                self.uncertain_attempts += 1
                 failures = self._retry_or_raise(failures, f"transport error {type(exc).__name__}")
 
 
@@ -263,7 +269,7 @@ def _usable_usage(usage: Any) -> bool:
         value = usage.get(key)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             return False
-    return True
+    return usage["prompt_tokens"] > 0  # every real request has a prompt; zero means the count is missing
 
 
 class Client:
@@ -307,9 +313,14 @@ class Client:
         estimated = estimate_tokens(payload)
         bound = call_bound(provider.name, model, estimated, max_tokens)
         self.meter.authorize(bound)
-        result = self.transports[provider.name].post(payload, estimated)
-        if result.uncertain_attempts:
-            self.meter.charge_usd(provider.name, bound * result.uncertain_attempts)
+        transport = self.transports[provider.name]
+        try:
+            result = transport.post(payload, estimated)
+        finally:
+            # Charged whether post() returned or raised, so an outage cannot hide billed attempts.
+            uncertain = getattr(transport, "uncertain_attempts", 0)
+            if uncertain:
+                self.meter.charge_usd(provider.name, bound * uncertain)
 
         if result.tool_use_failed is not None:
             message = {"role": "assistant", "content": None, "tool_use_failed": result.tool_use_failed}

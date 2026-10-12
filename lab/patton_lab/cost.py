@@ -46,7 +46,9 @@ def usd(prompt_tokens: int, completion_tokens: int, unit_price: tuple[float, flo
 
 def estimate_tokens(obj: Any) -> int:
     """Approximate tokens as bytes of compact JSON divided by 4, rounded up."""
-    raw = json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    # ensure_ascii escapes every non-ASCII character, so a lone surrogate cannot raise, and the
+    # escaped form is longer than UTF-8, which keeps the estimate conservative.
+    raw = json.dumps(obj, ensure_ascii=True, separators=(",", ":")).encode("ascii")
     return max(1, math.ceil(len(raw) / 4))
 
 

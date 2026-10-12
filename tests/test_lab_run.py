@@ -107,8 +107,8 @@ class RunnerTestCase(unittest.TestCase):
 
 class JobCountTests(unittest.TestCase):
     def test_counts_match_the_spec(self):
-        expected = {"E1": 480, "E1E": 16, "E2": 384, "E2T": 64, "E3": 60, "E3T": 60, "E4": 24,
-                    "E7G": 80, "E7S": 32, "E1R": 144, "E1H": 48}
+        expected = {"E1": 560, "E1E": 16, "E2": 384, "E2T": 64, "E3": 60, "E3T": 60, "E4": 24,
+                    "E7S": 32, "E1R": 144, "E1H": 48}
         self.assertEqual({name: len(jobs_for(name)) for name in EXPERIMENTS}, expected)
 
     def test_job_ids_are_unique_and_parse_back(self):
@@ -236,6 +236,21 @@ class StopTests(RunnerTestCase):
         self.assertEqual(self.server.requests, 0)
         rc, out = self.cli("record", "--exp", "E1", "--limit", "1")
         self.assertEqual(rc, 0, out)
+
+    def test_a_paid_run_on_the_study_root_needs_a_current_preregistration(self):
+        from patton_lab import prereg
+        original = prereg.prereg_ok
+        prereg.prereg_ok = lambda: False
+        try:
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                rc = run_mod.main(["record", "--exp", "E1", "--limit", "1"], providers=self.providers,
+                                  root=run_mod.LAB_ROOT)
+        finally:
+            prereg.prereg_ok = original
+        self.assertEqual(rc, 4, buffer.getvalue())
+        self.assertIn("freeze it before spending", buffer.getvalue())
+        self.assertEqual(self.server.requests, 0)
 
     def test_missing_key_is_a_prerequisite_error(self):
         os.environ.pop(KEY_ENV)

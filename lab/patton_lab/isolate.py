@@ -34,6 +34,7 @@ from pathlib import Path
 
 IMAGE = "docker.io/library/python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f"
 OUTPUT_LIMIT = 4000
+CAPTURE_LIMIT = 262144  # bytes the host ever reads from one run; `head -c` enforces it inside the container
 START = "PATTON_BOOT_START"
 END = "PATTON_BOOT_END"
 WORK_TMPFS = "size=64m"
@@ -64,12 +65,15 @@ def _podman_env() -> dict[str, str]:
 def available() -> bool:
     if shutil.which("podman") is None:
         return False
-    probe = subprocess.run(
-        ["podman", "--log-level", "error", "image", "exists", IMAGE],
-        capture_output=True,
-        timeout=60,
-        env=_podman_env(),
-    )
+    try:
+        probe = subprocess.run(
+            ["podman", "--log-level", "error", "image", "exists", IMAGE],
+            capture_output=True,
+            timeout=60,
+            env=_podman_env(),
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
     return probe.returncode == 0
 
 
@@ -119,26 +123,38 @@ def run_python(
             "--timeout", str(timeout),
             "--env", "PYTHONDONTWRITEBYTECODE=1",
             "-v", f"{src}:/src:ro", "-v", f"{harness}:/harness:ro", "-w", "/work",
-            IMAGE, "python3", "-E", "-s", "/harness/boot.py",
+            IMAGE, "bash", "-c",
+            "set -o pipefail; python3 -E -s /harness/boot.py 2>&1 | head -c "
+            f"{CAPTURE_LIMIT}; status=(\"${{PIPESTATUS[@]}}\"); exit ${{status[0]}}",
         ]
         started = time.monotonic()
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=timeout + 30, env=_podman_env())
+            result = subprocess.run(command, capture_output=True, text=True, errors="replace",
+                                    timeout=timeout + 30, env=_podman_env())
         except subprocess.TimeoutExpired:
             subprocess.run(["podman", "--log-level", "error", "kill", name], capture_output=True, env=_podman_env())
             return 124, "TIMEOUT: the code ran past its time limit and was killed"
+        except OSError as exc:
+            raise IsolationError(f"podman could not be started: {type(exc).__name__}") from None
         elapsed = time.monotonic() - started
         stdout = result.stdout or ""
         stderr = result.stderr or ""
+        timed_out = result.returncode != 0 and elapsed >= timeout
         if START not in stdout:
+            if timed_out:
+                # A kill at the time limit can discard what `head` had not yet flushed.
+                return 124, "TIMEOUT: the code ran past its time limit and was killed"
             raise IsolationError(
                 f"the container did not start the code (exit {result.returncode}): "
                 + _redact_paths(stderr.strip(), tmp)[:300]
             )
         finished = END in stdout
+        capped = len(stdout.encode("utf-8", errors="replace")) >= CAPTURE_LIMIT - 8
         body = stdout.replace(START + "\n", "", 1).replace(END + "\n", "").replace(END, "")
         output = _cap(_redact_paths(body + stderr, tmp))
-        if not finished and result.returncode != 0 and elapsed >= timeout:
+        if capped and not finished:
+            return result.returncode or 1, f"OUTPUT LIMIT: the code printed more than {CAPTURE_LIMIT} bytes and was stopped\n" + output
+        if timed_out and not finished:
             return 124, "TIMEOUT: the code ran past its time limit and was killed\n" + output
         if result.returncode in (137, 143) and not finished:
             return result.returncode, "KILLED: the container hit its memory or process limit\n" + output

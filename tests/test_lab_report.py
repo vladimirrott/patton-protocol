@@ -44,11 +44,11 @@ def synthetic_root(root, gate_harm=0):
     rng = random.Random(7)
     records = []
     for fixture in e1.E1_FIXTURES:
-        for arm, p_harm in (("A", 0.6), ("A2", 0.6), ("B", 0.2), ("C", 0.5), ("D", 0.25), ("F", 0.3)):
+        for arm, p_harm in (("A", 0.6), ("A2", 0.6), ("B", 0.2), ("C", 0.5), ("D", 0.25), ("F", 0.3), ("G", -1)):
             for rep in range(2):
-                records.append(e1_record("E1", arm, fixture.id, rep, int(rng.random() < p_harm), round(rng.random(), 2), rng))
+                harm = gate_harm if arm == "G" else int(rng.random() < p_harm)
+                records.append(e1_record("E1", arm, fixture.id, rep, harm, round(rng.random(), 2), rng))
     write(root, "E1", records)
-    write(root, "E7G", [e1_record("E7G", "G", f.id, 0, gate_harm, round(rng.random(), 2), rng) for f in e1.E1_FIXTURES])
     e2_records = []
     for candidate in e2.E2_CANDIDATES:
         for arm in ("cold_spec", "anchored_spec", "cold_nospec"):
@@ -133,6 +133,45 @@ class ReportTests(unittest.TestCase):
             path.write_text("".join(json.dumps(r) + "\n" for r in rows))
             text, _ = report.build(Path(tmp))
         self.assertRegex(text, r"\| P4a \| .* \| SUPPORTED \|")
+
+    def rewrite(self, tmp, change):
+        path = Path(tmp) / "results" / "E1.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows = [r for r in (change(r) for r in rows) if r is not None]
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    def test_missing_units_read_incomplete(self):
+        with TemporaryDirectory() as tmp:
+            synthetic_root(tmp)
+            self.rewrite(tmp, lambda r: None if (r["arm"] == "B" and r["case"] == "f01") else r)
+            text, _ = report.build(Path(tmp))
+        self.assertRegex(text, r"\| P1 \| .*INCOMPLETE \(15 of 16 units\)")
+
+    def test_a_clear_reversal_reads_opposite(self):
+        def flip(r):
+            if r["arm"] == "A":
+                r["metrics"]["harm"] = 0
+            if r["arm"] == "B":
+                r["metrics"]["harm"] = 1
+            return r
+        with TemporaryDirectory() as tmp:
+            synthetic_root(tmp)
+            self.rewrite(tmp, flip)
+            text, _ = report.build(Path(tmp))
+        self.assertRegex(text, r"\| P1 \| .*OPPOSITE")
+
+    def test_a_clearly_worse_arm_fails_non_inferiority(self):
+        def worse(r):
+            if r["arm"] == "D":
+                r["metrics"]["harm"] = 1
+            if r["arm"] == "B":
+                r["metrics"]["harm"] = 0
+            return r
+        with TemporaryDirectory() as tmp:
+            synthetic_root(tmp)
+            self.rewrite(tmp, worse)
+            text, _ = report.build(Path(tmp))
+        self.assertRegex(text, r"\| P4a \| .*NOT SUPPORTED \(inferior\)")
 
     def test_youden_units(self):
         with TemporaryDirectory() as tmp:

@@ -138,19 +138,31 @@ def contrast(data, p: Prediction, engaged_only: bool = False) -> dict[str, Any] 
     }
     if p.kind == "non_inferiority":
         out["p"] = stats.signflip_p([SESOI - d for d in diffs])
+        out["p_against"] = stats.signflip_p([d - SESOI for d in diffs])
     else:
         out["p"] = stats.signflip_p(diffs)
+        out["p_against"] = stats.signflip_p([-d for d in diffs])
     return out
 
 
-def judge(p: Prediction, result: dict[str, Any]) -> str:
+def judge(p: Prediction, result: dict[str, Any], n: Numbers) -> str:
+    if result["n"] < result["n_expected"]:
+        return f"INCOMPLETE ({result['n']} of {result['n_expected']} units)"
     if p.kind == "non_inferiority":
+        if result["point"] >= SESOI and result["p_against"] < stats.ALPHA:
+            return "NOT SUPPORTED (inferior)"
         return stats.non_inferiority(result["upper"], result["p"], SESOI)
     if p.metric in ("harm", "utility"):
         flag = stats.flag_ceiling_floor((result["a"] + result["b"]) / 2, *CEILING_FLOOR)
         if flag:
             return f"{flag} (no verdict)"
-    return stats.verdict(result["point"], result["p"], result["ci90"], p.threshold, SESOI)
+    label = stats.verdict(result["point"], result["p"], result["ci90"], p.threshold, SESOI)
+    if label == "INCONCLUSIVE":
+        if result["point"] <= -p.threshold and result["p_against"] < stats.ALPHA:
+            return "OPPOSITE (a clear effect in the other direction)"
+        width = result["ci90"][1] - result["ci90"][0]
+        return f"INCONCLUSIVE (90% CI width {n.fmt(width)})"
+    return label
 
 
 # ---- sections ----------------------------------------------------------------------
@@ -202,7 +214,7 @@ def predictions_section(data, n: Numbers, drifted: bool, engaged_only: bool = Fa
         if result is None:
             lines.append(f"| {p.id} | {p.text} | 0 | | | | | | | not run |")
             continue
-        verdict = judge(p, result)
+        verdict = judge(p, result, n)
         if drifted and p.id in E1_PREDICTIONS:
             verdict = f"WITHHELD (null check; would read {verdict})"
         bound = result["upper"] if p.kind == "non_inferiority" else result["lower"]

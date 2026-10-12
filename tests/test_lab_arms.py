@@ -99,7 +99,7 @@ class ArmTextTests(unittest.TestCase):
         second = {arm: arms.arm_hash(arm) for arm in arms.ARMS}
         self.assertEqual(first, second)
         self.assertEqual(first["A"], first["A2"])
-        self.assertEqual(first["B"], first["G"])
+        self.assertNotEqual(first["B"], first["G"], "G's hash must include its enforcement")
         self.assertEqual(len({first[a] for a in ("A", "B", "C", "D", "E", "F")}), 6)
 
     def test_unknown_arm_raises(self):

@@ -291,11 +291,33 @@ class ConservativeChargeTests(ClientTestCase):
 
     def test_unreadable_200_body_is_retried_and_charged(self):
         self.server.queue.append((200, {}, "not an object"))
-        self.server.queue.append((200, {}, ok_body(prompt=0, completion=0)))
+        self.server.queue.append((200, {}, ok_body(prompt=1, completion=0)))
         client, _ = self.make_client()
         self.chat(client)
         self.assertEqual(self.sleeps, [2.0])
+        self.assertAlmostEqual(self.meter.spent(), self.bound(client) + 0.15 / 1e6)
+
+    def test_zero_prompt_tokens_count_as_missing_usage(self):
+        self.server.queue.append((200, {}, ok_body(prompt=0, completion=0)))
+        client, _ = self.make_client()
+        self.chat(client)
         self.assertAlmostEqual(self.meter.spent(), self.bound(client))
+
+    def test_billed_attempts_are_charged_even_when_the_retries_run_out(self):
+        for _ in range(4):
+            self.server.queue.append((502, {}, {"error": "bad gateway"}))
+        client, _ = self.make_client()
+        with self.assertRaises(client_mod.ProviderError):
+            self.chat(client)
+        self.assertAlmostEqual(self.meter.spent(), 4 * self.bound(client))
+
+    def test_model_text_cannot_raise_a_quota_error(self):
+        error = {"error": {"message": "Failed to call a function.", "code": "tool_use_failed",
+                           "failed_generation": "the quota was exceeded, insufficient_quota"}}
+        self.server.queue.append((400, {}, error))
+        client, _ = self.make_client()
+        self.assertEqual(self.chat(client).finish_reason, "tool_use_failed")
+        self.assertGreater(self.meter.spent(), 0)
 
     def test_body_without_choices_is_a_provider_error_and_still_charged(self):
         self.server.queue.append((200, {}, {"model": "m", "usage": {"prompt_tokens": 1, "completion_tokens": 1}}))

@@ -132,6 +132,22 @@ class FailureTurnTests(unittest.TestCase):
         self.assertEqual(result.transcript[0]["finish_reason"], "length")
 
 
+class MalformedMessageTests(unittest.TestCase):
+    def test_odd_message_shapes_do_not_crash_the_loop(self):
+        odd = Completion({"role": "assistant", "content": None,
+                          "tool_calls": ["not a dict", {"id": 7, "function": None},
+                                         {"id": "c2", "function": {"name": "list_dir", "arguments": {"path": "/work"}}}]},
+                         {"prompt_tokens": 5, "completion_tokens": 5}, "m", "tool_calls", False)
+        final = Completion({"role": "assistant", "content": ["structured", "content"]},
+                           {"prompt_tokens": 5, "completion_tokens": 5}, "m", "stop", False)
+        client = ScriptedClient([odd, final])
+        with Sandbox({"a.txt": "a"}) as box:
+            result = run_agent(client, PROVIDER, "m", "s", "u", box, ["list_dir"], salt="j")
+            self.assertEqual([e["tool"] for e in box.events], ["", "list_dir"])
+        self.assertEqual(result.stop_reason, "final")
+        self.assertIn("structured", result.final_text)
+
+
 class InterleaveTests(unittest.TestCase):
     def test_alternates_and_uses_each_agents_gate(self):
         order = []

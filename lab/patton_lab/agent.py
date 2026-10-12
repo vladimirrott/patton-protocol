@@ -11,6 +11,7 @@ never lands in a committed results file.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -86,22 +87,25 @@ class _Loop:
                                       "tool_calls": []})
             return
         content = message.get("content")
-        calls = message.get("tool_calls") or []
+        if content is not None and not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=True)
+        raw_calls = message.get("tool_calls") or []
+        calls = [call for call in raw_calls if isinstance(call, dict)] if isinstance(raw_calls, list) else []
         assistant: dict[str, Any] = {"role": "assistant"}
         if content is not None:
             assistant["content"] = content
         if calls:
-            assistant["tool_calls"] = [
-                {
-                    "id": call.get("id", f"call_{result.turns}_{i}"),
+            assistant["tool_calls"] = []
+            for i, call in enumerate(calls):
+                function = call.get("function") if isinstance(call.get("function"), dict) else {}
+                arguments = function.get("arguments", "")
+                if not isinstance(arguments, str):
+                    arguments = json.dumps(arguments, ensure_ascii=True)
+                assistant["tool_calls"].append({
+                    "id": str(call.get("id") or f"call_{result.turns}_{i}"),
                     "type": "function",
-                    "function": {
-                        "name": call.get("function", {}).get("name", ""),
-                        "arguments": call.get("function", {}).get("arguments", ""),
-                    },
-                }
-                for i, call in enumerate(calls)
-            ]
+                    "function": {"name": str(function.get("name") or ""), "arguments": arguments},
+                })
         self.messages.append(assistant)
 
         entry: dict[str, Any] = {

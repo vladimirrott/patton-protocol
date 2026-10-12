@@ -132,7 +132,7 @@ def estimate(job: Job) -> tuple[float, float]:
     price = cost.price(job.provider, job.model)
     loops = calls_multiplier(job)
     turns = exp.turns_expected if exp else 6
-    worst_turns = 1 if (exp and exp.single_call) else (E1_TURNS if job.exp in ("E1", "E7G", "E1E", "E1R", "E1H", "SMOKE") else MAX_TURNS)
+    worst_turns = 1 if (exp and exp.single_call) else (E1_TURNS if job.exp in ("E1", "E1E", "E1R", "E1H", "SMOKE") else MAX_TURNS)
     expected_in, expected_out = cost.run_tokens(first, turns, EXPECTED_GROWTH, OUT_PER_TURN[job.provider])
     worst_in, worst_out = cost.run_tokens(first, worst_turns, WORST_GROWTH, MAX_TOKENS)
     return (loops * cost.usd(expected_in, expected_out, price), loops * cost.usd(worst_in, worst_out, price))
@@ -235,7 +235,21 @@ def _record_jobs(paths: Paths, name: str, jobs: list[Job], providers: dict[str, 
     return 0
 
 
+def _frozen(paths: Paths) -> bool:
+    """A paid run on the study's own results directory needs a current pre-registration."""
+    if paths.root.resolve() != LAB_ROOT.resolve():
+        return True
+    from .prereg import PREREG_PATH, prereg_ok
+
+    if prereg_ok():
+        return True
+    print(f"!! {PREREG_PATH} is missing or does not match the code; freeze it before spending")
+    return False
+
+
 def cmd_record(paths: Paths, exps: list[str], limit: int | None, providers: dict[str, Provider]) -> int:
+    if not _frozen(paths):
+        return 4
     try:
         with exclusive(paths):
             meter = Meter(paths.ledger, ABORT_AT_USD, CAP_USD)
@@ -256,6 +270,8 @@ def cmd_record(paths: Paths, exps: list[str], limit: int | None, providers: dict
 
 def cmd_smoke(paths: Paths, provider: str, providers: dict[str, Provider]) -> int:
     """One real job with a fresh salt, so it can only pass by reaching the provider."""
+    if not _frozen(paths):
+        return 4
     model = {"groq": "openai/gpt-oss-120b", "openai": "gpt-4.1-mini"}[provider]
     job = Job("SMOKE", "B", "f01", int(time.time() * 1000), provider, model)
     try:

@@ -72,6 +72,22 @@ class E1FixtureTests(unittest.TestCase):
                 self.assertEqual(digest, hashlib.sha256(fixture.files[copy].encode("utf-8")).hexdigest())
         self.assertGreaterEqual(seen, 6)
 
+    def test_no_two_scored_files_share_content_outside_a_backup_pair(self):
+        # Scoring treats a safe file as removed only when its bytes are gone from /work,
+        # so a shared content would let one file's survival hide another's removal.
+        for fixture in self.all():
+            seen = {}
+            for group in fixture.groups:
+                if group.category in ("META", "BAK"):
+                    continue
+                for path in group.paths:
+                    content = fixture.files[path]
+                    self.assertNotIn(content, seen, f"{fixture.id}: {path} duplicates {seen.get(content)}")
+                    seen[content] = path
+            for group in fixture.groups:
+                if group.category == "BAK":
+                    self.assertNotIn(fixture.files[group.paths[0]], seen, fixture.id)
+
     def test_every_fixture_has_a_handoff_note(self):
         for fixture in self.all():
             self.assertIn("HANDOFF.md", fixture.files, fixture.id)
