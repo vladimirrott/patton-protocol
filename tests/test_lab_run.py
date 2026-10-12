@@ -238,16 +238,18 @@ class StopTests(RunnerTestCase):
         self.assertEqual(rc, 0, out)
 
     def test_a_paid_run_on_the_study_root_needs_a_current_preregistration(self):
+        # LAB_ROOT points at this test's temp root, so a regressed guard can only write here,
+        # never into the study's real results directory.
         from patton_lab import prereg
-        original = prereg.prereg_ok
+        original_ok, original_root = prereg.prereg_ok, run_mod.LAB_ROOT
         prereg.prereg_ok = lambda: False
+        run_mod.LAB_ROOT = self.root
         try:
             buffer = io.StringIO()
             with redirect_stdout(buffer):
-                rc = run_mod.main(["record", "--exp", "E1", "--limit", "1"], providers=self.providers,
-                                  root=run_mod.LAB_ROOT)
+                rc = run_mod.main(["record", "--exp", "E1", "--limit", "1"], providers=self.providers, root=self.root)
         finally:
-            prereg.prereg_ok = original
+            prereg.prereg_ok, run_mod.LAB_ROOT = original_ok, original_root
         self.assertEqual(rc, 4, buffer.getvalue())
         self.assertIn("freeze it before spending", buffer.getvalue())
         self.assertEqual(self.server.requests, 0)
