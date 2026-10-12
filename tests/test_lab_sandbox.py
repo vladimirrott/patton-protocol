@@ -379,9 +379,15 @@ class ContainerHardeningTests(unittest.TestCase):
         self.assertIn("disk full", output)
 
     def test_output_is_capped_before_it_reaches_the_host(self):
+        import time
+        started = time.monotonic()
         rc, output = self.run_code("import sys\nwhile True:\n    sys.stdout.write('x' * 65536)")
+        elapsed = time.monotonic() - started
         self.assertIn("OUTPUT LIMIT", output)
         self.assertLessEqual(len(output), isolate.OUTPUT_LIMIT + 200)
+        # The cap must stop the writer at once; an uncapped run would stream until the 30 s timeout.
+        self.assertLess(elapsed, 10, "the writer was not stopped at the cap")
+        self.assertLessEqual(isolate.CAPTURE_LIMIT, 1 << 20)
 
     def test_invalid_utf8_output_does_not_raise(self):
         rc, output = self.run_code("import sys\nsys.stdout.buffer.write(b'ok \\xff\\xfe end\\n')")

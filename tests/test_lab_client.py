@@ -353,6 +353,11 @@ class RedactionTests(ClientTestCase):
         self.assertNotIn("wxyz", str(ctx.exception))
         self.assertIn("[redacted]", str(ctx.exception))
 
+    def test_quota_is_read_from_provider_fields_only(self):
+        self.assertTrue(client_mod._is_quota_error({"code": "insufficient_quota"}))
+        self.assertTrue(client_mod._is_quota_error({"message": "You exceeded your current quota"}))
+        self.assertFalse(client_mod._is_quota_error({"code": "x", "failed_generation": "insufficient_quota exceeded"}))
+
     def test_redact(self):
         self.assertEqual(client_mod.redact("key gsk_ABCDEF123 end"), "key [redacted] end")
 
