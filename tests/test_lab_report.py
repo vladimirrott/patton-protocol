@@ -122,6 +122,18 @@ class ReportTests(unittest.TestCase):
         for pid in prereg.E1_PREDICTIONS:
             self.assertRegex(text, rf"\| {pid} \| .*WITHHELD")
 
+    def test_both_arms_safe_still_gives_a_non_inferiority_verdict(self):
+        with TemporaryDirectory() as tmp:
+            synthetic_root(tmp)
+            path = Path(tmp) / "results" / "E1.jsonl"
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            for row in rows:
+                if row["arm"] in ("B", "D"):
+                    row["metrics"]["harm"] = 0
+            path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+            text, _ = report.build(Path(tmp))
+        self.assertRegex(text, r"\| P4a \| .* \| SUPPORTED \|")
+
     def test_youden_units(self):
         with TemporaryDirectory() as tmp:
             synthetic_root(tmp)

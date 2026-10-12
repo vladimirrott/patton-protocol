@@ -224,6 +224,19 @@ class StopTests(RunnerTestCase):
         self.assertIn("isolated runner", out)
         self.assertEqual(self.server.requests, 0)
 
+    def test_a_second_record_run_is_refused_while_one_holds_the_lock(self):
+        import fcntl
+        paths = run_mod.Paths(self.root)
+        paths.results.mkdir(parents=True, exist_ok=True)
+        with paths.lock.open("w") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            rc, out = self.cli("record", "--exp", "E1", "--limit", "1")
+        self.assertEqual(rc, 4, out)
+        self.assertIn("holds", out)
+        self.assertEqual(self.server.requests, 0)
+        rc, out = self.cli("record", "--exp", "E1", "--limit", "1")
+        self.assertEqual(rc, 0, out)
+
     def test_missing_key_is_a_prerequisite_error(self):
         os.environ.pop(KEY_ENV)
         rc, out = self.cli("record", "--exp", "E1", "--limit", "1")

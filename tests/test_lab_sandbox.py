@@ -342,6 +342,15 @@ class ForgedResultTests(unittest.TestCase):
                                      "traceback.py": "import os\nos._exit(0)\n"})
         self.assertFalse(passed)
 
+    def test_no_collected_tests_is_not_a_pass(self):
+        from patton_lab.fixtures import e2
+        nonce = "n0nce1234567890a"
+        with TemporaryDirectory() as tmp:
+            rc, output = isolate.run_python(Path(tmp), e2.run_tests_code(e2.HIDDEN_FOLDER, nonce), timeout=30,
+                                            harness_files={})
+        self.assertIn(f"PATTON_RESULT {nonce} passed=0 failed=0", output)
+        self.assertFalse(e2.hidden_passed(output, nonce, 1))
+
     def test_printing_a_result_line_without_the_nonce_does_not_count(self):
         passed, _, _ = self.outcome({"src/__init__.py": "",
                                      "src/m.py": "print('PATTON_RESULT visible passed=1 failed=0')\ndef f():\n    return 1\n"})
@@ -378,6 +387,14 @@ class ContainerHardeningTests(unittest.TestCase):
                     isolate.run_python(Path(tmp), "print(1)", timeout=20)
         finally:
             isolate.IMAGE = original
+
+
+class IsolationRequiredTests(unittest.TestCase):
+    def test_isolation_is_present_when_the_environment_requires_it(self):
+        # CI sets PATTON_LAB_REQUIRE_ISOLATION=1, so a missing container turns the skipped
+        # container tests into this failure instead of a green run that checked nothing.
+        if os.environ.get("PATTON_LAB_REQUIRE_ISOLATION") == "1":
+            self.assertTrue(isolate.available(), "podman or the pinned image is missing")
 
 
 class RunnerRefusesWithoutIsolationTests(unittest.TestCase):
