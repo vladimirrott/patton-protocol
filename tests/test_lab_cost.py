@@ -49,6 +49,14 @@ class MeterTests(unittest.TestCase):
             with self.assertRaises(cost.BudgetExceeded):
                 meter.authorize(0.02)
 
+    def test_authorize_sees_spend_another_meter_recorded(self):
+        with TemporaryDirectory() as tmp:
+            ledger = Path(tmp) / "spend.json"
+            early = cost.Meter(ledger)          # opened before the spend happened
+            cost.Meter(ledger).charge_usd("groq", 8.99)
+            with self.assertRaises(cost.BudgetExceeded):
+                early.authorize(0.02)
+
     def test_abort_line_cannot_exceed_the_cap(self):
         with TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
