@@ -55,7 +55,7 @@ class ScriptedServer:
                     {"path": self.path, "auth": self.headers.get("Authorization"), "body": json.loads(raw)}
                 )
                 status, headers, body = outer.queue.pop(0) if outer.queue else (500, {}, {"error": "empty"})
-                data = json.dumps(body).encode("utf-8")
+                data = body.encode("utf-8") if isinstance(body, str) else json.dumps(body).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
@@ -263,6 +263,76 @@ class ClientTests(ClientTestCase):
             client.chat(self.provider, "openai/gpt-oss-20b", [{"role": "user", "content": "x"}], tools=[], salt="s")
         self.assertEqual(self.server.requests, [])
         self.assertNotIn(("groq", "openai/gpt-oss-20b"), PRICES)
+
+
+class ConservativeChargeTests(ClientTestCase):
+    def bound(self, client):
+        from patton_lab.cost import call_bound, estimate_tokens
+        payload = {"model": "openai/gpt-oss-120b", "messages": [{"role": "user", "content": "hi"}],
+                   "max_tokens": 2000, "temperature": 1.0, "reasoning_effort": "medium"}
+        return call_bound("groq", "openai/gpt-oss-120b", estimate_tokens(payload), 2000)
+
+    def test_missing_usage_is_charged_at_the_bound(self):
+        body = ok_body()
+        del body["usage"]
+        self.server.queue.append((200, {}, body))
+        client, _ = self.make_client()
+        completion = self.chat(client)
+        self.assertTrue(completion.usage["estimated"])
+        self.assertAlmostEqual(self.meter.spent(), self.bound(client))
+
+    def test_null_token_counts_are_charged_at_the_bound(self):
+        body = ok_body()
+        body["usage"] = {"prompt_tokens": None, "completion_tokens": 3}
+        self.server.queue.append((200, {}, body))
+        client, _ = self.make_client()
+        self.chat(client)
+        self.assertAlmostEqual(self.meter.spent(), self.bound(client))
+
+    def test_unreadable_200_body_is_retried_and_charged(self):
+        self.server.queue.append((200, {}, "not an object"))
+        self.server.queue.append((200, {}, ok_body(prompt=0, completion=0)))
+        client, _ = self.make_client()
+        self.chat(client)
+        self.assertEqual(self.sleeps, [2.0])
+        self.assertAlmostEqual(self.meter.spent(), self.bound(client))
+
+    def test_body_without_choices_is_a_provider_error_and_still_charged(self):
+        self.server.queue.append((200, {}, {"model": "m", "usage": {"prompt_tokens": 1, "completion_tokens": 1}}))
+        client, _ = self.make_client()
+        with self.assertRaises(client_mod.ProviderError):
+            self.chat(client)
+        self.assertGreater(self.meter.spent(), 0)
+
+
+class ToolUseFailedTests(ClientTestCase):
+    def test_malformed_tool_call_comes_back_as_a_recorded_completion(self):
+        error = {"error": {"message": "Failed to call a function.", "type": "invalid_request_error",
+                           "code": "tool_use_failed", "failed_generation": "<|call|>read_file{bad json"}}
+        self.server.queue.append((400, {}, error))
+        client, _ = self.make_client()
+        completion = self.chat(client)
+        self.assertEqual(completion.finish_reason, "tool_use_failed")
+        self.assertIn("bad json", completion.message["tool_use_failed"]["failed_generation"])
+        self.assertGreater(self.meter.spent(), 0)
+        replay_client, cassette = self.make_client("replay")
+        again = self.chat(replay_client)
+        self.assertEqual(again.finish_reason, "tool_use_failed")
+        cassette.assert_no_misses()
+
+
+class RedactionTests(ClientTestCase):
+    def test_masked_key_in_an_auth_error_is_removed(self):
+        body = {"error": {"message": "Incorrect API key provided: sk-proj-ab********************wxyz. Find your key."}}
+        self.server.queue.append((401, {}, body))
+        client, _ = self.make_client()
+        with self.assertRaises(client_mod.AuthError) as ctx:
+            self.chat(client)
+        self.assertNotIn("wxyz", str(ctx.exception))
+        self.assertIn("[redacted]", str(ctx.exception))
+
+    def test_redact(self):
+        self.assertEqual(client_mod.redact("key gsk_ABCDEF123 end"), "key [redacted] end")
 
 
 class DurationTests(unittest.TestCase):

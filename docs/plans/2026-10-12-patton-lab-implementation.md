@@ -18,7 +18,7 @@
 - Python floor 3.11 (CI matrix 3.11, 3.12, 3.13).
 - Hard cap $10 across both providers; the meter aborts at $9 of actual spend.
 - Primary worker `openai/gpt-oss-120b` on Groq, temperature 1.0, `reasoning_effort` medium. Replication worker `gpt-4.1-mini` on OpenAI, temperature 1.0.
-- Turn cap 10 per agent run, `max_tokens` 2000 per call.
+- Turn cap 14 for cleanup runs (E1, E1E, E1R, E1H, E7G) and 10 for the others, `max_tokens` 2000 per call.
 - Keys only through `PATTON_LAB_GROQ_KEY` and `PATTON_LAB_OPENAI_KEY`. Never argv, never printed, never written.
 - No machine path in any recorded artifact: tools see `/work` and `/protocol` only.
 - The privacy gate covers `lab/`: no employer name, no home directory other than `/home/user`, no key-shaped string.

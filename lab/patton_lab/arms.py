@@ -63,6 +63,10 @@ def references() -> dict[str, str]:
     }
 
 
+def adapter() -> str:
+    return _read(PACKAGE_ROOT / "adapters" / "claude-code.md").strip()
+
+
 def _clause() -> str:
     return _read(ARMS_DIR / "D_clause.md").strip()
 
@@ -72,7 +76,12 @@ def ablate(text: str) -> str:
     kept_blocks = []
     for block in text.split("\n\n"):
         stripped = block.lstrip()
-        if stripped.startswith("#") or stripped.startswith("```") or stripped.startswith("|"):
+        if stripped.startswith("|"):
+            rows = [row for row in block.splitlines() if not ABLATION_PATTERN.search(row)]
+            if len(rows) > 2:  # more than the header and its separator survive
+                kept_blocks.append("\n".join(rows))
+            continue
+        if stripped.startswith("#") or stripped.startswith("```"):
             if not ABLATION_PATTERN.search(block):
                 kept_blocks.append(block)
             continue
@@ -109,6 +118,7 @@ def arm_text(arm: str, role: str = "builder") -> str:
         parts = [arm_text("B", role)]
         for name, body in references().items():
             parts.append(f"## Reference: {name}\n\n{body}")
+        parts.append(f"## Reference: adapters/claude-code.md\n\n{adapter()}")
         return "\n\n".join(parts)
     if arm == "F":
         if role != "builder":

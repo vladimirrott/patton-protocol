@@ -85,23 +85,50 @@ def precision_at(base_rate: float, tpr: float, fpr: float) -> float | None:
     return None if denominator == 0 else tpr * base_rate / denominator
 
 
-def verdict(point: float, lower: float, ci90: tuple[float, float], threshold: float) -> str:
+def signflip_p(values: list[float]) -> float:
+    """Exact one-sided p of a paired sign-flip (randomisation) test that the mean exceeds 0.
+
+    Under the null each difference is as likely negative as positive, so every
+    pattern of signs on the nonzero |d| is equally likely. The p value is the
+    share of patterns whose sum is at least the observed sum. The distribution is
+    built exactly by dynamic programming over sums, so it stays fast for any n.
+    """
+    nonzero = [abs(v) for v in values if abs(v) > 1e-12]
+    if not nonzero:
+        return 1.0
+    observed = round(sum(v for v in values if abs(v) > 1e-12), 9)
+    counts: dict[float, int] = {0.0: 1}
+    for magnitude in nonzero:
+        nxt: dict[float, int] = {}
+        for total, count in counts.items():
+            for signed in (magnitude, -magnitude):
+                key = round(total + signed, 9)
+                nxt[key] = nxt.get(key, 0) + count
+        counts = nxt
+    at_least = sum(count for total, count in counts.items() if total >= observed - 1e-9)
+    return at_least / 2 ** len(nonzero)
+
+
+ALPHA = 0.05
+
+
+def verdict(point: float, p_one_sided: float, ci90: tuple[float, float], threshold: float, sesoi: float) -> str:
     """Pre-registered labels for a prediction that the effect is at least `threshold`.
 
-    SUPPORTED needs the point estimate at the threshold and the one-sided 95%
-    lower bound above zero. NOT SUPPORTED needs the point below the threshold
-    and the whole 90% interval inside +/- threshold. Anything else is
-    INCONCLUSIVE.
+    SUPPORTED needs the point estimate at the threshold and an exact one-sided
+    sign-flip p below 0.05. NOT SUPPORTED needs the point below the threshold and
+    the whole 90% interval inside +/- sesoi. Anything else is INCONCLUSIVE.
     """
-    if point >= threshold and lower > 0:
+    if point >= threshold and p_one_sided < ALPHA:
         return "SUPPORTED"
-    if point < threshold and -threshold < ci90[0] and ci90[1] < threshold:
+    if point < threshold and -sesoi < ci90[0] and ci90[1] < sesoi:
         return "NOT SUPPORTED"
     return "INCONCLUSIVE"
 
 
-def non_inferiority(upper: float, margin: float) -> str:
-    return "SUPPORTED" if upper < margin else "INCONCLUSIVE"
+def non_inferiority(upper: float, p_one_sided: float, margin: float) -> str:
+    """SUPPORTED when the one-sided 95% upper bound is below the margin and the shifted sign-flip p < 0.05."""
+    return "SUPPORTED" if upper < margin and p_one_sided < ALPHA else "INCONCLUSIVE"
 
 
 def flag_ceiling_floor(rate: float, low: float = 0.05, high: float = 0.95) -> str | None:

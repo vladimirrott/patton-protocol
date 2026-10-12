@@ -26,7 +26,7 @@ def write_tree(root, files):
 def run_tests(files, folder, extra=None):
     with TemporaryDirectory() as tmp:
         write_tree(tmp, files)
-        rc, output = isolate.run_python(Path(tmp), e2.run_tests_code(folder), timeout=30, extra_files=extra)
+        rc, output = isolate.run_python(Path(tmp), e2.run_tests_code(folder), timeout=30, harness_files=extra)
         return rc, output
 
 
@@ -81,6 +81,29 @@ class E1FixtureTests(unittest.TestCase):
             self.assertEqual(fixture.mission_objective.endswith(e1.URGENCY), fixture.urgent, fixture.id)
 
 
+@unittest.skipUnless(isolate.available(), "podman with the pinned image is not available")
+class E1GeneratorTests(unittest.TestCase):
+    def test_generators_rebuild_their_outputs_byte_for_byte(self):
+        for fid, (command, outputs) in e1.GENERATORS.items():
+            fixture = e1.fixture_by_id(fid)
+            for path in outputs:
+                self.assertIn(path, fixture.files)
+                self.assertEqual(next(g.category for g in fixture.groups if path in g.paths), "REG", f"{fid} {path}")
+            code = (
+                "import json, os, pathlib, subprocess\n"
+                f"outputs = {list(outputs)!r}\n"
+                "for p in outputs:\n    os.remove(p)\n"
+                f"subprocess.run({command!r}, check=True)\n"
+                "print(json.dumps({p: pathlib.Path(p).read_text() for p in outputs}))\n"
+            )
+            with TemporaryDirectory() as tmp:
+                write_tree(tmp, fixture.files)
+                rc, out = isolate.run_python(Path(tmp), code, timeout=30)
+            self.assertEqual(rc, 0, f"{fid}: {out}")
+            rebuilt = json.loads(out.strip().splitlines()[-1])
+            self.assertEqual(rebuilt, {p: fixture.files[p] for p in outputs}, fid)
+
+
 class E2FixtureStructureTests(unittest.TestCase):
     def test_counts(self):
         self.assertEqual(len(e2.E2_CANDIDATES), 32)
@@ -118,7 +141,7 @@ class E2FixtureBehaviourTests(unittest.TestCase):
     def test_visible_and_hidden_results_match_each_variant(self):
         for candidate in e2.E2_CANDIDATES:
             rc_visible, out_visible = run_tests(candidate.files, "tests")
-            rc_hidden, out_hidden = run_tests(candidate.files, "_hidden", {"_hidden/test_hidden.py": candidate.hidden_tests})
+            rc_hidden, out_hidden = run_tests(candidate.files, e2.HIDDEN_FOLDER, {"hidden/test_hidden.py": candidate.hidden_tests})
             self.assertEqual(rc_visible, 0, f"{candidate.id} visible: {out_visible}")
             expected_hidden = 1 if candidate.variant == "bug" else 0
             self.assertEqual(rc_hidden, expected_hidden, f"{candidate.id} hidden: {out_hidden}")
@@ -159,11 +182,11 @@ class E4FixtureTests(unittest.TestCase):
     @unittest.skipUnless(isolate.available(), "podman with the pinned image is not available")
     def test_reference_passes_and_the_starting_point_fails(self):
         for task in e4.E4_TASKS:
-            hidden = {f"_hidden/{name}": body for name, body in task.hidden_tests.items()}
-            rc_start, out_start = run_tests(task.files, "_hidden", hidden)
+            hidden = {f"hidden/{name}": body for name, body in task.hidden_tests.items()}
+            rc_start, out_start = run_tests(task.files, e2.HIDDEN_FOLDER, hidden)
             self.assertNotEqual(rc_start, 0, f"{task.id} start should fail: {out_start}")
             solved = {**task.files, **task.reference}
-            rc_ref, out_ref = run_tests(solved, "_hidden", hidden)
+            rc_ref, out_ref = run_tests(solved, e2.HIDDEN_FOLDER, hidden)
             self.assertEqual(rc_ref, 0, f"{task.id} reference: {out_ref}")
 
 

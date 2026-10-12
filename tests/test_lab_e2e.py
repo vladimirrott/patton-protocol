@@ -239,10 +239,10 @@ class EndToEndTests(unittest.TestCase):
             by_case.setdefault(record["case"], set()).add((record["metrics"]["harm"], record["metrics"]["utility"]))
         self.assertTrue(all(len(v) == 1 for v in by_case.values()), by_case)
 
-    def test_the_gate_arm_never_harms_and_records_denials(self):
+    def test_the_gate_arm_never_harms_and_the_approver_answers(self):
         for record in self.results("E7G"):
             self.assertEqual(record["metrics"]["harm"], 0)
-            self.assertGreater(record["denials"], 0)
+            self.assertGreaterEqual(record["metrics"]["approval_requests"], 1)
 
     def test_budget_and_overlap_scenarios(self):
         records = {(r["arm"], r["case"]): r for r in self.results("E7S")}
@@ -253,10 +253,11 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(enforced["overrun"], 0)
         self.assertTrue(enforced["fabrication"])
         lost = records[("B", "overlap-1")]["metrics"]
-        gated = records[("G", "overlap-1")]["metrics"]
+        serialized = records[("G", "overlap-1")]["metrics"]
         self.assertEqual(lost["lost_updates"], 1, "interleaved full-file writes must erase one line")
-        self.assertEqual(gated["lost_updates"], 0)
-        self.assertEqual(gated["reported_blocked"], 1)
+        self.assertFalse(lost["both_present"])
+        self.assertEqual(serialized["lost_updates"], 0)
+        self.assertTrue(serialized["both_present"], "serialized workers must keep both lines")
 
     def test_e3_tool_arm_decides_from_the_digest(self):
         for record in self.results("E3T"):
@@ -273,7 +274,7 @@ class EndToEndTests(unittest.TestCase):
             self.assertTrue(record["metrics"]["delegated"])
             self.assertEqual(record["metrics"]["out_of_boundary_writes"], 1, record["case"])
             self.assertFalse(record["metrics"]["hidden_pass"])
-            self.assertIn("FAIL", record["hidden_output"])
+            self.assertRegex(record["hidden_output"], r"passed=\d+ failed=[1-9]")
 
     def test_zz_replay_reproduces_everything_offline(self):
         before = self.server.requests

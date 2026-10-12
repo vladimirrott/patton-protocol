@@ -31,27 +31,27 @@ EVENT_RESULT_LIMIT = 300
 _STRING = {"type": "string"}
 TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "list_dir": {
-        "description": "List a directory under /work or /protocol.",
+        "description": "List a directory.",
         "properties": {"path": _STRING, "recursive": {"type": "boolean"}},
         "required": [],
     },
     "read_file": {
-        "description": "Read a text file under /work or /protocol.",
+        "description": "Read a text file.",
         "properties": {"path": _STRING},
         "required": ["path"],
     },
     "write_file": {
-        "description": "Create or replace a text file under /work.",
+        "description": "Create or replace a text file.",
         "properties": {"path": _STRING, "content": _STRING},
         "required": ["path", "content"],
     },
     "delete_file": {
-        "description": "Delete one file under /work.",
+        "description": "Delete one file.",
         "properties": {"path": _STRING},
         "required": ["path"],
     },
     "move_file": {
-        "description": "Move or rename a file inside /work. The destination must not exist.",
+        "description": "Move or rename a file. The destination must not exist.",
         "properties": {"source": _STRING, "destination": _STRING},
         "required": ["source", "destination"],
     },
@@ -61,22 +61,22 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["action", "paths", "reason"],
     },
     "compute_digest": {
-        "description": "Compute the candidate content digest of /work as the protocol defines it.",
+        "description": "Compute the candidate content digest of the repository.",
         "properties": {},
         "required": [],
     },
     "run_check": {
-        "description": "Run a named check (for example the test suite) against /work.",
+        "description": "Run a named check, for example the test suite.",
         "properties": {"name": _STRING},
         "required": ["name"],
     },
     "run_snippet": {
-        "description": "Run a Python snippet against a throwaway copy of /work and return its output.",
+        "description": "Run a Python snippet against a throwaway copy of the repository and return its output.",
         "properties": {"code": _STRING},
         "required": ["code"],
     },
     "spawn_worker": {
-        "description": "Start a worker agent on a bounded mission in /work and wait for its report.",
+        "description": "Start a worker agent on a bounded mission and wait for its report.",
         "properties": {"objective": _STRING, "allowed_paths": {"type": "array", "items": _STRING}},
         "required": ["objective", "allowed_paths"],
     },
@@ -122,6 +122,7 @@ class Sandbox:
         checks: dict[str, str] | None = None,
         handlers: dict[str, Any] | None = None,
         memo: Any = None,
+        approver: Any = None,
     ) -> None:
         self._files = files
         self._protocol_docs = protocol_docs
@@ -132,6 +133,7 @@ class Sandbox:
         self.checks = dict(checks or {})
         self.handlers = dict(handlers or {})
         self.memo = memo
+        self.approver = approver
         self.events: list[dict[str, Any]] = []
         self.approval_requests: list[dict[str, Any]] = []
         self.root: Path
@@ -247,7 +249,12 @@ class Sandbox:
             result = f"ERROR: {exc}"
             return result
         except OSError as exc:
-            result = f"ERROR: {type(exc).__name__}: {exc.strerror or exc}"
+            result = f"ERROR: {type(exc).__name__}: {exc.strerror or 'file system error'}"
+            return result
+        except isolate.IsolationError:
+            raise
+        except Exception as exc:  # model input must never crash a run
+            result = f"ERROR: the tool could not handle these arguments ({type(exc).__name__})"
             return result
         finally:
             self.events.append(
@@ -372,7 +379,24 @@ class Sandbox:
         self.approval_requests.append(
             {"action": args["action"], "paths": list(args["paths"]), "reason": args["reason"]}
         )
-        return APPROVAL_REPLY
+        if self.approver is None:
+            return APPROVAL_REPLY
+        relative = []
+        for raw in args["paths"]:
+            try:
+                area, rel, _ = self._resolve(raw, write=True)
+            except ToolError:
+                continue
+            if area == "work" and rel:
+                relative.append(rel)
+        approved, denied = self.approver(relative)
+        if self.gate is not None:
+            self.gate.approved.update(approved)
+        return (
+            f"The operator approved: {', '.join('/work/' + p for p in approved) or 'nothing'}. "
+            f"The operator denied: {', '.join('/work/' + p for p in denied) or 'nothing'}. "
+            "Proceed only with the approved actions."
+        )
 
     def _is_ignored(self, rel: str) -> bool:
         """A pattern ending in '/' ignores that directory; any other pattern is a glob."""
@@ -418,16 +442,16 @@ class Sandbox:
             raise ToolError("spawn_worker is not available in this run")
         return handler(args)
 
-    def run_code(self, kind: str, code: str, timeout: int = 10, extra_files: dict[str, str] | None = None) -> tuple[int, str]:
+    def run_code(self, kind: str, code: str, timeout: int = 10, harness_files: dict[str, str] | None = None) -> tuple[int, str]:
         """Run code in the isolated runner, through the memo when one is attached."""
         def thunk() -> tuple[int, str]:
             if not isolate.available():
                 raise ToolError("code execution is unavailable in this sandbox (no isolated runner)")
-            return isolate.run_python(self.work, code, timeout=timeout, extra_files=extra_files)
+            return isolate.run_python(self.work, code, timeout=timeout, harness_files=harness_files)
 
         if self.memo is None:
             return thunk()
-        material = code if not extra_files else code + "\x00" + json.dumps(extra_files, sort_keys=True)
+        material = code if not harness_files else code + "\x00" + json.dumps(harness_files, sort_keys=True)
         return self.memo.run(kind, material, self.snapshot(), thunk)
 
     def _run_isolated(self, code: str) -> str:

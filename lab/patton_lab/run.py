@@ -16,8 +16,11 @@ Exit codes: 0 ok, 1 a check failed (replay mismatch, control off its score),
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import sys
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +29,7 @@ from .cassette import Cassette, CassetteMiss
 from .client import PROVIDERS, AuthError, Client, HttpTransport, Provider, ProviderError, QuotaError, RateLimitError
 from .controls import E1_CONTROLS
 from .cost import BudgetExceeded, Meter
-from .experiments import EXPERIMENTS, SPEND_ORDER, MAX_TURNS, Job, calls_multiplier, execute_job, first_prompt, jobs_for
+from .experiments import E1_TURNS, EXPERIMENTS, SPEND_ORDER, MAX_TURNS, Job, calls_multiplier, execute_job, first_prompt, jobs_for
 from .fixtures import e1
 from .memo import ExecMemo
 from .sandbox import Sandbox, tool_schemas
@@ -57,6 +60,29 @@ class Paths:
 
     def exec_cassette(self, exp: str) -> Path:
         return self.cassettes / f"{exp}.exec.jsonl.gz"
+
+    @property
+    def lock(self) -> Path:
+        return self.results / ".record.lock"
+
+
+class LockHeld(Exception):
+    pass
+
+
+@contextmanager
+def exclusive(paths: Paths):
+    """Hold one lock for a whole record or smoke command, so two runs never spend in parallel."""
+    paths.results.mkdir(parents=True, exist_ok=True)
+    handle = paths.lock.open("w")
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise LockHeld(f"another record or smoke run holds {paths.lock}") from None
+        yield
+    finally:
+        handle.close()
 
 
 def load_results(path: Path) -> dict[str, dict[str, Any]]:
@@ -106,7 +132,7 @@ def estimate(job: Job) -> tuple[float, float]:
     price = cost.price(job.provider, job.model)
     loops = calls_multiplier(job)
     turns = exp.turns_expected if exp else 6
-    worst_turns = 1 if (exp and exp.single_call) else MAX_TURNS
+    worst_turns = 1 if (exp and exp.single_call) else (E1_TURNS if job.exp in ("E1", "E7G", "E1E", "E1R", "E1H", "SMOKE") else MAX_TURNS)
     expected_in, expected_out = cost.run_tokens(first, turns, EXPECTED_GROWTH, OUT_PER_TURN[job.provider])
     worst_in, worst_out = cost.run_tokens(first, worst_turns, WORST_GROWTH, MAX_TOKENS)
     return (loops * cost.usd(expected_in, expected_out, price), loops * cost.usd(worst_in, worst_out, price))
@@ -190,12 +216,19 @@ def _record_jobs(paths: Paths, name: str, jobs: list[Job], providers: dict[str, 
     client = Client(Cassette(paths.cassette(name), "record"), transports, meter)
     memo = ExecMemo(Cassette(paths.exec_cassette(name), "record"))
     for index, job in enumerate(pending, start=1):
+        spent_before = meter.spent()
         try:
             record = execute_job(job, client, providers, memo)
         except (AuthError, QuotaError, RateLimitError, ProviderError, BudgetExceeded) as exc:
             print(f"!! stopped at {job.id}: {type(exc).__name__}: {exc}")
             print(f"   {index - 1} of {len(pending)} pending jobs finished; spend ${meter.spent():.4f}")
             return 3
+        except isolate.IsolationError as exc:
+            print(f"!! stopped at {job.id}: the isolated runner failed: {exc}")
+            return 4
+        meter.reload()
+        record["estimated_usd"] = round(estimate(job)[0], 6) if job.exp in EXPERIMENTS else None
+        record["actual_usd"] = round(meter.spent() - spent_before, 6)
         append_result(results_path, record)
         print(f"[{index}/{len(pending)}] {job.id} {_summary(record)} live={record['calls_live']} "
               f"spent=${meter.spent():.4f}", flush=True)
@@ -203,28 +236,44 @@ def _record_jobs(paths: Paths, name: str, jobs: list[Job], providers: dict[str, 
 
 
 def cmd_record(paths: Paths, exps: list[str], limit: int | None, providers: dict[str, Provider]) -> int:
-    meter = Meter(paths.ledger, ABORT_AT_USD, CAP_USD)
-    for name in exps:
-        jobs = jobs_for(name)
-        if limit is not None:
-            done = load_results(paths.results_file(name))
-            jobs = [job for job in jobs if job.id not in done][:limit]
-        rc = _record_jobs(paths, name, jobs, providers, meter)
-        if rc:
-            return rc
-    print(f"record finished; actual spend ${meter.spent():.4f}")
-    return 0
+    try:
+        with exclusive(paths):
+            meter = Meter(paths.ledger, ABORT_AT_USD, CAP_USD)
+            for name in exps:
+                jobs = jobs_for(name)
+                if limit is not None:
+                    done = load_results(paths.results_file(name))
+                    jobs = [job for job in jobs if job.id not in done][:limit]
+                rc = _record_jobs(paths, name, jobs, providers, meter)
+                if rc:
+                    return rc
+            print(f"record finished; actual spend ${meter.spent():.4f}")
+            return 0
+    except LockHeld as exc:
+        print(f"!! {exc}; refusing to start")
+        return 4
 
 
 def cmd_smoke(paths: Paths, provider: str, providers: dict[str, Provider]) -> int:
+    """One real job with a fresh salt, so it can only pass by reaching the provider."""
     model = {"groq": "openai/gpt-oss-120b", "openai": "gpt-4.1-mini"}[provider]
-    job = Job("SMOKE", "B", "f01", 0, provider, model)
-    meter = Meter(paths.ledger, ABORT_AT_USD, CAP_USD)
-    rc = _record_jobs(paths, "SMOKE", [job], providers, meter)
-    if rc == 0:
-        record = load_results(paths.results_file("SMOKE"))[job.id]
-        print(json.dumps({k: record[k] for k in ("turns", "stop_reason", "usage", "models_returned", "metrics")}, indent=2))
-    return rc
+    job = Job("SMOKE", "B", "f01", int(time.time() * 1000), provider, model)
+    try:
+        with exclusive(paths):
+            meter = Meter(paths.ledger, ABORT_AT_USD, CAP_USD)
+            rc = _record_jobs(paths, "SMOKE", [job], providers, meter)
+    except LockHeld as exc:
+        print(f"!! {exc}; refusing to start")
+        return 4
+    if rc:
+        return rc
+    record = load_results(paths.results_file("SMOKE"))[job.id]
+    print(json.dumps({k: record.get(k) for k in ("turns", "stop_reason", "usage", "calls_live", "models_returned",
+                                                   "tool_use_failures", "actual_usd", "metrics")}, indent=2))
+    if record["calls_live"] < 1:
+        print("SMOKE FAILED: no call reached the provider")
+        return 1
+    return 0
 
 
 def _comparable(record: dict[str, Any]) -> dict[str, Any]:
@@ -237,7 +286,8 @@ def cmd_replay(paths: Paths, exps: list[str], providers: dict[str, Provider]) ->
     for name in exps:
         recorded = load_results(paths.results_file(name))
         if not recorded:
-            print(f"{name}: no recorded results")
+            print(f"!! {name}: no recorded results to replay")
+            problems += 1
             continue
         try:
             cassette = Cassette(paths.cassette(name), "replay")

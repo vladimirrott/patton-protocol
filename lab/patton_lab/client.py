@@ -4,16 +4,28 @@ Every call goes through `Client.chat`, which keys the request, serves it from
 the cassette when it can, asks the meter before spending, and records the
 response. Replay mode never reaches `HttpTransport`.
 
+Spend is charged conservatively. A failed attempt that may already have been
+billed (a timeout, a dropped connection, an unreadable body) is charged at the
+call's bound. A response without a usable `usage` block is charged at the
+bound too. The ledger can overstate the bill; it should never understate it.
+
+A provider can reject a malformed tool call the model produced (Groq answers
+400 `tool_use_failed`). That is model behaviour, not an outage: the client
+returns it as a completion with `tool_use_failed`, the cassette records it, and
+the agent loop tells the model its call could not be parsed.
+
 The key comes from an environment variable named by the provider. It goes
-into the Authorization header and nowhere else: not into the cassette, not
-into an exception message, not into a log line.
+into the Authorization header and nowhere else, and key-shaped text is removed
+from every error message.
 """
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -28,6 +40,7 @@ MAX_RATE_LIMIT_WAITS = 5
 SERVER_RETRY_WAITS = (2.0, 4.0, 8.0)
 DEFAULT_RATE_LIMIT_WAIT = 2.0
 REQUEST_TIMEOUT_S = 180
+FAILED_GENERATION_LIMIT = 2000
 
 
 class AuthError(Exception):
@@ -69,7 +82,16 @@ class Completion:
     from_cassette: bool
 
 
+@dataclass
+class PostResult:
+    body: dict[str, Any] | None
+    headers: dict[str, str]
+    uncertain_attempts: int
+    tool_use_failed: dict[str, str] | None = None
+
+
 _DURATION_PART = re.compile(r"(\d+(?:\.\d+)?)(ms|s|m|h)")
+_KEYISH = re.compile(r"(sk-|gsk_|ghp_)[A-Za-z0-9*_\-]{3,}|(api key provided:\s*)\S+", re.IGNORECASE)
 
 
 def parse_duration(text: str | None) -> float | None:
@@ -88,19 +110,31 @@ def parse_duration(text: str | None) -> float | None:
     return sum(float(number) * scale[unit] for number, unit in parts)
 
 
+def redact(text: str) -> str:
+    return _KEYISH.sub(lambda m: (m.group(2) or "") + "[redacted]", text)
+
+
 def _is_quota_error(body_text: str) -> bool:
-    return "insufficient_quota" in body_text or "quota" in body_text.lower() and "exceeded" in body_text.lower()
+    lowered = body_text.lower()
+    return "insufficient_quota" in lowered or ("quota" in lowered and "exceeded" in lowered)
+
+
+def _error_object(body_text: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(body_text)
+    except json.JSONDecodeError:
+        return {}
+    error = parsed.get("error", parsed) if isinstance(parsed, dict) else {}
+    return error if isinstance(error, dict) else {}
 
 
 def _error_excerpt(body_text: str) -> str:
-    try:
-        parsed = json.loads(body_text)
-        error = parsed.get("error", parsed)
-        if isinstance(error, dict):
-            return str(error.get("message") or error.get("code") or error)[:300]
-        return str(error)[:300]
-    except (json.JSONDecodeError, AttributeError):
-        return body_text[:300]
+    error = _error_object(body_text)
+    text = str(error.get("message") or error.get("code") or body_text)
+    return redact(text)[:300]
+
+
+_TRANSIENT = (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException, ssl.SSLError)
 
 
 class HttpTransport:
@@ -130,18 +164,24 @@ class HttpTransport:
 
     def _note_window(self, headers: dict[str, str]) -> None:
         remaining = headers.get("x-ratelimit-remaining-tokens")
-        reset = parse_duration(headers.get("x-ratelimit-reset-tokens"))
         try:
             self._remaining_tokens = int(remaining) if remaining is not None else None
         except ValueError:
             self._remaining_tokens = None
-        self._reset_seconds = reset
+        self._reset_seconds = parse_duration(headers.get("x-ratelimit-reset-tokens"))
 
-    def post(self, payload: dict[str, Any], estimated_tokens: int) -> tuple[dict[str, Any], dict[str, str]]:
+    def _retry_or_raise(self, failures: int, reason: str) -> int:
+        if failures >= len(SERVER_RETRY_WAITS):
+            raise ProviderError(f"{self.provider.name}: {reason} after {failures} retries")
+        self._sleep(SERVER_RETRY_WAITS[failures])
+        return failures + 1
+
+    def post(self, payload: dict[str, Any], estimated_tokens: int) -> PostResult:
         data = json.dumps(payload).encode("utf-8")
         url = self.provider.base_url.rstrip("/") + "/chat/completions"
         rate_waits = 0
-        server_failures = 0
+        failures = 0
+        uncertain = 0
         self._pace(estimated_tokens)
         while True:
             request = urllib.request.Request(
@@ -157,9 +197,19 @@ class HttpTransport:
             try:
                 with urllib.request.urlopen(request, timeout=self._timeout) as response:
                     headers = {k.lower(): v for k, v in response.headers.items()}
-                    body = json.loads(response.read().decode("utf-8"))
+                    raw = response.read()
                 self._note_window(headers)
-                return body, headers
+                try:
+                    body = json.loads(raw.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    uncertain += 1
+                    failures = self._retry_or_raise(failures, "a 200 response with an unreadable body")
+                    continue
+                if not isinstance(body, dict):
+                    uncertain += 1
+                    failures = self._retry_or_raise(failures, "a 200 response that is not a JSON object")
+                    continue
+                return PostResult(body, headers, uncertain)
             except urllib.error.HTTPError as exc:
                 headers = {k.lower(): v for k, v in (exc.headers or {}).items()}
                 body_text = exc.read().decode("utf-8", errors="replace")
@@ -168,6 +218,12 @@ class HttpTransport:
                     raise AuthError(f"{self.provider.name} rejected the key (HTTP {status}): {_error_excerpt(body_text)}") from None
                 if status == 402 or _is_quota_error(body_text):
                     raise QuotaError(f"{self.provider.name} reports no credit (HTTP {status}): {_error_excerpt(body_text)}") from None
+                error = _error_object(body_text)
+                if status == 400 and error.get("code") == "tool_use_failed":
+                    return PostResult(None, headers, uncertain, {
+                        "message": redact(str(error.get("message", "")))[:300],
+                        "failed_generation": redact(str(error.get("failed_generation", "")))[:FAILED_GENERATION_LIMIT],
+                    })
                 if status == 429:
                     if rate_waits >= MAX_RATE_LIMIT_WAITS:
                         raise RateLimitError(f"{self.provider.name} rate-limited after {rate_waits} waits") from None
@@ -181,17 +237,13 @@ class HttpTransport:
                     self._sleep(wait)
                     continue
                 if 500 <= status <= 599:
-                    if server_failures >= len(SERVER_RETRY_WAITS):
-                        raise ProviderError(f"{self.provider.name} HTTP {status} after retries: {_error_excerpt(body_text)}") from None
-                    self._sleep(SERVER_RETRY_WAITS[server_failures])
-                    server_failures += 1
+                    failures = self._retry_or_raise(failures, f"HTTP {status}: {_error_excerpt(body_text)}")
                     continue
                 raise ProviderError(f"{self.provider.name} HTTP {status}: {_error_excerpt(body_text)}") from None
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-                if server_failures >= len(SERVER_RETRY_WAITS):
-                    raise ProviderError(f"{self.provider.name} unreachable after retries: {type(exc).__name__}") from None
-                self._sleep(SERVER_RETRY_WAITS[server_failures])
-                server_failures += 1
+            except _TRANSIENT as exc:
+                # The provider may have generated (and billed) a reply that never arrived.
+                uncertain += 1
+                failures = self._retry_or_raise(failures, f"transport error {type(exc).__name__}")
 
 
 def clean_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -202,6 +254,16 @@ def clean_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             message = {k: v for k, v in message.items() if k != "reasoning"}
         cleaned.append(message)
     return cleaned
+
+
+def _usable_usage(usage: Any) -> bool:
+    if not isinstance(usage, dict):
+        return False
+    for key in ("prompt_tokens", "completion_tokens"):
+        value = usage.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            return False
+    return True
 
 
 class Client:
@@ -243,24 +305,46 @@ class Client:
             raise CassetteMiss(f"no recorded call for salt {salt!r}")
 
         estimated = estimate_tokens(payload)
-        self.meter.authorize(call_bound(provider.name, model, estimated, max_tokens))
-        transport = self.transports[provider.name]
-        body, _headers = transport.post(payload, estimated)
-        try:
-            choice = body["choices"][0]
-            message = choice["message"]
-            usage = body["usage"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ProviderError(f"{provider.name} returned an unexpected body shape: {sorted(body)}") from exc
-        self.meter.charge(provider.name, model, usage)
+        bound = call_bound(provider.name, model, estimated, max_tokens)
+        self.meter.authorize(bound)
+        result = self.transports[provider.name].post(payload, estimated)
+        if result.uncertain_attempts:
+            self.meter.charge_usd(provider.name, bound * result.uncertain_attempts)
+
+        if result.tool_use_failed is not None:
+            message = {"role": "assistant", "content": None, "tool_use_failed": result.tool_use_failed}
+            usage: dict[str, Any] = {"prompt_tokens": estimated, "completion_tokens": max_tokens, "estimated": True}
+            self.meter.charge_usd(provider.name, bound)
+            model_returned, finish_reason = model, "tool_use_failed"
+        else:
+            body = result.body or {}
+            try:
+                choice = body["choices"][0]
+                message = choice["message"]
+            except (KeyError, IndexError, TypeError) as exc:
+                self.meter.charge_usd(provider.name, bound)
+                raise ProviderError(f"{provider.name} returned an unexpected body shape: {sorted(body)}") from exc
+            if not isinstance(message, dict):
+                self.meter.charge_usd(provider.name, bound)
+                raise ProviderError(f"{provider.name} returned a message that is not an object")
+            raw_usage = body.get("usage")
+            if _usable_usage(raw_usage):
+                usage = raw_usage
+                self.meter.charge(provider.name, model, usage)
+            else:
+                usage = {"prompt_tokens": estimated, "completion_tokens": max_tokens, "estimated": True}
+                self.meter.charge_usd(provider.name, bound)
+            model_returned = body.get("model", model)
+            finish_reason = choice.get("finish_reason") or ""
+
         record = {
             "message": message,
             "usage": usage,
-            "model": body.get("model", model),
-            "finish_reason": choice.get("finish_reason") or "",
+            "model": model_returned,
+            "finish_reason": finish_reason,
             "provider": provider.name,
             "salt": salt,
             "recorded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         self.cassette.put(key, record)
-        return Completion(message, usage, record["model"], record["finish_reason"], False)
+        return Completion(message, usage, model_returned, finish_reason, False)

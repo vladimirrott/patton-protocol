@@ -29,6 +29,7 @@ class RunResult:
     usage: dict[str, int] = field(default_factory=lambda: {"prompt_tokens": 0, "completion_tokens": 0})
     calls_from_cassette: int = 0
     calls_live: int = 0
+    tool_use_failures: int = 0
     models_returned: list[str] = field(default_factory=list)
     transcript: list[dict[str, Any]] = field(default_factory=list)
 
@@ -71,6 +72,19 @@ class _Loop:
             result.usage[key] += int(completion.usage.get(key, 0))
 
         message = completion.message
+        if message.get("tool_use_failed"):
+            failure = message["tool_use_failed"]
+            result.tool_use_failures += 1
+            self.messages.append({"role": "assistant", "content": "[my tool call could not be parsed]"})
+            self.messages.append({
+                "role": "user",
+                "content": f"Your last tool call could not be parsed ({failure.get('message', 'invalid call')}). "
+                           "Call the tools with valid JSON arguments, or give your final report.",
+            })
+            result.transcript.append({"turn": result.turns, "content": None, "reasoning_chars": 0,
+                                      "finish_reason": completion.finish_reason, "tool_use_failed": True,
+                                      "tool_calls": []})
+            return
         content = message.get("content")
         calls = message.get("tool_calls") or []
         assistant: dict[str, Any] = {"role": "assistant"}
@@ -94,11 +108,17 @@ class _Loop:
             "turn": result.turns,
             "content": content,
             "reasoning_chars": len(message.get("reasoning") or ""),
+            "finish_reason": completion.finish_reason,
             "tool_calls": [],
         }
         if not calls:
             result.final_text = content or ""
-            result.stop_reason = "final" if (content or "").strip() else "empty"
+            if (content or "").strip():
+                result.stop_reason = "final"
+            elif completion.finish_reason == "length":
+                result.stop_reason = "length"
+            else:
+                result.stop_reason = "empty"
             result.transcript.append(entry)
             self.done = True
             return

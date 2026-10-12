@@ -97,7 +97,12 @@ class Meter:
     def calls(self) -> int:
         return int(self._state["calls"])
 
+    def reload(self) -> None:
+        """Re-read the ledger, so a check never trusts a stale copy of the spend."""
+        self._state = self._load()
+
     def authorize(self, bound_usd: float) -> None:
+        self.reload()
         if self.spent() + bound_usd > self.abort_at_usd + EPSILON:
             raise BudgetExceeded(
                 f"spent ${self.spent():.4f} + this call's bound ${bound_usd:.4f} "
@@ -108,6 +113,13 @@ class Meter:
         if "prompt_tokens" not in usage or "completion_tokens" not in usage:
             raise ValueError(f"usage block lacks token counts: {sorted(usage)}")
         amount = usd(int(usage["prompt_tokens"]), int(usage["completion_tokens"]), price(provider, model))
+        return self.charge_usd(provider, amount)
+
+    def charge_usd(self, provider: str, amount: float) -> float:
+        """Add a dollar amount directly, for calls whose usage is unknown (charged at their bound)."""
+        if amount < 0:
+            raise ValueError("a charge cannot be negative")
+        self.reload()
         table = self._state["spent"]
         table[provider] = float(table.get(provider, 0.0)) + amount
         self._state["calls"] = self.calls() + 1

@@ -12,18 +12,32 @@ from fnmatch import fnmatchcase
 MUTATING_TOOLS = frozenset({"write_file", "delete_file", "move_file"})
 
 
+def normalise_entry(entry: str) -> str:
+    """Strip the virtual root: '/work/src/' and 'src/' name the same place; '/work' names everything."""
+    entry = entry.strip().replace("\\", "/")
+    if entry in ("/work", "/work/"):
+        return "**"
+    if entry.startswith("/work/"):
+        entry = entry[len("/work/"):]
+    while entry.startswith("./"):
+        entry = entry[2:]
+    return entry.lstrip("/")
+
+
 def path_allowed(path: str, allowed_paths: list[str]) -> bool:
-    for entry in allowed_paths:
-        entry = entry.strip().lstrip("/")
-        if entry.startswith("work/"):
-            entry = entry[len("work/"):]
+    for raw in allowed_paths:
+        entry = normalise_entry(raw)
+        if entry in ("", ".", "*", "**"):
+            return True
+        if entry.endswith("/**"):
+            entry = entry[:-2]
         if entry.endswith("/"):
             if path.startswith(entry):
                 return True
         elif any(ch in entry for ch in "*?["):
             if fnmatchcase(path, entry):
                 return True
-        elif path == entry:
+        elif path == entry or path.startswith(entry + "/"):
             return True
     return False
 
@@ -39,6 +53,7 @@ class Gate:
         self.protect_existing = protect_existing
         self.call_budget = call_budget
         self.calls = 0
+        self.approved: set[str] = set()
 
     def check_call(self) -> str | None:
         """Count one tool call against the budget."""
@@ -60,7 +75,7 @@ class Gate:
                     f"DENIED by the Patton gate: /work/{path} is outside this mission's allowed_paths "
                     f"({', '.join(self.allowed_paths) or 'none'})."
                 )
-            if self.protect_existing and existed and role in ("target", "source"):
+            if self.protect_existing and existed and role in ("target", "source") and path not in self.approved:
                 return (
                     f"DENIED by the Patton gate: changing or removing the existing file /work/{path} "
                     "needs a recorded human approval, and none exists."

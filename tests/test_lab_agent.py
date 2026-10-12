@@ -107,6 +107,31 @@ class RunAgentTests(unittest.TestCase):
         self.assertNotIn("private chain of thought", json.dumps(result.transcript))
 
 
+class FailureTurnTests(unittest.TestCase):
+    def test_tool_use_failed_turn_tells_the_model_and_continues(self):
+        failed = Completion({"role": "assistant", "content": None,
+                             "tool_use_failed": {"message": "bad call", "failed_generation": "x"}},
+                            {"prompt_tokens": 5, "completion_tokens": 5}, "m", "tool_use_failed", False)
+        client = ScriptedClient([failed, completion(content="done")])
+        with Sandbox({}) as box:
+            result = run_agent(client, PROVIDER, "m", "s", "u", box, ["list_dir"], salt="j")
+        self.assertEqual(result.tool_use_failures, 1)
+        self.assertEqual(result.stop_reason, "final")
+        sent = client.calls[1]["messages"]
+        self.assertEqual(sent[-1]["role"], "user")
+        self.assertIn("could not be parsed", sent[-1]["content"])
+        self.assertTrue(result.transcript[0]["tool_use_failed"])
+
+    def test_length_cut_reply_has_its_own_stop_reason(self):
+        cut = Completion({"role": "assistant", "content": ""}, {"prompt_tokens": 5, "completion_tokens": 2000},
+                         "m", "length", False)
+        client = ScriptedClient([cut])
+        with Sandbox({}) as box:
+            result = run_agent(client, PROVIDER, "m", "s", "u", box, ["list_dir"], salt="j")
+        self.assertEqual(result.stop_reason, "length")
+        self.assertEqual(result.transcript[0]["finish_reason"], "length")
+
+
 class InterleaveTests(unittest.TestCase):
     def test_alternates_and_uses_each_agents_gate(self):
         order = []

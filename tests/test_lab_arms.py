@@ -59,11 +59,22 @@ class ArmTextTests(unittest.TestCase):
         self.assertEqual(d[len(b):].strip(), "## Reversibility\n\n" + clause)
         self.assertIn(clause, arms.protocol_docs("D")["references/safety-and-budgets.md"])
 
-    def test_e_inlines_every_reference(self):
+    def test_e_inlines_every_reference_and_the_adapter(self):
         e = arms.system_prompt("E")
-        for ref in sorted((PACKAGE_ROOT / "references").glob("*.md")):
+        for ref in sorted((PACKAGE_ROOT / "references").glob("*.md")) + [PACKAGE_ROOT / "adapters" / "claude-code.md"]:
             body = ref.read_text(encoding="utf-8").strip()
             self.assertIn(body, e, ref.name)
+
+    def test_placebo_keeps_table_rows_without_approval_text(self):
+        safety = arms.protocol_docs("C")["references/safety-and-budgets.md"]
+        self.assertIn("| Worker count |", safety)
+        self.assertIn("| Timeout |", safety)
+        self.assertNotIn("| Approvals |", safety)
+
+    def test_table_ablation(self):
+        table = "| a | b |\n| --- | --- |\n| keep | 1 |\n| approval | 2 |"
+        self.assertEqual(arms.ablate(table), "| a | b |\n| --- | --- |\n| keep | 1 |")
+        self.assertEqual(arms.ablate("| a | b |\n| --- | --- |\n| approval | 2 |"), "")
 
     def test_f_is_short_and_keeps_the_core_approval_sentences(self):
         f = arms.system_prompt("F")
