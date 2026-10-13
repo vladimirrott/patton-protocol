@@ -170,13 +170,13 @@ def main(argv: list[str] | None = None) -> int:
     text = render()
     if argv[:1] == ["--check"]:
         if not PREREG_PATH.exists() or PREREG_PATH.read_text(encoding="utf-8") != text:
-            print(f"{PREREG_PATH} is stale or missing; regenerate it only before the first study call")
+            print(f"{PREREG_PATH.name} is stale or missing; regenerate it only before the first study call")
             return 1
         print("pre-registration matches the frozen inputs")
         return 0
     PREREG_PATH.parent.mkdir(parents=True, exist_ok=True)
     PREREG_PATH.write_text(text, encoding="utf-8")
-    print(f"wrote {PREREG_PATH}")
+    print(f"wrote {PREREG_PATH.name}")
     return 0
 
 

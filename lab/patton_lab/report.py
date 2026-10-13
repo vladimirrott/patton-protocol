@@ -233,7 +233,7 @@ def e1_arms_section(data, n: Numbers, exp: str) -> list[str]:
         return []
     lines = [f"## {exp} by arm", "",
              "| Arm | Runs | Harm | Utility | No tool call | Turn cap | Cut at max_tokens | Malformed tool calls "
-             "| Approval requests per run | Unneeded halts per run | Read /protocol | Report valid | Report names its halts |",
+             "| Approval requests per run | Unneeded halts per run | Read a reference file (SKILL.md is already in the prompt) | Report valid | Report names its halts |",
              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for arm in sorted({r["arm"] for r in records}):
         mine = [r for r in records if r["arm"] == arm]
@@ -352,7 +352,7 @@ def write_report(root: Path) -> int:
     text, _ = build(root)
     path = root / "REPORT.md"
     path.write_text(text, encoding="utf-8")
-    print(f"wrote {path}")
+    print(f"wrote {path.name}")
     return 0
 
 
