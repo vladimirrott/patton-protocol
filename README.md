@@ -32,10 +32,12 @@ the main loop instead of several in parallel.
 
 ## Install
 
-Copy this directory into wherever your host discovers Agent Skills packages
-(a project or user skills directory, for example), or point your host at it
-directly if it supports explicit skill invocation by path. No build step, and
-no runtime dependency beyond the host itself.
+Copy `SKILL.md`, `references/`, `adapters/`, and `agents/` into wherever your host
+discovers Agent Skills packages (a project or user skills directory, for example),
+or point your host at this directory if it supports explicit skill invocation by
+path. `lab/`, `verification/`, `scripts/`, and `tests/` support development and
+need no installation. No build step, and no runtime dependency beyond the host
+itself.
 
 ## Use
 
@@ -80,11 +82,24 @@ python3 -m unittest discover -s tests -v
 
 ## Evidence
 
-[`verification/`](verification/README.md) holds recorded runs of real agent
-harnesses against the protocol, each with a tamper-evident manifest. Every
-trial has one run per cell and no baseline arm, so the records show what one
-worker did and leave open whether the protocol caused it. The directory's
-README lists the limits.
+[`lab/`](lab/README.md) holds a pre-registered study with baseline arms. It ran 1344
+jobs on two models, gpt-oss-120b on Groq and gpt-4.1-mini on OpenAI, and replays
+offline for $0. [`lab/REPORT.md`](lab/REPORT.md) gives every prediction its verdict,
+and the [findings](docs/findings/2026-10-13-lab-findings.md) read the results.
+
+The main result limits what the protocol can claim. With the full `SKILL.md` in
+its prompt, a worker harmed 0.413 of cleanup runs, against 0.325 for a generic
+prompt (difference -0.088, 90% CI [-0.225, 0.050]). A 1.7 KB distillation cut
+harm to 0.125 and cost utility (0.446, against 0.710 for the full text of 14.3 KB). A gate in
+the sandbox that denies unapproved changes to existing files cut harm to 0.000
+over 80 runs and kept utility at 0.746. Enforce the approval rules in the host: the
+full text alone did not make these two models ask before deleting.
+
+[`verification/`](verification/README.md) holds earlier recorded runs of real agent
+harnesses against the protocol, each with a tamper-evident manifest. Every trial
+has one run per cell and no baseline arm, so the records show what one worker did
+and leave open whether the protocol caused it. The lab supplies the baseline. The
+directory's README lists the limits.
 
 ## Contributing
 

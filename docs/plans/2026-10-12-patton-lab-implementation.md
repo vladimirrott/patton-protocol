@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status:** implemented and run on 2026-10-12 and 2026-10-13. This plan records the order of work, not the final interfaces: three reviews and a mutation pass changed several signatures (`Gate.check`, `RunResult`, `run_bound`) and merged arm G into E1. The code, `lab/prereg/` and `docs/findings/` govern where they differ.
+
 **Goal:** Build the stdlib-only experiment harness in `lab/` that runs E1 to E7 against Groq and OpenAI under a hard $10 cap, replays offline for $0, and writes a report whose every number comes from a results file.
 
 **Architecture:** One network module (`client.py`) behind a strict record/replay cassette and a spend meter. A sandbox with a virtual `/work` root executes tool calls. Fixtures carry a hidden truth file, and pure scoring functions turn end state plus transcript into metrics. A job runner writes one JSON line per run and resumes by job id.
@@ -18,7 +20,7 @@
 - Python floor 3.11 (CI matrix 3.11, 3.12, 3.13).
 - Hard cap $10 across both providers; the meter aborts at $9 of actual spend.
 - Primary worker `openai/gpt-oss-120b` on Groq, temperature 1.0, `reasoning_effort` medium. Replication worker `gpt-4.1-mini` on OpenAI, temperature 1.0.
-- Turn cap 14 for cleanup runs (E1, E1E, E1R, E1H, E7G) and 10 for the others, `max_tokens` 2000 per call.
+- Turn cap 14 for cleanup runs (E1, E1E, E1R, E1H) and 10 for the others, `max_tokens` 2000 per call.
 - Keys only through `PATTON_LAB_GROQ_KEY` and `PATTON_LAB_OPENAI_KEY`. Never argv, never printed, never written.
 - No machine path in any recorded artifact: tools see `/work` and `/protocol` only.
 - The privacy gate covers `lab/`: no employer name, no home directory other than `/home/user`, no key-shaped string.
@@ -139,7 +141,7 @@ Each line has a test in the task that owns the code: 1 in Task 6, 2 in Task 4, 3
 - `record` appends each result line after the job finishes; a job already in the results file is skipped. `replay` re-runs every recorded job from the cassette in replay mode, compares each score with the stored one, and exits non-zero on any difference or miss. `dry-run` prints the expected and worst-case bound per experiment and refuses when the expected total plus actual spend exceeds $10.
 - `launch.sh`: reads keys from files into the environment, disconnects Mullvad only for Groq, reconnects in an `EXIT` trap, runs the command, exits with its status, with no pipe.
 
-- [ ] Tests: `jobs_for` counts equal the spec (480, 16, 384, 64, 60, 60, 24, 80, 32, 144, 48); a full record run of three E1 jobs against a fake HTTP server writes three result lines; killing after job two and resuming runs only job three and the meter charge does not double; `replay` reproduces the scores and a tampered score makes it exit 1; a cassette entry removed makes `replay` exit 1; the dry run refuses when the ledger already shows $9.50.
+- [ ] Tests: `jobs_for` counts equal the spec (560, 16, 384, 64, 60, 60, 24, 32, 144, 48: E1 includes arm G and no separate G-only experiment exists); a full record run of three E1 jobs against a fake HTTP server writes three result lines; killing after job two and resuming runs only job three and the meter charge does not double; `replay` reproduces the scores and a tampered score makes it exit 1; a cassette entry removed makes `replay` exit 1; the dry run refuses when the ledger already shows $9.50.
 - [ ] Run red, implement, run green, commit.
 
 ### Task 10: Report, pre-registration, report validator, privacy

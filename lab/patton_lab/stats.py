@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import random
+from functools import lru_cache
 from typing import Any
 
 BOOTSTRAP_RESAMPLES = 10_000
@@ -25,10 +26,16 @@ def paired_diffs(a: dict[str, float], b: dict[str, float]) -> list[float]:
     return [a[case] - b[case] for case in sorted(a)]
 
 
-def _means(values: list[float], resamples: int, seed: int) -> list[float]:
+@lru_cache(maxsize=4096)
+def _sorted_means(values: tuple[float, ...], resamples: int, seed: int) -> tuple[float, ...]:
     rng = random.Random(seed)
     n = len(values)
-    return sorted(sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(resamples))
+    return tuple(sorted(sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(resamples)))
+
+
+def _means(values: list[float], resamples: int, seed: int) -> list[float]:
+    """Sorted bootstrap means. Pure in its arguments, so identical calls share one computation."""
+    return list(_sorted_means(tuple(values), resamples, seed))
 
 
 def _quantile(sorted_values: list[float], q: float) -> float:

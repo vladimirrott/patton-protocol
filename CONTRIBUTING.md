@@ -27,6 +27,14 @@ Both commands need only Python 3.11+ from the standard library.
 - **`scripts/validate_protocol.py`** is a dependency-free structural
   validator for the package (frontmatter, links, required terms, vendor-syntax
   boundary, adapter capability labels, worker-report schema).
+- **`scripts/validate_report.py`** checks that a worker report carries the fields
+  `references/worker-report.md` requires. The lab uses it to count schema-valid
+  reports.
+- **`lab/`** is the replayable study of what the protocol changes. The recorded
+  results ran the exact texts of `SKILL.md`, `references/`, `adapters/claude-code.md`
+  and `lab/arms/`, so editing any of them fails the lab's pre-registration check
+  and the replay test (`tests/test_lab_study_integrity.py`). Measuring a protocol
+  change needs a new pre-registration, not an edit to the old one.
 - **`tests/test_validate_protocol.py`** enforces the contract in `SKILL.md`
   and `references/` at the wording level: it is the actual spec enforcement,
   not incidental coverage. Expect it to be strict about exact phrasing in a

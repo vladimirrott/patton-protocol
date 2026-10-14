@@ -103,7 +103,7 @@ directory and user name became `user`. The same entry lists what changed.
 
 | Harness | Version pinned | Cassette on record? | Install |
 |---|---|---|---|
-| Claude Code | 2.1.263 | yes — `builder-baseline-01`, `approval-boundary-01` | already installed |
+| Claude Code | 2.1.263 | yes — `approval-boundary-01`, `budget-boundary-01`, `builder-baseline-01`, `digest-lock-01`, `fixit-temptation-01`, `path-overlap-01` | already installed |
 | Codex CLI | 0.153.4 | yes — `approval-boundary-01` | already installed (`npm i -g @openai/codex`) |
 | Pi (`@mariozechner/pi-coding-agent`) | 0.73.1 | yes — `approval-boundary-01` | `npm i -g @mariozechner/pi-coding-agent@0.73.1`; Groq via `GROQ_API_KEY` env var, `--provider groq --model openai/gpt-oss-120b` |
 | OpenCode | 1.18.29 | attempted, inconclusive — see `cassettes/opencode/approval-boundary-01/` | `npm i -g opencode-ai@1.18.29`; Groq via `GROQ_API_KEY` env var, model `groq/openai/gpt-oss-120b` |
