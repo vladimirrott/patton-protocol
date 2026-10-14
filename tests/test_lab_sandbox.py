@@ -409,6 +409,65 @@ class ContainerHardeningTests(unittest.TestCase):
             isolate.IMAGE = original
 
 
+class ContainerOutcomeTests(unittest.TestCase):
+    """How run_python reads podman's result. podman answers 255 both when a timeout kills the container
+    and when it fails to start one, so the time limit is enforced inside the container instead."""
+
+    def run_with(self, completed, clock=(0.0, 1.0), timeout=3):
+        import subprocess
+        from unittest import mock
+        result = subprocess.CompletedProcess(args=[], returncode=completed[0], stdout=completed[1], stderr=completed[2])
+        seen = {}
+
+        def fake_run(command, **kwargs):
+            seen["command"], seen["kwargs"] = command, kwargs
+            return result
+        with TemporaryDirectory() as tmp, mock.patch.object(isolate, "available", return_value=True), \
+                mock.patch.object(isolate.subprocess, "run", side_effect=fake_run), \
+                mock.patch.object(isolate.time, "monotonic", side_effect=list(clock)):
+            try:
+                outcome = isolate.run_python(Path(tmp), "pass", timeout=timeout)
+            except isolate.IsolationError as exc:
+                outcome = exc
+        return outcome, seen
+
+    def test_the_time_limit_is_enforced_inside_the_container(self):
+        _, seen = self.run_with((0, isolate.START + "\n" + isolate.END + "\n", ""), timeout=7)
+        script = seen["command"][-1]
+        self.assertIn("timeout -k 2 7 python3", script)
+        podman_timeout = seen["command"][seen["command"].index("--timeout") + 1]
+        self.assertEqual(int(podman_timeout), 7 + isolate.BACKSTOP_S, "podman's own timer is only a backstop")
+
+    def test_the_inner_timeout_is_a_timeout_even_when_it_returns_quickly(self):
+        outcome, _ = self.run_with((124, isolate.START + "\n", ""), clock=(0.0, 0.5))
+        self.assertEqual(outcome[0], 124)
+        self.assertIn("TIMEOUT", outcome[1])
+
+    def test_exit_255_with_nothing_printed_inside_the_limit_is_a_podman_failure(self):
+        outcome, _ = self.run_with((255, "", ""), clock=(0.0, 0.5))
+        self.assertIsInstance(outcome, isolate.IsolationError)
+
+    def test_a_container_that_never_returns_is_a_timeout_after_the_backstop(self):
+        outcome, _ = self.run_with((255, "", ""), clock=(0.0, 3.0 + isolate.BACKSTOP_S + 0.1))
+        self.assertEqual(outcome[0], 124)
+        self.assertIn("TIMEOUT", outcome[1])
+
+    def test_the_backstop_allows_for_conmon_firing_a_second_early(self):
+        # conmon takes --timeout in whole seconds from a GLib timer that can fire up to a second early.
+        early = 3.0 + isolate.BACKSTOP_S - 1.0
+        outcome, _ = self.run_with((255, "", ""), clock=(0.0, early))
+        self.assertEqual(outcome[0], 124)
+        far_too_early = 3.0 + isolate.BACKSTOP_S - 2.0
+        outcome, _ = self.run_with((255, "", ""), clock=(0.0, far_too_early))
+        self.assertIsInstance(outcome, isolate.IsolationError)
+
+    def test_a_program_that_exits_124_after_finishing_is_not_a_timeout(self):
+        outcome, _ = self.run_with((124, isolate.START + "\nbye\n" + isolate.END + "\n", ""))
+        self.assertEqual(outcome[0], 124)
+        self.assertNotIn("TIMEOUT", outcome[1])
+        self.assertIn("bye", outcome[1])
+
+
 class IsolationRequiredTests(unittest.TestCase):
     def test_isolation_is_present_when_the_environment_requires_it(self):
         # CI sets PATTON_LAB_REQUIRE_ISOLATION=1, so a missing container turns the skipped

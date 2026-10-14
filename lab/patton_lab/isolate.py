@@ -2,6 +2,10 @@
 
 Model-written code runs here (E2 snippets, E4 solutions and hidden tests).
 
+The time limit is enforced inside the container by `timeout -k 2` (TERM, then KILL two seconds later),
+which exits 124 after the start marker has been printed. podman's `--timeout` is a backstop set `BACKSTOP_S` later, because podman answers 255
+both when that timer kills a container and when it fails to start one, and the two cannot be told apart.
+
 Layout inside the container:
 
     /src       read-only copy of the sandbox's /work, taken at call time
@@ -35,6 +39,8 @@ from pathlib import Path
 IMAGE = "docker.io/library/python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f"
 OUTPUT_LIMIT = 4000
 CAPTURE_LIMIT = 262144  # bytes the host ever reads from one run; `head -c` enforces it inside the container
+BACKSTOP_S = 10  # podman's own timer runs this long past the limit; it only catches a container that hangs
+BACKSTOP_SLACK_S = 1.5  # conmon takes --timeout in whole seconds from a GLib timer that can fire a second early
 START = "PATTON_BOOT_START"
 END = "PATTON_BOOT_END"
 WORK_TMPFS = "size=64m"
@@ -120,17 +126,17 @@ def run_python(
             "--security-opt", "no-new-privileges",
             "--tmpfs", "/tmp:size=16m", "--tmpfs", f"/work:{WORK_TMPFS}",
             "--memory", "512m", "--pids-limit", "64", "--cpus", "1",
-            "--timeout", str(timeout),
+            "--timeout", str(timeout + BACKSTOP_S),
             "--env", "PYTHONDONTWRITEBYTECODE=1",
             "-v", f"{src}:/src:ro", "-v", f"{harness}:/harness:ro", "-w", "/work",
             IMAGE, "bash", "-c",
-            "set -o pipefail; python3 -E -s /harness/boot.py 2>&1 | head -c "
+            f"set -o pipefail; timeout -k 2 {timeout} python3 -E -s /harness/boot.py 2>&1 | head -c "
             f"{CAPTURE_LIMIT}; status=(\"${{PIPESTATUS[@]}}\"); exit ${{status[0]}}",
         ]
         started = time.monotonic()
         try:
             result = subprocess.run(command, capture_output=True, text=True, errors="replace",
-                                    timeout=timeout + 30, env=_podman_env())
+                                    timeout=timeout + BACKSTOP_S + 30, env=_podman_env())
         except subprocess.TimeoutExpired:
             subprocess.run(["podman", "--log-level", "error", "kill", name], capture_output=True, env=_podman_env())
             return 124, "TIMEOUT: the code ran past its time limit and was killed"
@@ -139,10 +145,10 @@ def run_python(
         elapsed = time.monotonic() - started
         stdout = result.stdout or ""
         stderr = result.stderr or ""
-        timed_out = result.returncode != 0 and elapsed >= timeout
+        backstop_fired = result.returncode != 0 and elapsed >= timeout + BACKSTOP_S - BACKSTOP_SLACK_S
         if START not in stdout:
-            if timed_out:
-                # A kill at the time limit can discard what `head` had not yet flushed.
+            if backstop_fired:
+                # The container hung before it printed anything, so podman's timer killed it.
                 return 124, "TIMEOUT: the code ran past its time limit and was killed"
             raise IsolationError(
                 f"the container did not start the code (exit {result.returncode}): "
@@ -154,7 +160,7 @@ def run_python(
         output = _cap(_redact_paths(body + stderr, tmp))
         if capped and not finished:
             return result.returncode or 1, f"OUTPUT LIMIT: the code printed more than {CAPTURE_LIMIT} bytes and was stopped\n" + output
-        if timed_out and not finished:
+        if (result.returncode == 124 or backstop_fired) and not finished:
             return 124, "TIMEOUT: the code ran past its time limit and was killed\n" + output
         if result.returncode in (137, 143) and not finished:
             return result.returncode, "KILLED: the container hit its memory or process limit\n" + output
