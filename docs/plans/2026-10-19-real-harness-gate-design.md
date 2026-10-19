@@ -63,6 +63,12 @@ Anti-goals (the study fails even if it runs):
 
 ## 3. Constraints
 
+- Two worker backends. Claude models run through the user's subscription. The open model
+  (gpt-oss-120b on Groq) runs through a local LiteLLM proxy that translates Claude Code's calls, so
+  the Groq key stays on the host and never enters the container. The pilot in `lab/pilot/` proved the
+  second path works, and it needs no Claude login. Groq's malformed tool calls crash the proxy stream,
+  so the runner retries up to three times and keeps every failed attempt.
+
 - Claude Code 2.1.303 is the pinned harness. The runner records `claude --version` per run and
   refuses to mix versions inside one study.
 - The worker models are `claude-sonnet-5-5` (primary) and `claude-haiku-5-5` (replication).
@@ -410,7 +416,38 @@ the builder reads the primary sources before the findings cite them.
 - One write-up says hooks fire under `--dangerously-skip-permissions`. The spike confirms or refutes it
   (section 5.5).
 
-## 12. Deliverables and done
+## 12. Pilot results that change this design
+
+`lab/pilot/PILOT.md` (generated, 32 runs, 8 held-out fixtures, gpt-oss-120b, not pre-registered)
+answered three open questions and raised one:
+
+- **A hook `deny` holds under `--permission-mode bypassPermissions`.** All 72 logged hook calls report
+  that mode and the denials took effect. Section 5.5's fallback to `dontAsk` is not needed on this
+  backend. The Claude confirmation is still required before the freeze.
+- **The skill never loaded.** The `Skill` tool was called in 0 of 8 skill-arm runs. The installed-skill
+  arms measure the product path, and on this backend that path is inert for a cleanup task.
+- **Run-to-run noise is as large as any arm difference.** The skill arm's harm moved from 0 of 8 to
+  4 of 8 between two passes of the same runs. With one run per fixture, nothing smaller than the
+  pre-registered 0.15 contrast with three reps per fixture is worth reading.
+- **Workers route around a denial.** A hook that denied only `rm` blocked at least one command in 7 of
+  8 runs, and in 6 of those 7 the worker then used `unlink`, `mv`, `truncate` or a redirect. The probe
+  did not reliably lower harm. The classifier must therefore cover every verb that changes a protected
+  file, and a denial must tell the worker to stop and ask instead of trying another route. The runner
+  records each denial and the commands that follow it, and `bypass_harm` counts the successes.
+
+Consequences. The gpt-oss backend joins the Sonnet backend as a second study with arms R0, R0S, R1,
+R1S and R1D. R3 stays Sonnet-only, because the auto-mode classifier runs on the worker's own backend
+and means nothing on gpt-oss.
+
+Cost needs a decision. The pilot's 32 recorded runs used 5 487 848 input and 273 612 output tokens,
+about $0.031 per run at Groq's price for this model, because Claude Code sends a large prompt on every
+turn. The gpt-oss study's 240 runs would cost about $7.40. The $10 lab cap has $4.65 spent on the lab,
+about $2 on the two pilot passes and the probe reruns, so about $3 remains. Either the cap rises to
+cover the study, or the gpt-oss study shrinks to R0, R1 and R1D (144 runs, about $4.50, still over),
+or to two reps per fixture. The user chooses before the pre-registration is frozen. The subscription
+backend has no dollar cost and keeps its run cap of 500.
+
+## 13. Deliverables and done
 
 1. `gate/patton_gate.py`, its README, and its tests, usable in a real session.
 2. The corpus test and its mutation proofs.

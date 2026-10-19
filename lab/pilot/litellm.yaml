@@ -1,0 +1,12 @@
+# Anthropic Messages in, Groq chat completions out. The Groq key reaches only this proxy, through its
+# environment; the container that runs the worker never sees it.
+model_list:
+  - model_name: gpt-oss-120b
+    litellm_params:
+      model: groq/openai/gpt-oss-120b
+      api_key: os.environ/GROQ_API_KEY
+litellm_settings:
+  drop_params: true
+  telemetry: false
+  callbacks: strip_thinking.proxy_handler_instance
+general_settings: {}
