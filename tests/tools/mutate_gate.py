@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Mutation proof for the gate classifier: delete one rule at a time and require the corpus to notice.
+"""Mutation proof for the gate: delete one rule at a time and require its tests to notice.
 
 Each mutant is (name, group, old, new): `old` must occur exactly once in gate/patton_gate.py, it is
 replaced by `new` in a scratch copy, and tests/test_gate_corpus.py runs against that copy. A mutant is
-KILLED when the run fails and the failing cases include at least one of the mutant's own group.
+KILLED when the run fails and, for a corpus mutant, the failing cases include at least one of the
+mutant's own group. A mutant with group "hook" runs tests/test_gate_hook.py and is killed by any failure.
 SURVIVED means a case is missing. CAPPED means the run hit the time or memory cap, which is reported
 as its own outcome and never counted as a kill.
 
@@ -55,15 +56,35 @@ MUTANTS = [
     ("oversize command", "test:test_a_command_too_long_to_read_is_refused", "        if len(command) > MAX_COMMAND:\n            raise", "        if False:\n            raise"),
 ]
 
+HOOK_MUTANTS = [
+    ("protected-path check on edits", 'rel in state.protected and rel not in state.granted else ()', 'False else ()'),
+    ("manifest root check", 'if manifest.get("root") != root_real:', 'if False:'),
+    ("approver failure is a refusal", 'except (OSError, ValueError, subprocess.SubprocessError, UnicodeDecodeError):\n        return refused',
+     'except (OSError, ValueError, subprocess.SubprocessError, UnicodeDecodeError):\n        return {"approved": list(decision.paths), "denied": []}'),
+    ("approver answer shape", "    if (not isinstance(answer, dict) or not isinstance(answer.get(\"approved\"), list)", "    if (False and not isinstance(answer.get(\"approved\"), list)"),
+    ("grants persist", 'state.grant(answer["approved"])', 'pass'),
+    ("extra approvals ignored", 'approved = [p for p in decision.paths if p in set(answer["approved"])]', 'approved = answer["approved"]'),
+    ("unknown tool", 'if tool not in EDIT_TOOLS and tool != "Bash":', 'if False:'),
+    ("hook event name", 'if name != "PreToolUse":', 'if False:'),
+    ("safe tools", 'if tool in SAFE_TOOLS:\n        return Decision("allow")', 'if False:\n        return Decision("allow")'),
+    ("event cwd", 'cwd = event.get("cwd") if isinstance(event.get("cwd"), str) and os.path.isabs(event["cwd"]) else state.root', 'cwd = state.root'),
+    ("opaque is denied", 'if found.kind == OPAQUE:', 'if False:'),
+    ("denial limit", 'if state.denials >= DENIAL_LIMIT:\n        return Decision("deny"', 'if False:\n        return Decision("deny"'),
+    ("denial counting", 'if decision.note != "stalled":\n            state.count_denial()', 'if False:\n            state.count_denial()'),
+    ("unconfigured gate", 'if not state_dir or not root:\n        return _emit(stdout, "deny"', 'if False:\n        return _emit(stdout, "deny"'),
+    ("post-tool-use completes an ask", 'if tool_use_id in pending:', 'if False:'),
+    ("ledger line", 'state.record({**entry, "verdict": "approved"})', 'pass'),
+]
+
 
 def cap():
     resource.setrlimit(resource.RLIMIT_AS, (6 << 30, 6 << 30))
 
 
-def run(gate_dir: str) -> tuple[str, str]:
+def run(gate_dir: str, module: str = "tests.test_gate_corpus") -> tuple[str, str]:
     env = dict(os.environ, PATTON_GATE_DIR=gate_dir)
     try:
-        proc = subprocess.run([sys.executable, "-m", "unittest", "tests.test_gate_corpus"], cwd=REPO, env=env,
+        proc = subprocess.run([sys.executable, "-m", "unittest", module], cwd=REPO, env=env,
                               capture_output=True, text=True, timeout=180, preexec_fn=cap)
     except subprocess.TimeoutExpired:
         return "CAPPED", ""
@@ -78,11 +99,14 @@ def main() -> int:
         base.mkdir()
         shutil.copy(GATE, base / "patton_gate.py")
         status, _ = run(str(base))
-        print(f"baseline: {status}")
-        if status != "PASS":
+        hook_status, _ = run(str(base), "tests.test_gate_hook")
+        print(f"baseline: corpus {status}, hook {hook_status}")
+        if status != "PASS" or hook_status != "PASS":
             return 1
         bad = 0
-        for i, (name, group, old, new) in enumerate(MUTANTS):
+        everything = [(n, g, o, w, "tests.test_gate_corpus") for n, g, o, w in MUTANTS] + \
+                     [(n, "hook", o, w, "tests.test_gate_hook") for n, o, w in HOOK_MUTANTS]
+        for i, (name, group, old, new, module) in enumerate(everything):
             if source.count(old) != 1:
                 print(f"!! mutant {name!r}: pattern occurs {source.count(old)} times, not once")
                 bad += 1
@@ -94,12 +118,12 @@ def main() -> int:
                 print(f"!! mutant {name!r}: the mutation did not change the file")
                 bad += 1
                 continue
-            status, err = run(str(mdir))
+            status, err = run(str(mdir), module)
             failing = re.findall(r"^\[(\w+)\] (.*?): want", err, re.M)
             groups = sorted({g for g, _ in failing} | {f"test:{t}" for t in re.findall(r"^FAIL: (\w+)", err, re.M)})
             if status == "CAPPED":
                 outcome = "CAPPED"
-            elif status == "FAIL" and group in groups:
+            elif status == "FAIL" and (group == "hook" or group in groups):
                 outcome = "KILLED"
             elif status == "FAIL":
                 outcome = f"KILLED, but not in its own group {group!r} (failed groups: {groups or 'tests other than the corpus'})"
@@ -109,8 +133,10 @@ def main() -> int:
                 bad += 1
             print(f"{outcome:8} {name:32} group={group:9} failing cases={len(failing)}")
         status, _ = run(str(base))
+        hook_status, _ = run(str(base), "tests.test_gate_hook")
+        status = "PASS" if status == hook_status == "PASS" else "FAIL"
         print(f"restored baseline: {status}")
-        print(f"{len(MUTANTS)} mutants, {bad} not cleanly killed")
+        print(f"{len(everything)} mutants, {bad} not cleanly killed")
         return 0 if bad == 0 and status == "PASS" else 1
     finally:
         shutil.rmtree(work, ignore_errors=True)

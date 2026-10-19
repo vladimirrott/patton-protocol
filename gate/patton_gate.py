@@ -9,10 +9,23 @@ It is a reader for an honest agent's mistakes, not a sandbox against an adversar
 
 from __future__ import annotations
 
+import contextlib
 import glob as _glob
+import hashlib
+import json
 import os
 import re
+import shlex
+import subprocess
+import sys
+import time
+import urllib.request
 from dataclasses import dataclass
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - not on Windows
+    fcntl = None
 
 READ_ONLY, MUTATES, OPAQUE = "read_only", "mutates", "opaque"
 MAX_COMMAND = 100_000
@@ -677,3 +690,286 @@ def classify_bash(command: str, root: str, cwd: str | None = None) -> Classifica
         return Classification(OPAQUE, (), str(why))
     except (OSError, ValueError, re.error, RecursionError) as err:
         return Classification(OPAQUE, (), f"could not read the command: {type(err).__name__}")
+
+
+# ---- decisions, ledger, manifest ------------------------------------------------------------------------
+
+STOP = "Do not try another command to reach the same file. State what you need and stop."
+EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
+SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
+DENIAL_LIMIT = 5
+DEFAULT_TIMEOUT = 10.0
+
+
+@dataclass
+class Decision:
+    verdict: str  # allow, deny, approve
+    paths: tuple[str, ...] = ()
+    reason: str = ""
+    note: str = ""  # "stalled" when the denial limit ended the mission
+
+
+class ManifestError(Exception):
+    pass
+
+
+def _atomic_write(path: str, text: str) -> None:
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.replace(tmp, path)
+
+
+def _hash(path: str) -> str:
+    digest = hashlib.sha256()
+    if os.path.islink(path):
+        digest.update(b"->" + os.readlink(path).encode("utf-8", "surrogateescape"))
+    else:
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_manifest(root: str, state_dir: str) -> None:
+    """Record every file under `root` with its sha256. A path in the manifest is protected."""
+    root_real = os.path.realpath(root)
+    state_real = os.path.realpath(state_dir)
+    files: dict[str, str] = {}
+    for dirpath, dirnames, filenames in os.walk(root_real, followlinks=False):
+        dirnames[:] = [d for d in dirnames if os.path.realpath(os.path.join(dirpath, d)) != state_real]
+        names = filenames + [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
+        for name in names:
+            full = os.path.join(dirpath, name)
+            files[os.path.relpath(full, root_real).replace(os.sep, "/")] = _hash(full)
+    os.makedirs(state_dir, exist_ok=True)
+    _atomic_write(os.path.join(state_dir, "manifest.json"), json.dumps({"root": root_real, "files": files}))
+
+
+@contextlib.contextmanager
+def _locked(state_dir: str):
+    os.makedirs(state_dir, exist_ok=True)
+    with open(os.path.join(state_dir, ".lock"), "a") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _read_json(path: str, default):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return default
+
+
+class GateState:
+    def __init__(self, root: str, state_dir: str, protected: frozenset[str], granted: set[str], denials: int) -> None:
+        self.root, self.state_dir, self.protected, self.granted, self.denials = root, state_dir, protected, granted, denials
+
+    @classmethod
+    def load(cls, state_dir: str, root: str) -> "GateState":
+        try:
+            manifest = _read_json(os.path.join(state_dir, "manifest.json"), None)
+            if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), dict):
+                raise ManifestError("the manifest is missing or unreadable")
+            root_real = os.path.realpath(root)
+            if manifest.get("root") != root_real:
+                raise ManifestError("the manifest belongs to a different work directory")
+            granted = _read_json(os.path.join(state_dir, "granted.json"), [])
+            denials = _read_json(os.path.join(state_dir, "denials.json"), 0)
+        except (OSError, ValueError) as err:
+            raise ManifestError(f"the gate state is unreadable: {type(err).__name__}") from err
+        if not isinstance(granted, list) or not isinstance(denials, int):
+            raise ManifestError("the gate state is corrupt")
+        return cls(root_real, state_dir, frozenset(manifest["files"]), set(map(str, granted)), denials)
+
+    def grant(self, paths) -> None:
+        with _locked(self.state_dir):
+            current = set(_read_json(os.path.join(self.state_dir, "granted.json"), [])) | set(paths)
+            _atomic_write(os.path.join(self.state_dir, "granted.json"), json.dumps(sorted(current)))
+            self.granted = current
+
+    def count_denial(self) -> None:
+        with _locked(self.state_dir):
+            count = int(_read_json(os.path.join(self.state_dir, "denials.json"), 0)) + 1
+            _atomic_write(os.path.join(self.state_dir, "denials.json"), json.dumps(count))
+            self.denials = count
+
+    def record(self, entry: dict) -> None:
+        with _locked(self.state_dir):
+            with open(os.path.join(self.state_dir, "ledger.jsonl"), "a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"t": round(time.time(), 3), **entry}, ensure_ascii=False) + "\n")
+
+    def pending(self) -> dict:
+        return _read_json(os.path.join(self.state_dir, "pending.json"), {})
+
+    def set_pending(self, pending: dict) -> None:
+        with _locked(self.state_dir):
+            _atomic_write(os.path.join(self.state_dir, "pending.json"), json.dumps(pending))
+
+
+def decide(event: dict, state: GateState) -> Decision:
+    tool, tool_input = event.get("tool_name"), event.get("tool_input")
+    if not isinstance(tool, str) or not isinstance(tool_input, dict):
+        return Decision("deny", reason="Patton gate: the call has no readable tool input. " + STOP)
+    if tool in SAFE_TOOLS:
+        return Decision("allow")
+    if tool not in EDIT_TOOLS and tool != "Bash":
+        return Decision("deny", reason=f"Patton gate: the tool {tool!r} is not one the gate knows. " + STOP)
+    cwd = event.get("cwd") if isinstance(event.get("cwd"), str) and os.path.isabs(event["cwd"]) else state.root
+    if tool == "Bash":
+        command = tool_input.get("command")
+        if not isinstance(command, str):
+            return Decision("deny", reason="Patton gate: the Bash call has no command. " + STOP)
+        found = classify_bash(command, state.root, cwd)
+        if found.kind == READ_ONLY:
+            return Decision("allow")
+        if found.kind == OPAQUE:
+            decision = Decision("deny", reason=(f"Patton gate: this command cannot be checked ({found.why}). Name the files "
+                                                "in a plain command such as rm, mv or an explicit redirect. " + STOP))
+        else:
+            decision = _needs(tuple(p for p in found.paths if p in state.protected and p not in state.granted))
+    else:
+        raw = tool_input.get(EDIT_TOOLS[tool])
+        if not isinstance(raw, str) or not raw:
+            return Decision("deny", reason=f"Patton gate: the {tool} call names no file. " + STOP)
+        real = os.path.realpath(raw if os.path.isabs(raw) else os.path.join(cwd, raw))
+        rel = os.path.relpath(real, state.root).replace(os.sep, "/")
+        inside = not (rel == ".." or rel.startswith("../"))
+        decision = _needs((rel,) if inside and rel in state.protected and rel not in state.granted else ())
+    if state.denials >= DENIAL_LIMIT:
+        return Decision("deny", reason=("Patton gate: this mission has been refused too many times. Report the mission "
+                                        "blocked and say which files you needed. " + STOP), note="stalled")
+    return decision
+
+
+def _needs(paths: tuple[str, ...]) -> Decision:
+    if not paths:
+        return Decision("allow")
+    return Decision("approve", paths, "Patton gate: this changes " + ", ".join(paths) + ", which existed when the session started.")
+
+
+def _request(decision: Decision, event: dict, run: str) -> dict:
+    tool_input = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+    return {"run": run, "paths": list(decision.paths), "tool": event.get("tool_name"),
+            "command": str(tool_input.get("command", ""))[:2000]}
+
+
+def approve(decision: Decision, event: dict, spec: str | None, timeout: float = DEFAULT_TIMEOUT, run: str = "") -> dict:
+    """Ask the approver about `decision.paths`. Any failure is a refusal. spec None means a person answers in the host."""
+    if spec is None:
+        return {"approved": [], "denied": list(decision.paths), "ask": True}
+    request = _request(decision, event, run)
+    refused = {"approved": [], "denied": list(decision.paths)}
+    try:
+        if spec.startswith(("http://", "https://")):
+            req = urllib.request.Request(spec, data=json.dumps(request).encode("utf-8"),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                answer = json.loads(response.read(1 << 20).decode("utf-8"))
+        else:
+            done = subprocess.run(shlex.split(spec), input=json.dumps(request), capture_output=True, text=True,
+                                  timeout=timeout)
+            if done.returncode != 0:
+                return refused
+            answer = json.loads(done.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError, UnicodeDecodeError):
+        return refused
+    if (not isinstance(answer, dict) or not isinstance(answer.get("approved"), list)
+            or not isinstance(answer.get("denied"), list)
+            or not all(isinstance(p, str) for p in answer["approved"] + answer["denied"])):
+        return refused
+    approved = [p for p in decision.paths if p in set(answer["approved"])]
+    return {"approved": approved, "denied": [p for p in decision.paths if p not in approved]}
+
+
+def _emit(stdout, verdict: str, reason: str) -> int:
+    stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": verdict,
+                                                    "permissionDecisionReason": reason}}))
+    return 0
+
+
+def main(stdin, stdout, environ) -> int:
+    """The hook entry point. Always exits 0; the decision is in the JSON on stdout."""
+    try:
+        event = json.loads(stdin.read())
+    except (ValueError, OSError):
+        event = None
+    name = event.get("hook_event_name") if isinstance(event, dict) else None
+    state_dir, root = environ.get("PATTON_GATE_STATE"), environ.get("PATTON_GATE_ROOT")
+    if name == "SessionStart":
+        if state_dir and root:
+            try:
+                write_manifest(root, state_dir)
+            except OSError:
+                pass
+        return 0
+    if name == "PostToolUse":
+        return _after(event, state_dir, root, environ)
+    if name != "PreToolUse":
+        return _emit(stdout, "deny", "Patton gate: the hook input could not be read. " + STOP)
+    if not state_dir or not root:
+        return _emit(stdout, "deny", "Patton gate: the gate is not configured (no state directory or work directory). " + STOP)
+    try:
+        state = GateState.load(state_dir, root)
+    except ManifestError as err:
+        return _emit(stdout, "deny", f"Patton gate: {err}. " + STOP)
+    decision = decide(event, state)
+    tool_input = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+    entry = {"event": "PreToolUse", "tool": event.get("tool_name"), "paths": list(decision.paths),
+             "run": environ.get("PATTON_GATE_RUN", ""), "approver": environ.get("PATTON_GATE_OPERATOR", "operator"),
+             "command": str(tool_input.get("command", ""))[:500], "tool_use_id": event.get("tool_use_id", "")}
+    if decision.verdict == "allow":
+        state.record({**entry, "verdict": "allow"})
+        return _emit(stdout, "allow", "Patton gate: nothing protected is changed.")
+    if decision.verdict == "deny":
+        state.record({**entry, "verdict": "stalled" if decision.note == "stalled" else "deny", "reason": decision.reason[:300]})
+        if decision.note != "stalled":
+            state.count_denial()
+        return _emit(stdout, "deny", decision.reason)
+    spec = environ.get("PATTON_GATE_APPROVER") or None
+    try:
+        timeout = float(environ.get("PATTON_GATE_TIMEOUT", DEFAULT_TIMEOUT))
+    except ValueError:
+        timeout = DEFAULT_TIMEOUT
+    answer = approve(decision, event, spec, timeout, environ.get("PATTON_GATE_RUN", ""))
+    if answer.get("ask"):
+        state.set_pending({**state.pending(), str(event.get("tool_use_id", "")): list(decision.paths)})
+        state.record({**entry, "verdict": "asked"})
+        return _emit(stdout, "ask", decision.reason)
+    state.grant(answer["approved"])
+    if not answer["denied"]:
+        state.record({**entry, "verdict": "approved"})
+        return _emit(stdout, "allow", "Patton gate: the operator approved " + ", ".join(decision.paths) + ".")
+    state.count_denial()
+    reason = ("Patton gate: the operator refused " + ", ".join(answer["denied"]) + ". " + STOP)
+    state.record({**entry, "verdict": "refused", "paths": answer["denied"], "reason": reason[:300]})
+    return _emit(stdout, "deny", reason)
+
+
+def _after(event, state_dir, root, environ) -> int:
+    if not (isinstance(event, dict) and state_dir and root):
+        return 0
+    try:
+        state = GateState.load(state_dir, root)
+    except ManifestError:
+        return 0
+    pending = state.pending()
+    tool_use_id = str(event.get("tool_use_id", ""))
+    if tool_use_id in pending:
+        paths = pending.pop(tool_use_id)
+        state.grant(paths)
+        state.set_pending(pending)
+        state.record({"event": "PostToolUse", "tool": event.get("tool_name"), "paths": paths, "verdict": "approved",
+                      "run": environ.get("PATTON_GATE_RUN", ""), "approver": environ.get("PATTON_GATE_OPERATOR", "operator"),
+                      "tool_use_id": tool_use_id})
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.stdin, sys.stdout, os.environ))
