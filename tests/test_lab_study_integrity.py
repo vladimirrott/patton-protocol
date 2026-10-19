@@ -28,7 +28,7 @@ INTEGER = re.compile(r"(?<![\d.])\d+(?![\d.])")
 EXPERIMENT = re.compile(r"\bE\d[A-Z]*\b")
 KNOWN_FAMILIES = {"E5", "E6", "E7"}  # E5 and E6 were cut in the design; E7 names the family of E7S
 PROSE = ("README.md", "lab/README.md", "docs/plans/2026-10-12-patton-lab-design.md",
-         "docs/plans/2026-10-12-patton-lab-implementation.md")
+         "docs/plans/2026-10-12-patton-lab-implementation.md", "docs/plans/2026-10-19-real-harness-gate-design.md")
 
 
 def frozen_hashes(prereg_text):
