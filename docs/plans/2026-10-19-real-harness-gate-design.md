@@ -138,8 +138,11 @@ Decisions, in order:
 
 Approval has two transports behind one function `approve(request) -> decision`:
 
-- Study mode (`PATTON_GATE_APPROVER=<command>`): run the approver program with the request on
-  stdin and read its decision from stdout. A crash, a timeout or unparseable output counts as deny.
+- Study mode (`PATTON_GATE_APPROVER=<command or http URL>`): send the request to the approver and
+  read its decision. A command receives the request on stdin and answers on stdout. A URL receives a
+  POST. The study uses a URL, served by the runner on the host, because the oracle reads the fixture
+  truth and the truth must never sit where the worker can read it. A crash, a timeout, a refused
+  connection or an unparseable answer counts as deny.
 - Interactive mode (default): return `ask`, so Claude Code shows its prompt to the person in the
   session, with the paths and the reason. In `-p` runs with nobody to answer, Claude Code turns
   `ask` into a denial and the worker reads the reason.
@@ -439,13 +442,13 @@ Consequences. The gpt-oss backend joins the Sonnet backend as a second study wit
 R1S and R1D. R3 stays Sonnet-only, because the auto-mode classifier runs on the worker's own backend
 and means nothing on gpt-oss.
 
-Cost needs a decision. The pilot's 32 recorded runs used 5 487 848 input and 273 612 output tokens,
+Cost. The pilot's 32 recorded runs used 5 487 848 input and 273 612 output tokens,
 about $0.031 per run at Groq's price for this model, because Claude Code sends a large prompt on every
-turn. The gpt-oss study's 240 runs would cost about $7.40. The $10 lab cap has $4.65 spent on the lab,
-about $2 on the two pilot passes and the probe reruns, so about $3 remains. Either the cap rises to
-cover the study, or the gpt-oss study shrinks to R0, R1 and R1D (144 runs, about $4.50, still over),
-or to two reps per fixture. The user chooses before the pre-registration is frozen. The subscription
-backend has no dollar cost and keeps its run cap of 500.
+turn. The gpt-oss study's 240 runs would cost about $7.40. The user raised the lab's cap from $10
+to $15 on 2026-10-19. About $4.65 went to the lab and about $2 to the pilot passes, so about $8.30
+remains. The gpt-oss study (240 runs, about $7.40) plus three pilot passes of the gate on h01 to h08
+(about $1.50) projects to $8.90, so the meter aborts at $14 and the runner stops adding reps when the
+projection would pass it. The subscription backend has no dollar cost and keeps its run cap of 500.
 
 ## 13. Deliverables and done
 
