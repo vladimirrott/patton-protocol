@@ -40,7 +40,9 @@ PINNED_VERSION = "2.1.303"
 MAX_ATTEMPTS = 3
 PER_RUN_BOUND_USD = 0.08
 UNKNOWN_CALL_USD = 0.01  # a call that reported no usage, such as a stream cut by the endpoint
-STOP_STATUSES = (401, 403, 429)  # retrying into these burns attempts: a rate limit, a refused key or address
+# Retrying into these burns attempts: a rate limit, a refused key or address, or an endpoint (the proxy) that is
+# down. An unfinished attempt that met one stops the study, and a resume reruns the run.
+STOP_STATUSES = (401, 403, 429, 502, 503, 504)
 ANTHROPIC_API = "https://api.anthropic.com"
 # User settings only. The run's HOME is fresh, so "user" brings in the installed skill and nothing else, and
 # project settings in the work directory never load. An empty list would hide the skill as well.
@@ -416,7 +418,7 @@ def _keep_failed(arm: arms_mod.Arm, run_id: str, last: _Attempt, out_dir: Path, 
 
 
 def run_one(arm: arms_mod.Arm, fixture_id: str, rep: int, executor: Executor, meter: Meter, out_dir: Path,
-            secrets: list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
+            secrets: list[str] | tuple[str, ...] = (), seed: int | None = None) -> dict[str, Any]:
     fixture = e1.fixture_by_id(fixture_id)
     run_id = f"{arm.name}-{fixture_id}-r{rep}"
     out_dir = Path(out_dir)
@@ -462,7 +464,8 @@ def run_one(arm: arms_mod.Arm, fixture_id: str, rep: int, executor: Executor, me
         usage = result_event.get("usage") or {}
         _, cassette_in, cassette_out = attempt_cost(last.calls)
         record = {
-            "run_id": run_id, "arm": arm.name, "fixture": fixture_id, "rep": rep, "backend": arm.backend, "model": arm.model,
+            "run_id": run_id, "arm": arm.name, "fixture": fixture_id, "rep": rep, "seed": seed,
+            "backend": arm.backend, "model": arm.model,
             "permission_mode": arm.permission_mode, "claude_version": executor.version(), "finished": last.finished,
             "attempts": attempts, "attempt": last.n, "rc": result.returncode, "wall_s": result.wall_s,
             "is_error": result_event.get("is_error"), "num_turns": result_event.get("num_turns"), "usage": usage,
@@ -516,7 +519,7 @@ def run_study(arm_names: list[str], fixtures: list[str], reps: int, seed: int, e
                 skipped += 1
                 continue
             try:
-                record = run_one(arms_mod.ARMS[name], fixture_id, rep, executor, meter, out_dir, secrets)
+                record = run_one(arms_mod.ARMS[name], fixture_id, rep, executor, meter, out_dir, secrets, seed)
             except CapExceeded:
                 return {"recorded": recorded, "skipped": skipped, "stopped": "cap"}
             except UpstreamStop as stop:
@@ -623,7 +626,7 @@ def trace_script(fixture: Any) -> list[dict[str, Any]]:
 def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     lab = Path(root) if root else REPO / "lab"
     parser = argparse.ArgumentParser(prog="patton_lab.cc.runner")
-    parser.add_argument("command", choices=("dry-run", "trace", "smoke", "record", "replay"))
+    parser.add_argument("command", choices=("dry-run", "trace", "smoke", "record", "study", "replay"))
     parser.add_argument("--arms", default="O-R0,O-R1")
     parser.add_argument("--fixtures", default=",".join(f.id for f in e1.E1_FIXTURES))
     parser.add_argument("--reps", type=int, default=1)
@@ -669,6 +672,13 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
         problems = replay(args.out, ledger)
         print("\n".join(problems) if problems else "trace replay OK")
         return 1 if problems else 0
+    if args.command == "study":
+        # Exactly what the pre-registration registered, into lab/cc_runs, and only while it still matches.
+        from . import prereg
+        if prereg.main(["--check"]) != 0:
+            return 1
+        names, fixtures, args.reps, args.seed = list(prereg.ARMS), list(prereg.FIXTURES), prereg.REPS, prereg.SEED
+        args.out = lab / "cc_runs"
     if args.command == "smoke":
         args.reps, names, fixtures = 1, names[:1], fixtures[:1]
     result = run_study(names, fixtures, args.reps, args.seed, PodmanExecutor(), meter, args.out, _secrets())

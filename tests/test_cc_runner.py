@@ -404,6 +404,16 @@ class StudyTests(RunnerCase):
         self.assertEqual(len(list((self.out / "attempts").glob("*.json"))), 1)
         self.assertEqual(list(self.out.glob("*.json")), [])
 
+    def test_a_dead_proxy_stops_the_study_instead_of_storing_junk(self):
+        executor = self.executor([], fail_first=3, fail_status=502)
+        done = runner.run_study(["O-R0"], ["h01"], 1, 1, executor, self.meter, self.out, [], log=quiet)
+        self.assertEqual(done["stopped"], "upstream 502")
+        self.assertEqual(list(self.out.glob("*.json")), [])
+
+    def test_a_record_carries_the_seed_of_its_study(self):
+        runner.run_study(["O-R0"], ["h01"], 1, 5, self.executor([]), self.meter, self.out, [], log=quiet)
+        self.assertEqual(json.loads((self.out / "O-R0-h01-r0.json").read_text())["seed"], 5)
+
     def test_a_study_resumes_after_a_rate_limit_without_reusing_an_attempt_number(self):
         limited = self.executor([], fail_first=3, fail_status=429)
         first = runner.run_study(["O-R0"], ["h01"], 1, 1, limited, self.meter, self.out, [], log=quiet)
@@ -542,6 +552,35 @@ class TraceTests(RunnerCase):
         self.assertFalse((lab / "cc_spend.jsonl").exists())
         self.assertTrue((out / "spend.jsonl").exists())
         self.assertTrue((out / "O-R1-h05-r0.json").exists())
+
+
+class StudyCommandTests(RunnerCase):
+    def test_the_study_command_runs_exactly_what_the_preregistration_registered(self):
+        from patton_lab.cc import prereg
+        seen = {}
+
+        def fake_study(names, fixtures, reps, seed, executor, meter, out_dir, secrets=(), log=print):
+            seen.update(names=names, fixtures=fixtures, reps=reps, seed=seed, out=out_dir)
+            return {"recorded": 0, "skipped": 0, "stopped": None}
+
+        lab = self.dir / "lab"
+        (lab / "results").mkdir(parents=True)
+        (lab / "results" / "spend.json").write_text(json.dumps({"spent": {"groq": 1.0}}))
+        with mock.patch.object(runner, "run_study", side_effect=fake_study), \
+                mock.patch.object(runner, "PodmanExecutor"), mock.patch("builtins.print"), \
+                mock.patch.object(prereg, "main", return_value=0) as check:
+            self.assertEqual(runner.main(["study"], root=lab), 0)
+        check.assert_called_once_with(["--check"])
+        self.assertEqual((seen["names"], seen["fixtures"], seen["reps"], seen["seed"], seen["out"]),
+                         (list(prereg.ARMS), list(prereg.FIXTURES), prereg.REPS, prereg.SEED, lab / "cc_runs"))
+
+    def test_the_study_command_refuses_a_stale_preregistration(self):
+        from patton_lab.cc import prereg
+        lab = self.dir / "lab"
+        with mock.patch.object(prereg, "main", return_value=1), mock.patch.object(runner, "run_study") as study, \
+                mock.patch("builtins.print"):
+            self.assertEqual(runner.main(["study"], root=lab), 1)
+        study.assert_not_called()
 
 
 class VersionPinTests(unittest.TestCase):
