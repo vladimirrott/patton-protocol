@@ -3,6 +3,10 @@
 A Claude Code hook that asks before the agent changes a file that existed when the session started.
 One file, standard library only. Copy `patton_gate.py` anywhere and point three hook entries at it.
 
+The measurements behind this gate are in [`lab/CC_REPORT.md`](../lab/CC_REPORT.md) (generated from the study's
+records) and [`docs/findings/2026-10-22-gate-study-findings.md`](../docs/findings/2026-10-22-gate-study-findings.md).
+The findings open with the limits: one backend, a simulated approver, and an unmeasured Claude baseline.
+
 ## What it does
 
 - **Protected means "existed at session start".** A `SessionStart` entry records every file under the work

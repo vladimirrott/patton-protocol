@@ -2,7 +2,9 @@
 
 Status: draft for review, 2026-10-19, updated 2026-10-21 to match the code. The hook, the classifier, the
 approvers, the diff gate, the recorder, the runner and the free end-to-end trace are built and tested. The
-pre-registration, the report command and the paid study are not. Where this document and `lab/prereg/`
+pre-registration (`lab/prereg/2026-10-21-gate-study-preregistration.md`) was committed before the first study run,
+and the gpt-oss study ran under it. The results are in `lab/CC_REPORT.md` and
+`docs/findings/2026-10-22-gate-study-findings.md`. The Sonnet and Haiku arms are not run. Where this document and `lab/prereg/`
 disagree after the new pre-registration is frozen, the pre-registration governs. Where this document and the
 code disagree, the code is right and this document is a bug.
 
@@ -427,8 +429,8 @@ plus 24 per pilot pass (R0, R0S and R3 on h01 to h08). The gpt-oss study adds 80
 fixtures per rep), which is 560 at r = 7. Those runs are on the Groq backend and do not count toward the
 subscription cap of 500. With three pilot passes,
 20 spike runs and 10 smoke runs the plan reaches 454, which leaves 46 under the cap for reruns after a
-quota stall or a harness fix. The pilot already running (`lab/pilot/claude_baseline.py`) is the first
-pass.
+quota stall or a harness fix. The gate pilot (four passes, `lab/cc_pilot` to `lab/cc_pilot4`, section 12.1)
+took the place of the first pass; `lab/pilot/claude_baseline.py` was the earlier unguarded pilot.
 The pilot's job is to debug the harness and the classifier on fixtures that never enter the analysis.
 R2 and R2S are free, so the diff gate is evaluated on the same workers as the baseline, which also
 makes the hook-against-diff comparison a paired one over R0 and R1.
@@ -545,7 +547,8 @@ answered three open questions and raised one:
 
 - **A hook `deny` holds under `--permission-mode bypassPermissions`.** All 72 logged hook calls report
   that mode and the denials took effect. Section 5.5's fallback to `dontAsk` is not needed on this
-  backend. The Claude confirmation is still required before the freeze.
+  backend. The freeze happened without a Claude run, so the Claude baseline is unmeasured. The Sonnet addendum
+  runs against the same pre-registration and will show whether the denial holds there.
 - **The skill never loaded.** The `Skill` tool was called in 0 of 8 skill-arm runs. The installed-skill
   arms measure the product path, and on this backend that path is inert for a cleanup task.
 - **Run-to-run noise is as large as any arm difference.** The skill arm's harm moved from 0 of 8 to
@@ -624,8 +627,10 @@ recurs on the test fixtures.
    tamper checks, the secret checks, the cassettes and the free trace (built).
 4. The pre-registration, frozen and hash-checked before the first study run.
 5. The pilot on h01 to h08, with the classifier and mission text fixed from it.
-6. The study (352 runs on the Sonnet and Haiku backend, plus 80 · r gpt-oss runs), the generated report, and a findings document that opens with the
-   limits and the deviations from the pre-registration.
+6. The study. The gpt-oss part (80 · r runs, 560 at r = 7) is done: its generated report and a findings document
+   that opens with the limits and the deviations from the pre-registration are committed. The 352 runs on the
+   Sonnet and Haiku backend are not done; they wait for a subscription token and run as an addendum against the
+   same pre-registration.
 7. A README section that quotes only generated numbers: harm with and without the gate, the bypass
    rate, the burden, the approver sensitivity, the model, the harness version, and the word
    "unguarded".

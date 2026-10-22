@@ -54,8 +54,10 @@ R2 replays the unguarded runs through a review of the finished changes instead o
 harm at 0.000 and utility at 0.862, the unguarded level, against 0.768 under the hook, and it asks 2.116 times per
 run. With an operator who approves everything after three requests (fatigue-3) harm is 0.027, and with one who
 answers wrong one time in ten (noisy-10) harm is 0.027 and utility 0.798. An operator who approves everything gives
-back the unguarded 0.196. In this study the review after the run kept more of the work than the hook did, and asked 2.116 questions per
-run against the hook's 1.134.
+back the unguarded 0.196. R2 scores the unguarded runs offline, so its workers never met a gate: the utility it keeps
+(0.862) is the unguarded run's by construction, and the comparison with the hook's 0.768 is not like for like. A
+live diff gate, where the worker learns at the end that a change was reverted, is untested. R2 asked 2.116 questions
+per run against the hook's 1.134.
 
 ## The skill (exploratory)
 

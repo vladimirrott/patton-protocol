@@ -39,6 +39,38 @@ Code that a model writes (E2 snippets, E4 solutions) runs only in a podman
 container with no network and a disposable copy of the sandbox. Without podman
 and the pinned image, those experiments refuse to start.
 
+## The gate study
+
+A second, separate study measures the deletion gate in [`gate/`](../gate/) on headless Claude Code. Its design is
+[`docs/plans/2026-10-19-real-harness-gate-design.md`](../docs/plans/2026-10-19-real-harness-gate-design.md). It ran on
+gpt-oss-120b; the Sonnet and Haiku arms are not run.
+
+| What | Where |
+| --- | --- |
+| pre-registration (frozen before the first run) | `prereg/2026-10-21-gate-study-preregistration.md` |
+| one JSON record per run | `cc_runs/` |
+| every model call, as cassettes | `cc_runs/cassettes/` |
+| spend ledger | `cc_spend.jsonl` |
+| generated report | `CC_REPORT.md` |
+| findings | [`docs/findings/2026-10-22-gate-study-findings.md`](../docs/findings/2026-10-22-gate-study-findings.md) |
+| gate pilot passes | `cc_pilot/`, `cc_pilot2/`, `cc_pilot3/`, `cc_pilot4/` |
+| smoke runs | `cc_smoke/`, `cc_smoke2/` |
+| LiteLLM config and proxy launcher | `cc/` |
+| harness code | `patton_lab/cc/` |
+
+```
+cd lab
+python3 -m patton_lab.cc.runner replay        # re-score every record offline and reconcile cc_spend.jsonl
+python3 -m patton_lab.cc.report               # rebuild CC_REPORT.md from cc_runs/
+python3 -m patton_lab.cc.report --check       # fail if the committed report differs from the rebuilt one
+python3 -m patton_lab.cc.prereg --check       # fail if the pre-registration no longer matches the code
+python3 -m patton_lab.cc.runner trace --arms O-R1 --fixtures h05   # free end-to-end trace
+```
+
+`replay` needs no network and no key. `trace` needs podman and the pinned image but no key: it runs the real
+container, Claude Code, the gate and the approver against a scripted model. The numbers are in `CC_REPORT.md`
+and the findings document, not here.
+
 ## Layout
 
 | Path | What it holds |
@@ -49,3 +81,9 @@ and the pinned image, those experiments refuse to start.
 | `results/` | one JSON line per job, plus the spend ledger |
 | `cassettes/` | recorded model responses and code executions, gzip JSON lines |
 | `REPORT.md` | the generated report |
+| `cc/` | LiteLLM config and proxy launcher for the gate study |
+| `patton_lab/cc/` | the gate study harness: arms, approvers, recorder, runner, report, pre-registration generator |
+| `cc_runs/` | the gate study's records, with `cassettes/` and `attempts/` |
+| `cc_pilot*/`, `cc_smoke*/` | gate pilot passes and smoke runs, one directory each |
+| `cc_spend.jsonl` | the gate study's spend ledger |
+| `CC_REPORT.md` | the gate study's generated report |
