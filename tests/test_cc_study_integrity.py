@@ -149,6 +149,41 @@ class StudyIntegrityTests(unittest.TestCase):
             self.assertEqual(unbacked_decimals(path.read_text(encoding="utf-8"), text), [], path.name)
 
 
+RECORD = REPO_ROOT / "docs" / "records" / "2026-10-22-gate-study-record.md"
+SPEND_ROW = re.compile(r"^\| `?(2026-10-12 lab ledger|2026-10-19 unguarded Claude Code pilot|[a-z0-9_]+)[^|]*\| ([^|]+) \| (\d+\.\d{4}) \|$",
+                       re.M)
+
+
+def spend_table(text):
+    return {m.group(1): (m.group(2).strip(), m.group(3)) for m in SPEND_ROW.finditer(text)}
+
+
+def spend_from_ledgers():
+    from patton_lab.cc.meter import Meter
+    lab = json.loads((LAB_ROOT / "results" / "spend.json").read_text())["spent"]
+    meter = Meter(LAB_ROOT / "cc_spend.jsonl", LAB_ROOT / "results" / "spend.json",
+                  [LAB_ROOT / "pilot" / "out", LAB_ROOT / "pilot" / "first_pass", LAB_ROOT / "pilot" / "out_failed"])
+    table = {"2026-10-12 lab ledger": ("n/a", f"{sum(lab.values()):.4f}"),
+             "2026-10-19 unguarded Claude Code pilot": ("n/a", f"{meter.prior() - sum(lab.values()):.4f}")}
+    groups = {}
+    for line in (LAB_ROOT / "cc_spend.jsonl").read_text().splitlines():
+        if line.strip():
+            row = json.loads(line)
+            key = row["id"].split("/")[0] if "/" in row["id"] else "cc_smoke"
+            n, usd = groups.get(key, (0, 0.0))
+            groups[key] = (n + 1, usd + row["usd"])
+    table.update({k: (str(n), f"{usd:.4f}") for k, (n, usd) in groups.items()})
+    return table, f"{meter.total():.4f}"
+
+
+class RecordTests(unittest.TestCase):
+    def test_the_record_spend_table_is_the_ledgers(self):
+        text = RECORD.read_text(encoding="utf-8")
+        expected, total = spend_from_ledgers()
+        self.assertEqual(spend_table(text), expected)
+        self.assertIn(f"| Total | | {total} |", text)
+
+
 class GuardsBiteTests(unittest.TestCase):
     """Each guard above, fed a bad input."""
 
@@ -189,6 +224,11 @@ class GuardsBiteTests(unittest.TestCase):
         self.assertFalse(default_filled([{**sent, "name": "Write"}], [{**shown, "name": "Write"}]))
         self.assertFalse(default_filled([sent], [shown, shown]))
         self.assertFalse(default_filled([sent], [{**shown, "id": "t2"}]))
+
+    def test_a_record_spend_row_that_differs_from_the_ledgers_is_caught(self):
+        expected, _ = spend_from_ledgers()
+        text = RECORD.read_text(encoding="utf-8").replace(expected["cc_runs"][1], "15.0000")
+        self.assertNotEqual(spend_table(text), expected)
 
     def test_a_stale_report_is_caught(self):
         self.assertNotEqual(report.build() + "x", report.build())

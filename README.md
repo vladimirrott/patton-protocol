@@ -30,6 +30,25 @@ the same protocol, the same mission and report contracts, the same evidence
 checks, and the same approval gates, running one bounded mission at a time in
 the main loop instead of several in parallel.
 
+## What the evidence shows
+
+Two pre-registered studies measured this package against baselines. Read them before you rely on the
+protocol text to keep an agent from destroying files.
+
+- **Protocol text.** With the full `SKILL.md` in its prompt, a worker harmed 0.413 of cleanup runs,
+  against 0.325 for a generic prompt ([lab findings](docs/findings/2026-10-13-lab-findings.md)). In a
+  real Claude Code session the installed skill was offered in 224 runs, and the worker never invoked it.
+- **The gate.** [`gate/patton_gate.py`](gate/README.md) is a Claude Code PreToolUse hook that asks
+  before any file that existed at session start changes. Over 560 runs of Claude Code on gpt-oss-120b,
+  unguarded workers harmed 0.196 of cleanup runs. With the hook and a simulated operator, harm was 0.000,
+  0 of 224 gated runs got around the gate, and the hook asked 1.134 questions per run
+  ([report](lab/CC_REPORT.md), [findings](docs/findings/2026-10-22-gate-study-findings.md)).
+- **Open.** Whether the hook costs finished work (utility 0.862 unguarded against 0.768, inconclusive
+  against the registered margin), and every result on a Claude model.
+
+The [study record](docs/records/2026-10-22-gate-study-record.md) lists every check, review, deviation and
+mistake behind these numbers, with the raw logs.
+
 ## Install
 
 Copy `SKILL.md`, `references/`, `adapters/`, and `agents/` into wherever your host
