@@ -34,7 +34,13 @@ MUTANTS = [
     ("redirections", "redirect", "        self._redirects(redirs)\n        while words and ASSIGNMENT", "        while words and ASSIGNMENT"),
     ("redirect to /dev", "read", 'if target.text.startswith("/dev/"):\n                continue', "if False:\n                continue"),
     ("find -delete", "find", 'if "-delete" in expr:', "if False:"),
-    ("find -exec", "find", 'if any(t in ("-exec", "-execdir", "-ok", "-okdir") or t.startswith(("-fprint", "-fls")) for t in expr):', "if False:"),
+    ("find -ok and file outputs", "find", 'if any(t in ("-ok", "-okdir") or t.startswith(("-fprint", "-fls")) for t in expr):', "if False:"),
+    ("find -exec command", "find", 'if k + 1 >= len(expr) or expr[k + 1] not in FIND_EXEC_READ_ONLY:', "if k + 1 >= len(expr):"),
+    ("find -exec terminator", "find", 'if end is None:\n                    raise _Opaque("find -exec without its terminator")', 'if end is None:\n                    end = len(expr)'),
+    ("git -C change", "git", 'if moved:  # -C moves', 'if False:  # -C moves'),
+    ("xargs command", "find", 'if i >= len(words) or words[i].text not in FIND_EXEC_READ_ONLY:\n            raise _Opaque("xargs with a command', 'if i >= len(words):\n            raise _Opaque("xargs with a command'),
+    ("xargs options", "find", '            else:\n                raise _Opaque("xargs with an option the gate does not read")', '            else:\n                i += 1'),
+    ("xargs value flags", "find", '            elif text in XARGS_VALUE_FLAGS:\n                i += 2', '            elif text in XARGS_VALUE_FLAGS:\n                i += 1'),
     ("git rm", "git", 'if sub == "rm":', "if False:"),
     ("git checkout --", "git", 'elif sub == "checkout":', "elif False:"),
     ("git unknown subcommand", "git", 'raise _Opaque(f"git {sub}")', "return"),
@@ -73,7 +79,7 @@ HOOK_MUTANTS = [
     ("denial counting", 'if decision.note != "stalled":\n            state.count_denial()', 'if False:\n            state.count_denial()'),
     ("unconfigured gate", 'if not state_dir or not root:\n        return _emit(stdout, "deny"', 'if False:\n        return _emit(stdout, "deny"'),
     ("post-tool-use completes an ask", 'if tool_use_id in pending:', 'if False:'),
-    ("ledger line", 'state.record({**entry, "verdict": "approved"})', 'pass'),
+    ("ledger line", 'state.record({**answered, "verdict": "approved"})', 'pass'),
 ]
 
 

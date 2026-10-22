@@ -239,6 +239,13 @@ COMPOUND_OPAQUE = frozenset({"for", "case", "select", "function", "coproc"})
 GIT_READ_ONLY = frozenset(
     "status log diff show ls-files rev-parse add commit blame grep describe branch remote shortlog ls-tree "
     "cat-file".split())
+# Commands `find -exec` may run without making the find opaque: each only reads the files it is given.
+FIND_EXEC_READ_ONLY = frozenset(
+    "du ls stat wc cat head tail file grep md5sum sha1sum sha256sum sha512sum cksum".split())
+# xargs options the gate reads. Anything else (-I, -a, -p ...) makes the command opaque.
+XARGS_FLAGS = frozenset({"-0", "--null", "-r", "--no-run-if-empty", "-t", "--verbose"})
+XARGS_VALUE_FLAGS = frozenset({"-n", "-L", "-P", "-s", "-d", "--max-args", "--max-procs", "--delimiter"})
+XARGS_JOINED = re.compile(r"^-[nLPs][0-9]+$")
 ALWAYS_SUCCEEDS = frozenset({"cd", "true", ":", "echo", "pwd"})
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
@@ -438,6 +445,8 @@ class _Walker:
             self._find(words)
         elif name == "git":
             self._git(words)
+        elif name == "xargs":
+            self._xargs(words)
         elif name == "sort":
             self._sort(words)
         elif name == "uniq":
@@ -575,18 +584,50 @@ class _Walker:
             starts.append(words[i])
             i += 1
         expr = [w.text for w in words[i:]]
-        if any(t in ("-exec", "-execdir", "-ok", "-okdir") or t.startswith(("-fprint", "-fls")) for t in expr):
-            raise _Opaque("find with -exec or a file output")
+        if any(t in ("-ok", "-okdir") or t.startswith(("-fprint", "-fls")) for t in expr):
+            raise _Opaque("find with -ok or a file output")
+        k = 0
+        while k < len(expr):
+            if expr[k] in ("-exec", "-execdir"):
+                if k + 1 >= len(expr) or expr[k + 1] not in FIND_EXEC_READ_ONLY:
+                    raise _Opaque("find -exec with a command that is not read-only")
+                end = next((j for j in range(k + 2, len(expr)) if expr[j] in (";", "+")), None)
+                if end is None:
+                    raise _Opaque("find -exec without its terminator")
+                k = end
+            k += 1
         if "-delete" in expr:
             self.mutates = True
             self._each(starts or [Word(".", ".", False, False, False, False)], follow=False, expand=True)
 
+    def _xargs(self, words: list[Word]) -> None:
+        """xargs runs its command on names from stdin, so only a read-only command keeps it read-only."""
+        i = 0
+        while i < len(words) and words[i].text.startswith("-"):
+            text = words[i].text
+            if text in XARGS_FLAGS or XARGS_JOINED.match(text):
+                i += 1
+            elif text in XARGS_VALUE_FLAGS:
+                i += 2
+            else:
+                raise _Opaque("xargs with an option the gate does not read")
+        if i >= len(words) or words[i].text not in FIND_EXEC_READ_ONLY:
+            raise _Opaque("xargs with a command that is not read-only")
+
     def _git(self, words: list[Word]) -> None:
+        moved = False
+        while words and words[0].text in ("-C", "--no-pager"):
+            if words[0].text == "-C":  # `git -C` with no directory leaves no subcommand and is refused below
+                moved, words = True, words[2:]
+            else:
+                words = words[1:]
         if not words or words[0].text.startswith("-"):
             raise _Opaque("git with options before the subcommand")
         sub, rest = words[0].text, words[1:]
         if sub in GIT_READ_ONLY:
             return
+        if moved:  # -C moves where paths resolve; only read-only subcommands get past it
+            raise _Opaque("git -C with a subcommand that changes files")
         if sub == "rm":
             flags, operands, _v = _args(rest)
             self.mutates = True
@@ -831,8 +872,10 @@ def decide(event: dict, state: GateState) -> Decision:
         if found.kind == READ_ONLY:
             return Decision("allow")
         if found.kind == OPAQUE:
-            decision = Decision("deny", reason=(f"Patton gate: this command cannot be checked ({found.why}). Name the files "
-                                                "in a plain command such as rm, mv or an explicit redirect. " + STOP))
+            # No stop sentence here: a rewrite comes back through the gate, so the protected files stay guarded.
+            decision = Decision("deny", reason=(f"Patton gate: this command cannot be checked ({found.why}). Rewrite it "
+                                                "as a plain command that names each file, such as ls, cat, rm, mv or an "
+                                                "explicit redirect."))
         else:
             decision = _needs(tuple(p for p in found.paths if p in state.protected and p not in state.granted))
     else:

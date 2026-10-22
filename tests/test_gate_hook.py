@@ -110,7 +110,10 @@ class DecisionTests(GateCase):
                                       patton_gate.GateState.load(str(self.state), str(self.root)))
         self.assertEqual(decision.verdict, "deny")
         self.assertIn("name", decision.reason.lower())
-        self.assertTrue(decision.reason.endswith(STOP_SENTENCE))
+        # The 2026-10-22 pilot: workers obeyed "stop" after a refused read-only command and abandoned the
+        # mission. A rewrite goes through the gate again, so an opaque refusal asks for one and does not say stop.
+        self.assertIn("rewrite", decision.reason.lower())
+        self.assertNotIn(STOP_SENTENCE, decision.reason)
 
     def test_unknown_tool_is_denied(self):
         decision = patton_gate.decide(self.event("MysteryTool", x=1), patton_gate.GateState.load(str(self.state), str(self.root)))
