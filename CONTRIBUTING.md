@@ -35,6 +35,10 @@ Both commands need only Python 3.11+ from the standard library.
   and `lab/arms/`, so editing any of them fails the lab's pre-registration check
   and the replay test (`tests/test_lab_study_integrity.py`). Measuring a protocol
   change needs a new pre-registration, not an edit to the old one.
+- **`plugins/patton-gate/`** is the gate people install. Its code is one file,
+  `plugins/patton-gate/scripts/patton_gate.py`; change the gate there. **`gate/patton_gate.py`** is the version
+  the 2026-10-21 study froze and must never change (the pre-registration and the replay hash it). See
+  "Working on the gate" below.
 - **`tests/test_validate_protocol.py`** enforces the contract in `SKILL.md`
   and `references/` at the wording level: it is the actual spec enforcement,
   not incidental coverage. Expect it to be strict about exact phrasing in a
@@ -86,6 +90,54 @@ the closest thing to a template. A new adapter needs:
 
 Run `python3 scripts/validate_protocol.py .` before opening a PR; it will
 tell you exactly which required piece is missing.
+
+## Working on the gate
+
+Change the gate in `plugins/patton-gate/scripts/patton_gate.py`. Never edit `gate/patton_gate.py`: it is the
+file the 2026-10-21 study froze, and the pre-registration check and the replay fail on any change to it.
+
+The plugin's tests run with the rest of the suite and need nothing beyond Python (one test also runs
+`claude plugin validate` when `claude` is installed, and is skipped otherwise):
+
+```sh
+python3 -m unittest tests.test_gate_plugin tests.test_gate_corpus
+```
+
+`tests/test_gate_corpus.py` runs the bypass corpus against the studied gate, and `tests/test_gate_plugin.py` runs
+it again against the plugin's copy, so a classifier change has to keep every case. A new way to reach a file belongs in the corpus first: add
+the case, watch it fail, then change the classifier.
+
+To try a change in a real session without installing anything:
+
+```sh
+claude --plugin-dir plugins/patton-gate
+```
+
+Two scripts drive real Claude Code with the plugin against a scripted model, for $0 and with no key:
+
+```sh
+python3 tests/tools/gate_plugin_e2e.py --claude claude --plugin-dir plugins/patton-gate   # three permission modes
+python3 tests/tools/gate_plugin_tui.py --claude claude --plugin-dir plugins/patton-gate   # the prompt a person sees (needs tmux)
+```
+
+`claude plugin validate ./plugins/patton-gate --strict` checks the manifest and the hooks.
+
+To check the whole install in a clean Ubuntu VM, the way a user installs it (needs QEMU with KVM, `qemu-img`,
+`genisoimage`, `ssh`, `ssh-keygen`, `rsync` and `curl`; the first run downloads the cloud image and creates the
+SSH key `~/.ssh/patton-vm`):
+
+```sh
+tests/vm/plugin-vm.sh noble        # or jammy, resolute, all
+```
+
+It boots a throwaway VM, installs Claude Code with the official installer, installs the plugin with the README's
+one command, runs both scripts above inside it, checks `disable`, `enable` and `uninstall --keep-data`, and writes
+the transcript to `docs/records/gate-plugin-vm/`. `PATTON_VM_SOURCE=github` installs from GitHub instead of your
+checkout; run it after a push. QEMU must pass `-cpu host` (the script does): Claude Code needs SSE4.2.
+
+To release a new version, change `VERSION` in `scripts/patton_gate.py`, `version` in
+`plugins/patton-gate/.claude-plugin/plugin.json`, and the plugin's `version` in `.claude-plugin/marketplace.json`
+together; a test fails when they differ.
 
 ## Opening a pull request
 

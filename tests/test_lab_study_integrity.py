@@ -66,8 +66,13 @@ def count_problems(data, prereg_text):
     return problems
 
 
+# A version string is a requirement, not a result: `python3` 3.10, Ubuntu 22.04, 24.04 and 26.04.
+VERSIONS = re.compile(r"(?:Ubuntu|Python|python3`?)\s+\d+\.\d+(?:(?:,\s*|\s+and\s+|,\s+and\s+)\d+\.\d+)*")
+
+
 def unbacked_numbers(doc_text, *sources):
-    """Decimals and 'N of M' pairs in `doc_text` that no source prints."""
+    """Decimals and 'N of M' pairs in `doc_text` that no source prints. Version strings are not results."""
+    doc_text = VERSIONS.sub("", doc_text)
     source_text = "\n".join(sources)
     printed = {d.lstrip("-") for d in DECIMAL.findall(source_text)}  # the sign is carried in words, so compare magnitudes
     printed_pairs = set(PAIR.findall(source_text))
@@ -180,6 +185,11 @@ class TheChecksCanFailTests(unittest.TestCase):
         doc = "Harm was 0.4242 in 63 of 64 runs, and 0.325 in 80 runs, over 1347 study jobs."
         self.assertEqual(unbacked_numbers(doc, report_text, self.prereg_text),
                          ["0.4242", "63 of 64", "1347 runs/jobs"])
+
+    def test_a_version_after_ubuntu_or_python_is_not_a_result_and_a_result_beside_it_still_is(self):
+        report_text = (LAB_ROOT / "REPORT.md").read_text(encoding="utf-8")
+        doc = "Needs `python3` 3.10 or newer, checked in Ubuntu 22.04, 24.04 and 26.04 VMs; harm was 0.4242."
+        self.assertEqual(unbacked_numbers(doc, report_text, self.prereg_text), ["0.4242"])
 
     def test_the_size_measure_counts_every_file(self):
         from tempfile import TemporaryDirectory

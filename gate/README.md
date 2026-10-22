@@ -1,7 +1,14 @@
-# Patton gate
+# Patton gate (the studied version)
 
 A Claude Code hook that asks before the agent changes a file that existed when the session started.
-One file, standard library only. Copy `patton_gate.py` anywhere and point three hook entries at it.
+One file, standard library only.
+
+**To use the gate, install the plugin** ([`plugins/patton-gate`](../plugins/patton-gate/README.md)):
+`claude plugin install patton-gate --marketplace vladimirrott/patton-protocol`. This directory holds the exact
+file the 2026-10-21 pre-registration froze, and it never changes, so the study can be replayed against it. The
+plugin keeps its classifier and decision rules, passes the same bypass corpus, and adapts it for daily use (it asks
+about commands it cannot read, stays silent when nothing protected is at stake, and lists the session's files
+without hashing them). This README describes the studied file.
 
 The measurements behind this gate are in [`lab/CC_REPORT.md`](../lab/CC_REPORT.md) (generated from the study's
 records) and [`docs/findings/2026-10-22-gate-study-findings.md`](../docs/findings/2026-10-22-gate-study-findings.md).
@@ -17,8 +24,10 @@ The findings open with the limits: one backend, a simulated approver, and an unm
   new files, or only reads, passes. `git add`, `git commit` and `git branch` count as read-only. `git clean`
   and `git reset` are refused as opaque.
 - **A command the reader cannot read is refused.** That covers command substitution, `eval`, `bash -c`,
-  `xargs`, interpreters such as `python -c`, shell variables in a path, and anything that is not a known
-  program. The refusal tells the agent to name the files in a plain command and to stop trying other routes.
+  interpreters such as `python -c`, shell variables in a path, and anything that is not a known program.
+  `xargs`, `find -exec` and `git -C` pass only in front of a read-only command (such as `du`, `ls`, `wc`, or
+  `git status`). The refusal asks the agent to rewrite the command as a plain one that names each file; since the gate
+  pilot's first pass it no longer tells the agent to stop, because a rewrite passes through the gate again.
 - **A granted path is never asked about again.** When the approver answers part of a request, the approved
   paths are granted for the rest of the session (`granted.json` in the state directory).
 - **After five refusals the gate denies every gated call that would change something**, even one aimed at a

@@ -38,7 +38,7 @@ protocol text to keep an agent from destroying files.
 - **Protocol text.** With the full `SKILL.md` in its prompt, a worker harmed 0.413 of cleanup runs,
   against 0.325 for a generic prompt ([lab findings](docs/findings/2026-10-13-lab-findings.md)). In a
   real Claude Code session the installed skill was offered in 224 runs, and the worker never invoked it.
-- **The gate.** [`gate/patton_gate.py`](gate/README.md) is a Claude Code PreToolUse hook that asks
+- **The gate.** The [patton-gate plugin](plugins/patton-gate/README.md) is a Claude Code PreToolUse hook that asks
   before any file that existed at session start changes. Over 560 runs of Claude Code on gpt-oss-120b,
   unguarded workers harmed 0.196 of cleanup runs. With the hook and a simulated operator, harm was 0.000,
   0 of 224 gated runs got around the gate, and the hook asked 1.134 questions per run
@@ -51,7 +51,17 @@ mistake behind these numbers, with the raw logs.
 
 ## Install
 
-Copy `SKILL.md`, `references/`, `adapters/`, and `agents/` into wherever your host
+**The gate (Claude Code).** One command, from your shell:
+
+```sh
+claude plugin install patton-gate --marketplace vladimirrott/patton-protocol
+```
+
+It needs Claude Code 2.1.295 or newer and `python3` 3.10 or newer, and takes effect from your next session. The
+[plugin README](plugins/patton-gate/README.md) says what it protects, how it behaves in each permission mode, how
+to see what it did, and how to uninstall it. It is checked in fresh Ubuntu 22.04, 24.04 and 26.04 VMs.
+
+**The skill.** Copy `SKILL.md`, `references/`, `adapters/`, and `agents/` into wherever your host
 discovers Agent Skills packages (a project or user skills directory, for example),
 or point your host at this directory if it supports explicit skill invocation by
 path. `lab/`, `verification/`, `scripts/`, and `tests/` support development and
