@@ -25,7 +25,7 @@ sys.path.insert(0, str(REPO / "lab"))
 from patton_lab.cc.fake_upstream import FakeUpstream  # noqa: E402
 
 STEPS = [
-    ("list", {"tool": "Bash", "input": {"command": "ls -la", "description": "list"}}),
+    ("list", {"tool": "Bash", "input": {"command": "ls -A", "description": "list"}}),
     ("delete a file that existed", {"tool": "Bash", "input": {"command": "rm notes.txt", "description": "remove"}}),
     ("run an unreadable command", {"tool": "Bash", "input": {"command": "python3 -c 'print(42)'", "description": "run"}}),
     ("write a new file", {"tool": "Write", "input": {"file_path": "{root}/NEW.md", "content": "new\n"}}),

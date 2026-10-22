@@ -26,8 +26,21 @@ sys.path.insert(0, str(REPO / "lab"))
 from patton_lab.cc.fake_upstream import FakeUpstream  # noqa: E402
 
 
+SOCKET = f"patton-tui-{os.getpid()}"  # a private tmux server, so the person's own tmux and its options stay untouched
+
+
 def tmux(*args: str) -> str:
-    return subprocess.run(["tmux", *args], capture_output=True, text=True).stdout
+    return subprocess.run(["tmux", "-L", SOCKET, *args], capture_output=True, text=True).stdout
+
+
+def new_session(name: str, root: Path, command: list[str]) -> None:
+    # remain-on-exit keeps the pane, so a Claude Code that exits at startup leaves its last screen to read.
+    tmux("new-session", "-d", "-s", name, "-x", "160", "-y", "50", "-c", str(root), *command,
+         ";", "set-option", "-g", "remain-on-exit", "on")
+
+
+def exited(name: str) -> bool:
+    return tmux("display-message", "-p", "-t", name, "#{pane_dead}").strip() == "1"
 
 
 def wait_for(session: str, needles: tuple[str, ...], seconds: float) -> str:
@@ -107,8 +120,11 @@ def session(claude: str, plugin_dir: str | None, home: Path | None, steps: list,
                     time.sleep(1.5)
                     continue
                 break
+            dead = exited(name)
+            if dead:
+                screen = tmux("capture-pane", "-p", "-J", "-t", name, "-S", "-200")
             return {"questions": questions, "reason_on_screen": reason, "finished": "Finished." in screen,
-                    "screen": screen}
+                    "exited": dead, "screen": screen}
         finally:
             tmux("kill-session", "-t", name)
             fake.stop()
@@ -135,8 +151,7 @@ def start(name: str, claude: str, plugin_dir: str | None, run_home: Path, root: 
            "ANTHROPIC_DEFAULT_SONNET_MODEL": "fake", "ANTHROPIC_DEFAULT_OPUS_MODEL": "fake",
            "ANTHROPIC_SMALL_FAST_MODEL": "fake", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
     argv = [claude, "--model", "fake"] + (["--plugin-dir", plugin_dir] if plugin_dir else [])
-    tmux("new-session", "-d", "-s", name, "-x", "160", "-y", "50", "-c", str(root),
-         "env", "-i", *[f"{k}={v}" for k, v in env.items()], *argv)
+    new_session(name, root, ["env", "-i", *[f"{k}={v}" for k, v in env.items()], *argv])
 
 
 def one_run(claude: str, plugin_dir: str | None, home: Path | None, answer: str) -> dict:
@@ -147,22 +162,9 @@ def one_run(claude: str, plugin_dir: str | None, home: Path | None, answer: str)
         fake = FakeUpstream([{"tool": "Bash", "input": {"command": "rm notes.txt", "description": "Remove notes.txt"}},
                              {"text": "Finished."}])
         port = fake.start()
-        run_home = home or Path(tmp) / "home"
-        run_home.mkdir(exist_ok=True)
-        state = run_home / ".claude.json"
-        config = json.loads(state.read_text()) if state.exists() else {}
-        config.update(hasCompletedOnboarding=True, theme="dark")
-        config.setdefault("projects", {})[str(root)] = {"hasTrustDialogAccepted": True, "allowedTools": []}
-        state.write_text(json.dumps(config))
-        env = {"HOME": str(run_home), "PATH": os.environ["PATH"], "TERM": "xterm-256color", "LANG": "C.UTF-8",
-               "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}", "ANTHROPIC_AUTH_TOKEN": "placeholder",
-               "ANTHROPIC_DEFAULT_SONNET_MODEL": "fake", "ANTHROPIC_DEFAULT_OPUS_MODEL": "fake",
-               "ANTHROPIC_SMALL_FAST_MODEL": "fake", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
-        argv = [claude, "--model", "fake"] + (["--plugin-dir", plugin_dir] if plugin_dir else [])
+        run_home = prepare_home(home or Path(tmp) / "home", root)
         session = f"patton-tui-{os.getpid()}-{answer}"
-        env_args = [f"{k}={v}" for k, v in env.items()]
-        tmux("new-session", "-d", "-s", session, "-x", "160", "-y", "50", "-c", str(root),
-             "env", "-i", *env_args, *argv)
+        start(session, claude, plugin_dir, run_home, root, port)
         try:
             screen = wait_for(session, ("for shortcuts", "? for", "Enter to continue"), 60)
             dismiss_notices(session)
@@ -225,8 +227,9 @@ def main() -> int:
     print(f"== the same command, allowed by {ALLOW_RULE} in the user's settings: questions {allowed['questions']}, "
           f"gate reason on screen {allowed['reason_on_screen']}, mission finished {allowed['finished']}")
     if allowed["questions"] != 1 or not allowed["reason_on_screen"] or not allowed["finished"]:
-        failures.append("an allow rule in the user's settings changed the gate's question")
-        print(allowed["screen"][-1400:])
+        failures.append("Claude Code exited before the allow-rule check could run" if allowed["exited"]
+                        else "an allow rule in the user's settings changed the gate's question")
+        print(allowed["screen"][-2400:])
     if control is not None:
         print(f"== control, the same rule without the plugin: questions {control['questions']}, "
               f"mission finished {control['finished']}")
@@ -241,4 +244,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    finally:
+        tmux("kill-server")  # the private server and any pane it kept
+        # kill-server leaves the socket file behind
+        (Path(os.environ.get("TMUX_TMPDIR") or "/tmp") / f"tmux-{os.getuid()}" / SOCKET).unlink(missing_ok=True)
+    sys.exit(code)
