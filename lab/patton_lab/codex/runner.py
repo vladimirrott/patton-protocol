@@ -48,7 +48,7 @@ MODELS = ("gpt-6.1-sol", "gpt-6-luna")
 EFFORT = "medium"
 TIMEOUT_S = 420
 HOOK_TIMEOUT_S = 60  # Codex runs the call when a hook times out, so this must cover the approver's 10 s
-MAX_ATTEMPTS = 2
+MAX_ATTEMPTS = 3
 CALIBRATION_MAX_RUNS = 10
 STOP_STATUSES = (401, 403, 429, 500, 502, 503, 504)
 # Off in every arm: each adds a way to act that the study does not measure (subagents, other tools, the network).
@@ -56,7 +56,7 @@ DISABLED_FEATURES = ("multi_agent", "multi_agent_v2", "goals", "apps", "plugins"
                      "computer_use", "memories", "enable_request_compression")
 PLACEHOLDER_ENV = "PATTON_PLACEHOLDER_KEY"
 SUBSCRIPTION = "codex-subscription"
-RUN_CAP = 60  # live subscription runs per output directory, failed attempts included
+RUN_CAP = 60  # live calibration runs per output directory, failed attempts included; the study registers its own
 
 
 class SecretLeak(Exception):
@@ -132,7 +132,11 @@ def adapter_hash() -> str:
 
 
 def catalog_entry(model: str, cache: Path | None = None) -> dict[str, Any]:
-    """The host's model metadata for `model`, so the worker gets the prompt and tools a subscriber gets."""
+    """The model metadata for `model`, so the worker gets the prompt and tools a subscriber gets: the registered
+    copy in lab/codex/catalog/ when there is one, the host's cache otherwise."""
+    registered = REPO / "lab" / "codex" / "catalog" / f"{model}.json"
+    if cache is None and registered.exists():
+        return json.loads(registered.read_text(encoding="utf-8"))
     path = cache or Path.home() / ".codex" / "models_cache.json"
     models = json.loads(path.read_text(encoding="utf-8")).get("models") or []
     found = [m for m in models if m.get("slug") == model]
@@ -168,6 +172,52 @@ def install_skill(codex_home: Path) -> None:
 
 
 # ---- the podman executor ----------------------------------------------------------------------------------
+
+def binary_pins_hold(binary: Path) -> bool:
+    """Whether `codex` and the code-mode host beside it are the builds the pre-registration pinned."""
+    from . import prereg
+    host = binary.parent / "codex-code-mode-host"
+    try:
+        return (hashlib.sha256(binary.read_bytes()).hexdigest() == prereg.CODEX_BINARY_SHA256
+                and hashlib.sha256(host.read_bytes()).hexdigest() == prereg.CODE_MODE_HOST_SHA256)
+    except OSError:
+        return False
+
+
+def quota_stop(out_dir: Path, weekly_stop: float, five_hour_stop: float, now: float | None = None) -> str | None:
+    """Why the next run must not start, or None when it may.
+
+    The readings come from the latest stored run that has any (by file time), and a window's reading stops counting
+    once the reset time its cassette recorded has passed. A reading with no reset time holds. With nothing stored,
+    the first run starts."""
+    now = time.time() if now is None else now
+    for path in sorted(Path(out_dir).glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        limits = record.get("rate_limits") or {}
+        if not (limits.get("primary") or limits.get("secondary")):
+            continue
+        try:
+            last = recorder_mod.load(Path(out_dir) / record["cassette"])[-1].get("rate_limits") or {}
+        except (OSError, ValueError, KeyError, IndexError):
+            last = {}
+        checks = (("secondary", "weekly", weekly_stop), ("primary", "5-hour", five_hour_stop))
+        for which, label, line in checks:
+            reading = (limits.get(which) or [0.0])[-1]
+            try:
+                reset = float(last.get(f"x-codex-{which}-reset-at"))
+            except (TypeError, ValueError):
+                reset = None
+            if reading >= line and (reset is None or now < reset):
+                when = f" until {time.strftime('%Y-%m-%d %H:%M', time.localtime(reset))}" if reset else ""
+                return (f"the {label} reading is {reading:.0f} %, at or past the registered stop of {line:.0f} %"
+                        f"{when}; run `runner study` again after the window resets")
+        return None
+    return None
+
+
+def _trace_stamp() -> str:
+    return adapter_hash() + "\n" + _sha(Path(__file__).read_bytes()) + "\n"
+
 
 def default_binary() -> Path:
     if os.environ.get("PATTON_CODEX_BINARY"):
@@ -413,7 +463,7 @@ def _prepare(arm: Arm, model: str, fixture: Any, run_id: str, base: Path, model_
 
 
 def run_one(arm: Arm, model: str, fixture_id: str, rep: int, executor: Executor, upstream: Upstream, out_dir: Path,
-            secrets: list[str], catalog: dict[str, Any], seed: int | None = None) -> dict[str, Any]:
+            secrets: list[str], catalog: dict[str, Any], seed: int | None = None, run_cap: int | None = None) -> dict[str, Any]:
     fixture = e1.fixture_by_id(fixture_id)
     run_id = f"{arm.name}-{fixture_id}-r{rep}"
     out_dir = Path(out_dir)
@@ -423,7 +473,7 @@ def run_one(arm: Arm, model: str, fixture_id: str, rep: int, executor: Executor,
     attempts: list[dict[str, Any]] = []
     for n in range(first, first + MAX_ATTEMPTS):
         if upstream.subscription:
-            check_run_cap(out_dir, SUBSCRIPTION, RUN_CAP)
+            check_run_cap(out_dir, SUBSCRIPTION, RUN_CAP if run_cap is None else run_cap)
         cassette = f"cassettes/{run_id}.a{n}.{os.urandom(4).hex()}.jsonl.gz"
         rec = recorder_mod.Recorder(upstream.url, out_dir / cassette, secrets, auth=upstream.auth)
         model_url = f"http://127.0.0.1:{rec.start()}"
@@ -633,10 +683,51 @@ def trace_checks(record: dict[str, Any], fixture: Any) -> list[str]:
     return problems
 
 
+def study(lab: Path) -> int:
+    """The registered study: everything from lab/prereg/2026-10-22-codex-gate-study-preregistration.md."""
+    from ..cc.arms import plan_blocks
+    from . import prereg
+    if prereg.main(["--check"]) != 0:
+        return 1
+    marker = lab / "codex_trace" / prereg.MODEL / "TRACE_OK"
+    if not marker.exists() or marker.read_text() != _trace_stamp():
+        print(f"!! run `python3 -m patton_lab.codex.runner trace --model {prereg.MODEL}` on this tree first")
+        return 2
+    executor = PodmanExecutor()
+    if not binary_pins_hold(executor.binary):
+        print(f"!! {executor.binary} or its code-mode host differs from the hashes the pre-registration pinned")
+        return 2
+    catalog = json.loads((REPO / prereg.CATALOG_REL).read_text(encoding="utf-8"))
+    auth = recorder_mod.ChatGPTAuth()
+    auth.check(min_seconds=3600)
+    out = lab / "codex_study"
+    upstream = Upstream(recorder_mod.CHATGPT_UPSTREAM, auth=auth, subscription=True)
+    secrets = _secrets(auth)
+    for block in plan_blocks(list(prereg.ARMS), list(prereg.FIXTURES), prereg.REPS, prereg.SEED):
+        for name, fixture_id, rep in block:
+            if (out / f"{name}-{fixture_id}-r{rep}.json").exists():
+                continue
+            reason = quota_stop(out, prereg.WEEKLY_STOP, prereg.FIVE_HOUR_STOP)
+            if reason:
+                print(f"!! stopped before {name}-{fixture_id}-r{rep}: {reason}")
+                return 2
+            try:
+                record = run_one(ARMS[name], prereg.MODEL, fixture_id, rep, executor, upstream, out, secrets, catalog,
+                                 prereg.SEED, run_cap=prereg.STUDY_RUN_CAP)
+            except UpstreamStop as stop:
+                print(f"!! stopped at {name}-{fixture_id}-r{rep}: {stop}; run `runner study` again to resume")
+                return 2
+            week = record["rate_limits"]["secondary"]
+            print(f"{record['run_id']:16} harm={record['metrics']['harm']} util={record['metrics']['utility']:.2f} "
+                  f"weekly%={week[-1] if week else None}", flush=True)
+    print("study complete: every registered run is stored")
+    return 0
+
+
 def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     lab = Path(root) if root else REPO / "lab"
     parser = argparse.ArgumentParser(prog="patton_lab.codex.runner")
-    parser.add_argument("command", choices=("dry-run", "trace", "calibrate", "replay", "summary"))
+    parser.add_argument("command", choices=("dry-run", "trace", "calibrate", "replay", "summary", "study"))
     parser.add_argument("--arms", default="X-R0,X-R1")
     parser.add_argument("--fixtures", default=",".join(f.id for f in e1.E1_FIXTURES))
     parser.add_argument("--model", default=MODELS[0], choices=MODELS)
@@ -654,6 +745,8 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
         problems = replay(out)
         print("\n".join(problems) if problems else f"replay OK: {len(list(out.glob('*.json')))} run(s) reproduce")
         return 1 if problems else 0
+    if args.command == "study":
+        return study(lab)
     plan = [(names[i % len(names)], fixtures[(i * 7 + args.seed) % len(fixtures)], 0) for i in range(args.runs)]
     if args.command == "dry-run":
         for arm, fixture_id, rep in plan:
@@ -679,7 +772,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
                       f"tools={record['tool_names']}")
         problems += replay(out)
         if not problems:
-            (out / "TRACE_OK").write_text(adapter_hash() + "\n" + _sha(Path(__file__).read_bytes()) + "\n")
+            (out / "TRACE_OK").write_text(_trace_stamp())
         print("\n".join(problems) if problems else "trace OK: every check passed and the runs replay")
         return 1 if problems else 0
     # calibrate
@@ -687,8 +780,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
         print(f"!! calibrate runs at most {CALIBRATION_MAX_RUNS} runs; ask for fewer")
         return 2
     marker = lab / "codex_trace" / args.model / "TRACE_OK"
-    expected = adapter_hash() + "\n" + _sha(Path(__file__).read_bytes()) + "\n"
-    if not marker.exists() or marker.read_text() != expected:
+    if not marker.exists() or marker.read_text() != _trace_stamp():
         print("!! run `python3 -m patton_lab.codex.runner trace` on this tree first; calibrate spends quota")
         return 2
     auth = recorder_mod.ChatGPTAuth()

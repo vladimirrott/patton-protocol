@@ -260,6 +260,17 @@ class SafetyTests(RunnerCase):
             with self.assertRaises(CapExceeded):
                 self.run_arm("X-R0", ScriptedExecutor(["ls -A"]), upstream=upstream, rep=1)
 
+    def test_the_cap_a_caller_passes_is_the_one_that_holds(self):
+        upstream = runner.Upstream(self.upstream.url, subscription=True)
+        from patton_lab.cc.meter import CapExceeded
+        runner.run_one(runner.ARMS["X-R0"], "gpt-6.1-sol", FIXTURE.id, 0, ScriptedExecutor(["ls -A"]), upstream,
+                       self.out, [], CATALOG, run_cap=2)
+        runner.run_one(runner.ARMS["X-R0"], "gpt-6.1-sol", FIXTURE.id, 1, ScriptedExecutor(["ls -A"]), upstream,
+                       self.out, [], CATALOG, run_cap=2)
+        with self.assertRaises(CapExceeded):
+            runner.run_one(runner.ARMS["X-R0"], "gpt-6.1-sol", FIXTURE.id, 2, ScriptedExecutor(["ls -A"]), upstream,
+                           self.out, [], CATALOG, run_cap=2)
+
     def test_a_scripted_run_never_counts_toward_the_cap(self):
         self.assertEqual(self.run_arm("X-R0", ScriptedExecutor(["ls -A"]))["backend"], "scripted")
 
@@ -369,6 +380,172 @@ class CommandLineTests(unittest.TestCase):
             runner.main(["calibrate", "--runs", "2"], root=self.lab)
 
 
+class StudyTests(unittest.TestCase):
+    """`runner study` with every spending layer replaced: run_one writes a fake record and counts the call."""
+
+    def setUp(self):
+        from patton_lab.codex import prereg
+        self.prereg = prereg
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.lab = Path(self.tmp.name)
+        self.calls = []
+        self.weekly = 3.0
+        self.five_hour = 10.0
+
+        def fake_run_one(arm, model, fixture_id, rep, executor, upstream, out, secrets, catalog, seed=None,
+                         run_cap=None):
+            self.calls.append((arm.name, fixture_id, rep, model, seed, upstream.subscription))
+            record = {"run_id": f"{arm.name}-{fixture_id}-r{rep}", "rate_limits": {
+                "primary": [self.five_hour], "secondary": [self.weekly]}, "metrics": {"harm": 0, "utility": 1.0}}
+            Path(out).mkdir(parents=True, exist_ok=True)
+            (Path(out) / f"{record['run_id']}.json").write_text(json.dumps(record))
+            return record
+
+        class Auth:
+            path = self.lab / "auth.json"
+
+            def check(self, min_seconds=0):
+                return None
+
+            def secrets(self):
+                return []
+
+            def __call__(self):
+                return {}
+
+        for target, value in ((runner, {"run_one": mock.Mock(side_effect=fake_run_one),
+                                        "PodmanExecutor": mock.Mock(return_value=mock.Mock(version=lambda: "v")),
+                                        "binary_pins_hold": mock.Mock(return_value=True)}),
+                              (runner.recorder_mod, {"ChatGPTAuth": mock.Mock(return_value=Auth())}),
+                              (prereg, {"main": mock.Mock(return_value=0)})):
+            for name, replacement in value.items():
+                patcher = mock.patch.object(target, name, replacement)
+                patcher.start()
+                self.addCleanup(patcher.stop)
+        marker = self.lab / "codex_trace" / prereg.MODEL / "TRACE_OK"
+        marker.parent.mkdir(parents=True)
+        marker.write_text(runner.adapter_hash() + "\n" + runner._sha(Path(runner.__file__).read_bytes()) + "\n")
+
+    def study(self):
+        return runner.main(["study"], root=self.lab)
+
+    def test_the_study_runs_the_registered_plan_in_its_order_on_the_subscription(self):
+        from patton_lab.cc.arms import plan_blocks
+        p = self.prereg
+        self.assertEqual(self.study(), 0)
+        expected = [(a, f, r) for block in plan_blocks(list(p.ARMS), list(p.FIXTURES), p.REPS, p.SEED) for a, f, r in block]
+        self.assertEqual([c[:3] for c in self.calls], expected)
+        self.assertEqual(len(self.calls), 240)
+        self.assertTrue(all(c[3] == p.MODEL and c[4] == p.SEED and c[5] for c in self.calls))
+
+    def test_stored_runs_are_not_run_again(self):
+        self.assertEqual(self.study(), 0)
+        self.calls.clear()
+        self.assertEqual(self.study(), 0)
+        self.assertEqual(self.calls, [])
+
+    def test_a_stale_pre_registration_stops_the_study_before_any_run(self):
+        self.prereg.main.return_value = 1
+        self.assertEqual(self.study(), 1)
+        self.assertEqual(self.calls, [])
+
+    def test_a_missing_or_foreign_trace_stops_the_study(self):
+        marker = self.lab / "codex_trace" / self.prereg.MODEL / "TRACE_OK"
+        marker.write_text("another tree\n")
+        self.assertEqual(self.study(), 2)
+        marker.unlink()
+        self.assertEqual(self.study(), 2)
+        self.assertEqual(self.calls, [])
+
+    def test_a_codex_binary_that_differs_from_its_pin_stops_the_study(self):
+        runner.binary_pins_hold.return_value = False
+        self.assertEqual(self.study(), 2)
+        self.assertEqual(self.calls, [])
+
+    def test_the_study_stops_at_the_weekly_line(self):
+        self.weekly = self.prereg.WEEKLY_STOP
+        self.assertEqual(self.study(), 2)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_the_study_stops_at_the_five_hour_line_and_resumes_later(self):
+        self.five_hour = self.prereg.FIVE_HOUR_STOP
+        self.assertEqual(self.study(), 2)
+        self.assertEqual(len(self.calls), 1)
+        self.five_hour = 0.0
+        (self.lab / "codex_study" / f"{self.calls[0][0]}-{self.calls[0][1]}-r0.json").write_text(json.dumps(
+            {"run_id": "x", "rate_limits": {"primary": [0.0], "secondary": [3.0]}}))
+        self.assertEqual(self.study(), 0)
+        self.assertEqual(len(self.calls), 240)
+
+    def test_an_upstream_stop_ends_the_study_with_a_resumable_code(self):
+        runner.run_one.side_effect = runner.UpstreamStop(429)
+        self.assertEqual(self.study(), 2)
+
+    def test_the_study_passes_its_registered_cap_which_covers_every_planned_run(self):
+        self.study()
+        caps = {c.kwargs.get("run_cap") for c in runner.run_one.call_args_list}
+        self.assertEqual(caps, {self.prereg.STUDY_RUN_CAP})
+        self.assertGreaterEqual(self.prereg.STUDY_RUN_CAP, sum(self.prereg.planned_runs().values()))
+
+    def test_the_study_uses_the_registered_catalog_copy(self):
+        self.study()
+        catalog = runner.run_one.call_args.args[8]
+        self.assertEqual(catalog, json.loads((REPO / self.prereg.CATALOG_REL).read_text()))
+
+
+class QuotaStopTests(unittest.TestCase):
+    """The stop reads the latest stored readings, and a reading whose window has reset no longer counts."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.out = Path(self.tmp.name)
+        self.n = 0
+
+    def store(self, five, week, five_reset, week_reset, readings=True):
+        import gzip
+        self.n += 1
+        cassette = f"cassettes/r{self.n}.jsonl.gz"
+        (self.out / "cassettes").mkdir(exist_ok=True)
+        headers = {"x-codex-primary-used-percent": str(five), "x-codex-secondary-used-percent": str(week),
+                   "x-codex-primary-reset-at": str(five_reset), "x-codex-secondary-reset-at": str(week_reset)}
+        with gzip.open(self.out / cassette, "wt") as handle:
+            handle.write(json.dumps({"seq": 0, "status": 200, "rate_limits": headers if readings else {}}) + "\n")
+        record = {"run_id": f"r{self.n}", "cassette": cassette,
+                  "rate_limits": {"primary": [five] if readings else [], "secondary": [week] if readings else []}}
+        path = self.out / f"r{self.n}.json"
+        path.write_text(json.dumps(record))
+        os.utime(path, (1000 + self.n, 1000 + self.n))
+
+    def stop(self, now):
+        return runner.quota_stop(self.out, 60.0, 90.0, now=now)
+
+    def test_nothing_stored_lets_the_first_run_start(self):
+        self.assertIsNone(self.stop(now=0))
+
+    def test_readings_under_the_lines_let_the_next_run_start(self):
+        self.store(10.0, 5.0, 5000, 9000)
+        self.assertIsNone(self.stop(now=1000))
+
+    def test_a_reading_at_a_line_stops_until_its_window_resets(self):
+        self.store(90.0, 5.0, 5000, 9000)
+        self.assertIn("5-hour", self.stop(now=4999))
+        self.assertIsNone(self.stop(now=5000))
+        self.store(10.0, 60.0, 5000, 9000)
+        self.assertIn("weekly", self.stop(now=8999))
+        self.assertIsNone(self.stop(now=9000))
+
+    def test_a_reading_with_no_reset_time_holds(self):
+        self.store(95.0, 5.0, "", 9000)
+        self.assertIn("5-hour", self.stop(now=10 ** 12))
+
+    def test_a_latest_run_without_readings_does_not_hide_an_earlier_one(self):
+        self.store(95.0, 5.0, 5000, 9000)
+        self.store(0.0, 0.0, 5000, 9000, readings=False)
+        self.assertIn("5-hour", self.stop(now=1000))
+
+
 class SummaryTests(RunnerCase):
     def test_the_summary_lists_each_run_in_order_with_its_window_readings_and_the_steps(self):
         self.run_arm("X-R0", ScriptedExecutor(["ls -A"]))
@@ -398,6 +575,35 @@ class SummaryTests(RunnerCase):
 
 
 class CatalogTests(unittest.TestCase):
+    def test_the_registered_catalog_copy_wins_over_the_host_cache(self):
+        from patton_lab.codex import prereg
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / ".codex" / "models_cache.json"
+            cache.parent.mkdir()
+            cache.write_text(json.dumps({"models": [{"slug": prereg.MODEL, "changed": True}]}))
+            with mock.patch.object(runner.Path, "home", return_value=Path(tmp)):
+                entry = runner.catalog_entry(prereg.MODEL)
+        self.assertEqual(entry, json.loads((REPO / prereg.CATALOG_REL).read_text()))
+
+    def test_the_binary_pins_hold_only_for_the_exact_builds(self):
+        import hashlib
+        from patton_lab.codex import prereg
+        with tempfile.TemporaryDirectory() as tmp:
+            binary, host = Path(tmp) / "codex", Path(tmp) / "codex-code-mode-host"
+            binary.write_bytes(b"codex build")
+            host.write_bytes(b"host build")
+            pins = {"CODEX_BINARY_SHA256": hashlib.sha256(b"codex build").hexdigest(),
+                    "CODE_MODE_HOST_SHA256": hashlib.sha256(b"host build").hexdigest()}
+            with mock.patch.multiple(prereg, **pins):
+                self.assertTrue(runner.binary_pins_hold(binary))
+                binary.write_bytes(b"codex build, updated")
+                self.assertFalse(runner.binary_pins_hold(binary))
+                binary.write_bytes(b"codex build")
+                host.write_bytes(b"host build, updated")
+                self.assertFalse(runner.binary_pins_hold(binary))
+                host.unlink()
+                self.assertFalse(runner.binary_pins_hold(binary))
+
     def test_the_catalog_entry_comes_from_the_host_cache_or_the_run_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp) / "models_cache.json"
