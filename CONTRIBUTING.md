@@ -12,7 +12,8 @@ python3 -m unittest discover -s tests -v
 python3 scripts/validate_protocol.py .
 ```
 
-Both commands need only Python 3.11+ from the standard library.
+Both commands need only Python 3.11+ from the standard library. The gate plugin itself needs 3.10+; the Ubuntu
+22.04 VM run below checks it on 3.10. Run every command in this file from the repository root.
 
 ## How this repository is organized
 
@@ -113,27 +114,42 @@ To try a change in a real session without installing anything:
 claude --plugin-dir plugins/patton-gate
 ```
 
-Two scripts drive real Claude Code with the plugin against a scripted model, for $0 and with no key:
+Two scripts drive real Claude Code with the plugin against a scripted model, for $0 and with no key. They need
+`claude` 2.1.295 or newer on `PATH`, and the second needs `tmux`. Each run uses a scratch project and a scratch
+home, so your own Claude Code settings stay untouched:
 
 ```sh
 python3 tests/tools/gate_plugin_e2e.py --claude claude --plugin-dir plugins/patton-gate   # three permission modes
-python3 tests/tools/gate_plugin_tui.py --claude claude --plugin-dir plugins/patton-gate   # the prompt a person sees (needs tmux)
+python3 tests/tools/gate_plugin_tui.py --claude claude --plugin-dir plugins/patton-gate   # the prompt a person sees
 ```
+
+Both end with `all checks passed` or a list of failures. `--installed` tests the plugin installed for your user
+instead; it uses your real home and marks the scratch project as trusted in `~/.claude.json`, so the VM script uses
+it and you need not. To read what the gate recorded in your own `--plugin-dir` sessions, run
+`python3 plugins/patton-gate/scripts/patton_gate.py log`.
 
 `claude plugin validate ./plugins/patton-gate --strict` checks the manifest and the hooks.
 
-To check the whole install in a clean Ubuntu VM, the way a user installs it (needs QEMU with KVM, `qemu-img`,
-`genisoimage`, `ssh`, `ssh-keygen`, `rsync` and `curl`; the first run downloads the cloud image and creates the
-SSH key `~/.ssh/patton-vm`):
+To check the whole install in a clean Ubuntu VM, the way a user installs it:
 
 ```sh
-tests/vm/plugin-vm.sh noble        # or jammy, resolute, all
+tests/vm/plugin-vm.sh noble        # jammy (22.04), noble (24.04), resolute (26.04), or all
 ```
 
-It boots a throwaway VM, installs Claude Code with the official installer, installs the plugin with the README's
-one command, runs both scripts above inside it, checks `disable`, `enable` and `uninstall --keep-data`, and writes
-the transcript to `docs/records/gate-plugin-vm/`. `PATTON_VM_SOURCE=github` installs from GitHub instead of your
-checkout; run it after a push. QEMU must pass `-cpu host` (the script does): Claude Code needs SSE4.2.
+It needs an x86_64 Linux host with read and write access to `/dev/kvm`, `qemu-system-x86_64`, `qemu-img`,
+`genisoimage`, `ssh`, `ssh-keygen`, `rsync`, `curl` and internet access. Each VM takes 3 GB of RAM, 2 CPUs and host
+port 2232, 2233 or 2234 (the script refuses a busy port). The first run downloads the cloud image (630 to 860 MB
+per release) and creates the SSH key `~/.ssh/patton-vm`; later runs reuse both. One release took about seven
+minutes on 2026-10-22, most of it in the interactive checks.
+
+It boots a throwaway VM, installs Claude Code with the official installer, installs the plugin with
+`claude plugin install patton-gate --marketplace <source> -y`, runs both scripts above inside it, runs the README's
+`log` command as written, checks `disable` and `enable` from inside a project, `uninstall --keep-data` and
+`marketplace remove`, and deletes the VM. By default the source is your checkout; `PATTON_VM_SOURCE=github`
+installs from GitHub, which is the user's path, so run that after a push. A run passes only when the transcript
+ends with `ALL VM CHECKS PASSED`. It overwrites the tracked transcript `docs/records/gate-plugin-vm/<release>.log`:
+commit it when the run tested what you are shipping, and restore it otherwise. QEMU must pass `-cpu host` (the
+script does): Claude Code needs SSE4.2.
 
 To release a new version, change `VERSION` in `scripts/patton_gate.py`, `version` in
 `plugins/patton-gate/.claude-plugin/plugin.json`, and the plugin's `version` in `.claude-plugin/marketplace.json`

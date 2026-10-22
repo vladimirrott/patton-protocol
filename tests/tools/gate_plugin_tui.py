@@ -55,16 +55,24 @@ def dismiss_notices(name: str, seconds: float = 20) -> None:
         time.sleep(0.5)
 
 
-def opaque_run(claude: str, plugin_dir: str | None, home: Path | None) -> dict:
-    """The same unreadable command twice: one question, answered Yes, then the repeat runs without asking."""
-    command = "python3 -c 'print(6 * 7)'"
-    steps = [{"tool": "Bash", "input": {"command": command, "description": "Compute"}},
-             {"tool": "Bash", "input": {"command": command, "description": "Compute again"}},
+COMMAND = "python3 -c 'print(6 * 7)'"
+ALLOW_RULE = "Bash(python3 -c:*)"
+
+
+def opaque_run(claude: str, plugin_dir: str | None, home: Path | None, allow: bool = False,
+               tag: str = "opaque") -> dict:
+    """The same unreadable command twice: one question, answered Yes, then the repeat runs without asking.
+
+    With allow=True the user's settings allow the command, which must not silence the gate's question.
+    """
+    steps = [{"tool": "Bash", "input": {"command": COMMAND, "description": "Compute"}},
+             {"tool": "Bash", "input": {"command": COMMAND, "description": "Compute again"}},
              {"text": "Finished."}]
-    return session(claude, plugin_dir, home, steps, "opaque")
+    return session(claude, plugin_dir, home, steps, tag, allow)
 
 
-def session(claude: str, plugin_dir: str | None, home: Path | None, steps: list, tag: str) -> dict:
+def session(claude: str, plugin_dir: str | None, home: Path | None, steps: list, tag: str,
+            allow: bool = False) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "project"
         root.mkdir()
@@ -72,6 +80,13 @@ def session(claude: str, plugin_dir: str | None, home: Path | None, steps: list,
         fake = FakeUpstream(steps)
         port = fake.start()
         run_home = prepare_home(home or Path(tmp) / "home", root)
+        settings = run_home / ".claude" / "settings.json"
+        before = settings.read_bytes() if settings.exists() else None
+        if allow:  # merged into the user's settings and put back afterwards, so an installed plugin stays enabled
+            current = json.loads(before) if before else {}
+            current.setdefault("permissions", {}).setdefault("allow", []).append(ALLOW_RULE)
+            settings.parent.mkdir(parents=True, exist_ok=True)
+            settings.write_text(json.dumps(current))
         name = f"patton-tui-{os.getpid()}-{tag}"
         start(name, claude, plugin_dir, run_home, root, port)
         questions, reason, screen = 0, False, ""
@@ -97,6 +112,11 @@ def session(claude: str, plugin_dir: str | None, home: Path | None, steps: list,
         finally:
             tmux("kill-session", "-t", name)
             fake.stop()
+            if allow:
+                if before is None:
+                    settings.unlink()
+                else:
+                    settings.write_bytes(before)
 
 
 def prepare_home(run_home: Path, root: Path) -> Path:
@@ -174,10 +194,18 @@ def main() -> int:
         return 2
     if not args.installed and not args.plugin_dir:
         parser.error("give --plugin-dir or --installed")
-    home = Path(args.home) if args.home else (Path.home() if args.installed else None)
+    if args.plugin_dir:
+        # Claude Code runs in a scratch project, so a relative path would load no plugin at all.
+        args.plugin_dir = str(Path(args.plugin_dir).resolve())
+        if not (Path(args.plugin_dir) / ".claude-plugin" / "plugin.json").is_file():
+            parser.error(f"{args.plugin_dir} holds no .claude-plugin/plugin.json")
+    home =Path(args.home) if args.home else (Path.home() if args.installed else None)
     plugin = None if args.installed else args.plugin_dir
     results = [one_run(args.claude, plugin, home, a) for a in ("no", "yes")]
     opaque = opaque_run(args.claude, plugin, home)
+    allowed = opaque_run(args.claude, plugin, home, allow=True, tag="allowed")
+    # Control: without the plugin the same rule must run the command unasked, or the rule proves nothing.
+    control = None if args.installed else opaque_run(args.claude, None, home, allow=True, tag="control")
     failures = []
     for r in results:
         print(f"== answered {r['answer']}: prompt shown {r['prompt_shown']}, gate reason on screen "
@@ -194,6 +222,18 @@ def main() -> int:
     if opaque["questions"] != 1 or not opaque["reason_on_screen"] or not opaque["finished"]:
         failures.append("the unreadable command was not asked about exactly once, with the gate's reason")
         print(opaque["screen"][-1400:])
+    print(f"== the same command, allowed by {ALLOW_RULE} in the user's settings: questions {allowed['questions']}, "
+          f"gate reason on screen {allowed['reason_on_screen']}, mission finished {allowed['finished']}")
+    if allowed["questions"] != 1 or not allowed["reason_on_screen"] or not allowed["finished"]:
+        failures.append("an allow rule in the user's settings changed the gate's question")
+        print(allowed["screen"][-1400:])
+    if control is not None:
+        print(f"== control, the same rule without the plugin: questions {control['questions']}, "
+              f"mission finished {control['finished']}")
+        if control["questions"] != 0 or not control["finished"]:
+            failures.append("without the plugin the allow rule did not let the command run unasked, "
+                            "so the allow-rule check proves nothing")
+            print(control["screen"][-1400:])
     print("FAILURES:" if failures else "all checks passed")
     for f in failures:
         print("  -", f)

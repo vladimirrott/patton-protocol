@@ -398,6 +398,26 @@ class LogTests(GateCase):
         self.assertIn("rm notes.txt", done.stdout)
         self.assertIn("asked", done.stdout)
 
+    def test_with_no_sessions_yet_the_log_says_how_to_get_one(self):
+        done = subprocess.run([sys.executable, str(SCRIPT), "log"], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], "HOME": str(self.home)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("No gate activity", done.stdout)
+        self.assertIn("start a Claude Code session", done.stdout)
+
+
+class UnwritableStateTests(GateCase):
+    def test_a_manifest_that_could_not_be_written_is_refused_with_the_place_and_the_cause(self):
+        blocker = self.home / "state"
+        blocker.write_text("a file where the state directory should be")  # every write under it fails
+        self.start()
+        _rc, out = self.bash("rm notes.txt")
+        reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("manifest is missing or unreadable", reason)
+        self.assertIn(str(self.state_dir()), reason)
+        self.assertIn("could not write", reason)
+
 
 if __name__ == "__main__":
     unittest.main()

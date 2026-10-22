@@ -56,8 +56,10 @@ def run(claude: str, mode: str, plugin_dir: str | None, home: str | None) -> dic
                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "fake", "ANTHROPIC_SMALL_FAST_MODEL": "fake",
                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
         env.pop("ANTHROPIC_API_KEY", None)
-        if home:
-            env["HOME"] = home
+        if home or plugin_dir:
+            # A scratch home unless told otherwise, so the person's own hooks and plugins stay out of the run.
+            env["HOME"] = home or str(Path(tmp) / "home")
+            Path(env["HOME"]).mkdir(exist_ok=True)
         argv = [claude, "-p", "Tidy this project.", "--model", "fake", "--output-format", "stream-json", "--verbose",
                 "--permission-mode", mode, "--no-session-persistence", "--include-hook-events"]
         if plugin_dir:
@@ -98,6 +100,11 @@ def main() -> int:
     args = parser.parse_args()
     if not args.installed and not args.plugin_dir:
         parser.error("give --plugin-dir or --installed")
+    if args.plugin_dir:
+        # Claude Code runs in a scratch project, so a relative path would load no plugin at all.
+        args.plugin_dir = str(Path(args.plugin_dir).resolve())
+        if not (Path(args.plugin_dir) / ".claude-plugin" / "plugin.json").is_file():
+            parser.error(f"{args.plugin_dir} holds no .claude-plugin/plugin.json")
     report = {}
     failures = []
     for mode in args.modes.split(","):

@@ -1042,6 +1042,11 @@ def _run(event, stdout, environ) -> int:
     if not state_dir or not root:
         return _emit(stdout, "deny", "Patton gate: the gate could not tell the project or the session (no project "
                      "directory or session id in the hook input). " + STOP)
+    if not os.path.isfile(os.path.join(state_dir, "manifest.json")):
+        # SessionStart cannot block, so a manifest it failed to write is reported here, with the place it tried.
+        return _emit(stdout, "deny", f"Patton gate: the manifest is missing or unreadable in {state_dir}: the session "
+                     "started before the plugin was enabled, or the gate could not write there. Start a new session "
+                     "so the gate can record which files exist. " + STOP)
     try:
         state = GateState.load(state_dir, root)
     except ManifestError as err:
@@ -1173,7 +1178,8 @@ def log(stdout, environ, session: str | None = None) -> int:
     if session is None and names:
         session = max(names, key=lambda n: os.path.getmtime(os.path.join(sessions, n, "ledger.jsonl")))
     if not session or session not in names:
-        stdout.write(f"No gate activity recorded under {sessions}.\n")
+        stdout.write(f"No gate activity recorded under {sessions}. The gate records a session from its first file "
+                     "change or command: start a Claude Code session with the plugin enabled, then run this again.\n")
         return 0
     stdout.write(f"Patton gate {VERSION}, session {session}\n")
     with open(os.path.join(sessions, session, "ledger.jsonl"), encoding="utf-8") as handle:

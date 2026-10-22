@@ -1,6 +1,6 @@
 # Design: the Patton gate as a Claude Code plugin
 
-Date 2026-10-22. Status: building. The study ([findings](../findings/2026-10-22-gate-study-findings.md)) measured
+Date 2026-10-22. Status: shipped as 0.1.0. The study ([findings](../findings/2026-10-22-gate-study-findings.md)) measured
 `gate/patton_gate.py` on cleanup missions in a headless harness. This design turns that gate into something a
 person installs with one command and keeps on in daily work.
 
@@ -12,10 +12,10 @@ claude plugin install patton-gate --marketplace vladimirrott/patton-protocol
 
 From the next session on, Claude Code asks before any tool call that would change, move or delete a file that
 existed when the session started. Everything else runs as it did before: the gate adds a question where a protected
-file is at stake and stays silent otherwise, so the user's own permission settings keep working. Uninstalling is
-one command and leaves the per-session ledgers in place.
+file is at stake and stays silent otherwise, so the user's own permission settings keep working. Uninstalling takes
+two commands (the plugin, then the marketplace); `--keep-data` keeps the per-session ledgers.
 
-Requirements: Claude Code 2.1.295 or newer (checked on 2.1.303 and 2.1.308) and `python3` 3.10 or newer on `PATH`.
+Requirements: Claude Code 2.1.295 or newer (checked on 2.1.307 and 2.1.308) and `python3` 3.10 or newer on `PATH`.
 
 ## Why the plugin ships a product gate and not the studied file
 
@@ -51,7 +51,7 @@ files, so a classifier change in one without the other fails CI.
   deleting the repository's history asks first.
 - **Fail closed.** A crash in the gate denies the call with a reason. When `python3` is missing, the hook command
   exits 2, which blocks the call and tells the person why.
-- **Settings.** `PATTON_GATE_OPAQUE` (`ask`, the default, or `deny`, the studied behaviour). Study mode
+- **Settings.** `PATTON_GATE_OPAQUE=deny` gives the studied behaviour; any other value, or none, asks. Study mode
   (`PATTON_GATE_APPROVER` set) behaves as the study measured.
 
 ## Verification
