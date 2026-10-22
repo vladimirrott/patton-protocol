@@ -751,7 +751,7 @@ EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path
 SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
 DENIAL_LIMIT = 5
 DEFAULT_TIMEOUT = 10.0
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 # Rebuilt by tools, so not protected. `.git` is not here: deleting the repository's history must ask first.
 SKIP_DIRS = frozenset({"node_modules", "target", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache",
                        ".pytest_cache", ".ruff_cache", ".gradle", ".next"})
