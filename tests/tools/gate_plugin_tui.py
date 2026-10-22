@@ -39,6 +39,21 @@ def new_session(name: str, root: Path, command: list[str]) -> None:
          ";", "set-option", "-g", "remain-on-exit", "on")
 
 
+def stop(name: str, seconds: float = 15) -> None:
+    """Kill the session and wait for Claude Code to exit, so it is done writing before its scratch home goes."""
+    pid = tmux("display-message", "-p", "-t", name, "#{pane_pid}").strip()
+    tmux("kill-session", "-t", name)
+    if not pid.isdigit() or int(pid) <= 1:
+        return
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        try:
+            os.kill(int(pid), 0)
+        except OSError:
+            return
+        time.sleep(0.2)
+
+
 def exited(name: str) -> bool:
     return tmux("display-message", "-p", "-t", name, "#{pane_dead}").strip() == "1"
 
@@ -126,7 +141,7 @@ def session(claude: str, plugin_dir: str | None, home: Path | None, steps: list,
             return {"questions": questions, "reason_on_screen": reason, "finished": "Finished." in screen,
                     "exited": dead, "screen": screen}
         finally:
-            tmux("kill-session", "-t", name)
+            stop(name)
             fake.stop()
             if allow:
                 if before is None:
@@ -180,7 +195,7 @@ def one_run(claude: str, plugin_dir: str | None, home: Path | None, answer: str)
                     "reason_on_screen": seen_reason, "file_kept": (root / "notes.txt").exists(),
                     "finished": "Finished." in final, "prompt_excerpt": prompt[-1400:]}
         finally:
-            tmux("kill-session", "-t", session)
+            stop(session)
             fake.stop()
 
 
