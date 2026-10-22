@@ -203,6 +203,19 @@ class ApprovalTests(GateCase):
         self.assertEqual((entry["verdict"], entry["paths"], entry["granted"], entry["denied"]),
                          ("refused", ["a.csv", "notes.txt"], ["a.csv"], ["notes.txt"]))
 
+    def test_a_partial_answer_tells_the_worker_it_may_finish_the_approved_part(self):
+        # The 2026-10-22 pilot, pass 3: the whole call is blocked, and "stop" made the worker drop the approved
+        # files too. The refusal names what was approved so the worker can rerun for those files alone.
+        half = approver_script(self.aux, "print(json.dumps({'approved': ['a.csv'], 'denied': ['notes.txt']}))")
+        verdict, reason = self.verdict(self.bash("rm a.csv notes.txt", PATTON_GATE_APPROVER=half))
+        self.assertEqual(verdict, "deny")
+        self.assertIn("approved a.csv", reason)
+        self.assertIn("again", reason)
+        self.assertIn("refused notes.txt", reason)
+        self.assertTrue(reason.endswith(STOP_SENTENCE))
+        # The rerun for the approved file alone passes without a second request.
+        self.assertEqual(self.verdict(self.bash("rm a.csv", PATTON_GATE_APPROVER=half))[0], "allow")
+
     def test_an_approval_records_what_it_granted(self):
         approve_all = approver_script(self.aux, "print(json.dumps({'approved': req['paths'], 'denied': []}))")
         self.bash("rm a.csv", PATTON_GATE_APPROVER=approve_all)

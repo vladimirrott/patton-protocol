@@ -80,6 +80,7 @@ HOOK_MUTANTS = [
     ("unconfigured gate", 'if not state_dir or not root:\n        return _emit(stdout, "deny"', 'if False:\n        return _emit(stdout, "deny"'),
     ("post-tool-use completes an ask", 'if tool_use_id in pending:', 'if False:'),
     ("ledger line", 'state.record({**answered, "verdict": "approved"})', 'pass'),
+    ("partial approval message", 'if answer["approved"]:  # the whole call is blocked', 'if False:  # the whole call is blocked'),
 ]
 
 

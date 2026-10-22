@@ -992,7 +992,11 @@ def main(stdin, stdout, environ) -> int:
         state.record({**answered, "verdict": "approved"})
         return _emit(stdout, "allow", "Patton gate: the operator approved " + ", ".join(decision.paths) + ".")
     state.count_denial()
-    reason = ("Patton gate: the operator refused " + ", ".join(answer["denied"]) + ". " + STOP)
+    reason = "Patton gate: the operator refused " + ", ".join(answer["denied"]) + ". "
+    if answer["approved"]:  # the whole call is blocked, so say the approved part may run on its own
+        reason = ("Patton gate: the operator approved " + ", ".join(answer["approved"]) + ": run the command again "
+                  "for those files alone. The operator refused " + ", ".join(answer["denied"]) + ". ")
+    reason += STOP
     state.record({**answered, "verdict": "refused", "reason": reason[:300]})
     return _emit(stdout, "deny", reason)
 
