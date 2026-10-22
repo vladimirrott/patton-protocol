@@ -525,6 +525,56 @@ def replay(out_dir: Path) -> list[str]:
     return problems
 
 
+# ---- calibration summary ----------------------------------------------------------------------------------
+
+def window_steps(records: list[dict[str, Any]], which: str) -> list[int]:
+    """The 1-based positions of the runs during which a window's whole-percent reading rose."""
+    steps = []
+    previous = None
+    for i, record in enumerate(records, 1):
+        values = record["rate_limits"][which]
+        if values and previous is not None and values[-1] > previous:
+            steps.append(i)
+        elif values and len(values) > 1 and values[-1] > values[0] and previous is None:
+            steps.append(i)
+        if values:
+            previous = values[-1]
+    return steps
+
+
+def summary(dirs: list[Path], order_file: Path | None = None) -> str:
+    """Every stored run in the order it ran, with tokens and the 5-hour and weekly readings, then per-model means.
+
+    The order comes from `order_file` (one `<model dir>/<run id>` per line), because a clone loses file times;
+    runs it does not list come last, by name."""
+    found = {f"{d.name}/{p.stem}": json.loads(p.read_text(encoding="utf-8")) for d in dirs for p in sorted(Path(d).glob("*.json"))}
+    listed = order_file.read_text(encoding="utf-8").split() if order_file is not None and order_file.exists() else []
+    keys = [k for k in listed if k in found] + sorted(k for k in found if k not in listed)
+    records = [found[k] for k in keys]
+    lines = [f"{'#':>3} {'run':16} {'model':12} {'calls':>5} {'input':>6} {'cached':>6} {'output':>6} {'5-hour %':>10} "
+             f"{'weekly %':>10} harm utility"]
+    per_model: dict[str, list[dict[str, Any]]] = {}
+    for i, r in enumerate(records, 1):
+        calls = r["calls"]
+        tokens = [sum((c[k] or 0) for c in calls) for k in ("input_tokens", "cached_tokens", "output_tokens")]
+        five, week = r["rate_limits"]["primary"], r["rate_limits"]["secondary"]
+        fmt = lambda v: f"{v[0]}->{v[-1]}" if v else "none"  # noqa: E731
+        lines.append(f"{i:>3} {r['run_id']:16} {r['model']:12} {len(calls):>5} {tokens[0]:>6} {tokens[1]:>6} {tokens[2]:>6} "
+                     f"{fmt(five):>10} {fmt(week):>10} {r['metrics']['harm']:>4} {r['metrics']['utility']:>7}")
+        per_model.setdefault(r["model"], []).append({"calls": len(calls), "tokens": tokens, "wall": r["wall_s"]})
+    lines.append("")
+    for model, rows in per_model.items():
+        n = len(rows)
+        mean = lambda xs: round(sum(xs) / n)  # noqa: E731
+        lines.append(f"{model}: {n} runs, mean {mean([x['tokens'][0] for x in rows])} input tokens "
+                     f"({mean([x['tokens'][1] for x in rows])} cached), {mean([x['tokens'][2] for x in rows])} output tokens, "
+                     f"{sum(x['calls'] for x in rows) / n:.1f} model calls, {sum(x['wall'] for x in rows) / n:.1f} s")
+    for which, label in (("primary", "5-hour"), ("secondary", "weekly")):
+        steps = window_steps(records, which)
+        lines.append(f"{label} window steps: {', '.join(f'run {s}' for s in steps) if steps else 'none'}")
+    return "\n".join(lines) + "\n"
+
+
 # ---- command line -----------------------------------------------------------------------------------------
 
 def trace_script(fixture: Any) -> list[dict[str, Any]]:
@@ -586,7 +636,7 @@ def trace_checks(record: dict[str, Any], fixture: Any) -> list[str]:
 def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     lab = Path(root) if root else REPO / "lab"
     parser = argparse.ArgumentParser(prog="patton_lab.codex.runner")
-    parser.add_argument("command", choices=("dry-run", "trace", "calibrate", "replay"))
+    parser.add_argument("command", choices=("dry-run", "trace", "calibrate", "replay", "summary"))
     parser.add_argument("--arms", default="X-R0,X-R1")
     parser.add_argument("--fixtures", default=",".join(f.id for f in e1.E1_FIXTURES))
     parser.add_argument("--model", default=MODELS[0], choices=MODELS)
@@ -595,6 +645,10 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
     names, fixtures = args.arms.split(","), args.fixtures.split(",")
+    if args.command == "summary":
+        runs = lab / "codex_runs"
+        print(summary(sorted(p for p in runs.iterdir() if p.is_dir()) if runs.exists() else [], runs / "ORDER"), end="")
+        return 0
     if args.command == "replay":
         out = args.out or lab / "codex_runs" / args.model
         problems = replay(out)
@@ -653,6 +707,8 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
             print(f"!! stopped: {stop}")
             break
         done.append(record)
+        with open(out.parent / "ORDER", "a", encoding="utf-8") as order:  # the run order, which a clone keeps
+            order.write(f"{out.name}/{record['run_id']}\n")
         week = record["rate_limits"]["secondary"]
         tokens = sum((c["input_tokens"] or 0) for c in record["calls"]), sum((c["output_tokens"] or 0) for c in record["calls"])
         print(f"{record['run_id']:16} harm={record['metrics']['harm']} util={record['metrics']['utility']:.2f} "

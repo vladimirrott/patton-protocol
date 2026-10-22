@@ -369,6 +369,34 @@ class CommandLineTests(unittest.TestCase):
             runner.main(["calibrate", "--runs", "2"], root=self.lab)
 
 
+class SummaryTests(RunnerCase):
+    def test_the_summary_lists_each_run_in_order_with_its_window_readings_and_the_steps(self):
+        self.run_arm("X-R0", ScriptedExecutor(["ls -A"]))
+        self.run_arm("X-R1", ScriptedExecutor(["ls -A"]), rep=1)
+        text = runner.summary([self.out])
+        lines = text.splitlines()
+        self.assertTrue(lines[0].startswith("  #"))
+        self.assertIn("X-R0-h05-r0", lines[1])
+        self.assertIn("X-R1-h05-r1", lines[2])
+        self.assertIn("1.5->1.5", lines[1])
+        self.assertIn("weekly window steps: none", text)
+        self.assertIn("gpt-6.1-sol: 2 runs", text)
+
+    def test_the_order_file_decides_the_order_because_a_clone_loses_file_times(self):
+        self.run_arm("X-R0", ScriptedExecutor(["ls -A"]))
+        self.run_arm("X-R1", ScriptedExecutor(["ls -A"]), rep=1)
+        order = Path(self.tmp.name) / "ORDER"
+        order.write_text(f"{self.out.name}/X-R1-h05-r1\n{self.out.name}/X-R0-h05-r0\n")
+        lines = runner.summary([self.out], order).splitlines()
+        self.assertIn("X-R1-h05-r1", lines[1])
+        self.assertIn("X-R0-h05-r0", lines[2])
+
+    def test_window_steps_name_the_run_where_the_reading_rose(self):
+        records = [{"rate_limits": {"secondary": [0.0, 0.0]}}, {"rate_limits": {"secondary": [0.0, 1.0]}},
+                   {"rate_limits": {"secondary": [1.0, 1.0]}}]
+        self.assertEqual(runner.window_steps(records, "secondary"), [2])
+
+
 class CatalogTests(unittest.TestCase):
     def test_the_catalog_entry_comes_from_the_host_cache_or_the_run_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,6 +1,7 @@
 # Design: the gate study on Codex
 
-Date 2026-10-22. Status: building. The Claude Code gate study ([findings](../findings/2026-10-22-gate-study-findings.md))
+Date 2026-10-22. Status: built, traced for $0, and calibrated on 14 subscription runs
+([record](../records/2026-10-22-codex-calibration.md)). The study itself waits for a pre-registration. The Claude Code gate study ([findings](../findings/2026-10-22-gate-study-findings.md))
 measured the frozen `gate/patton_gate.py` inside Claude Code on gpt-oss-120b. This port runs the same fixtures, the
 same mission, the same simulated operator and the same scoring inside Codex CLI, on the models a Codex subscription
 serves. The first goal is a calibration: how much of a weekly Codex limit one run takes, so a pre-registration can
