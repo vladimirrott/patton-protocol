@@ -32,42 +32,44 @@ Setting up launcher and shell integration...
 ✅ Installation complete!
 
 2.1.308 (Claude Code)
-installer took 63 s
+installer took 66 s
 
-=== install the plugin with one command (source: checkout)
+=== install the plugin with one command (source: github)
 Adding marketplace…
+SSH not configured, cloning via HTTPS: https://github.com/vladimirrott/patton-protocol.git
+Refreshing marketplace cache (timeout: 120s)…
+Cloning repository (timeout: 120s): https://github.com/vladimirrott/patton-protocol.git
+Clone complete, validating marketplace…
 ✔ Successfully added marketplace: patton-protocol (declared in user settings)
 Installing plugin "patton-gate@patton-protocol"...✔ Successfully installed plugin: patton-gate@patton-protocol (scope: user)
-plugin install took 1 s
+plugin install took 23 s
 Installed plugins:
 
   ❯ patton-gate@patton-protocol
-    Version: 0.1.0
-    Read from: /home/ubuntu/patton-protocol/plugins/patton-gate
+    Version: 0.1.1
     Scope: user
     Status: ✔ enabled
 
-
 === the gate, end to end, in three permission modes
 == permission mode default: rc 0, hook events 8, files {'notes.txt': True, 'NEW.md': False, 'node_modules': True, '.git': True}
-   list                             ran                 'total 4\ndrwxrwxr-x 4 ubuntu ubuntu 100 Oct 22 11:33 .\ndrwx------ 3 ubuntu ubuntu  60 Oct 22 11:33 ..\ndrwxrwxr-'
+   list                             ran                 '.git\nnode_modules\nnotes.txt'
    delete a file that existed       BLOCKED     (gate)  'Patton gate: this changes notes.txt, which existed when the session started.'
    run an unreadable command        BLOCKED     (gate)  'Patton gate cannot tell which files this command changes (unknown command: python3). Allow it only if it leave'
-   write a new file                 BLOCKED             "Claude requested permissions to write to /tmp/tmpq_km_ovv/project/NEW.md, but you haven't granted it yet."
-   delete a dependency directory    BLOCKED             "rm in '/tmp/tmpq_km_ovv/project/node_modules' needs approval. The path is inside the working directories for t"
-   delete the repository history    BLOCKED             'Claude requested permissions to edit /tmp/tmpq_km_ovv/project/.git which is a sensitive file.'
+   write a new file                 BLOCKED             "Claude requested permissions to write to /tmp/tmpwcgys49l/project/NEW.md, but you haven't granted it yet."
+   delete a dependency directory    BLOCKED             "rm in '/tmp/tmpwcgys49l/project/node_modules' needs approval. The path is inside the working directories for t"
+   delete the repository history    BLOCKED             'Claude requested permissions to edit /tmp/tmpwcgys49l/project/.git which is a sensitive file.'
 == permission mode acceptEdits: rc 0, hook events 10, files {'notes.txt': True, 'NEW.md': True, 'node_modules': False, '.git': True}
-   list                             ran                 'total 4\ndrwxrwxr-x 4 ubuntu ubuntu 100 Oct 22 11:33 .\ndrwx------ 3 ubuntu ubuntu  60 Oct 22 11:33 ..\ndrwxrwxr-'
+   list                             ran                 '.git\nnode_modules\nnotes.txt'
    delete a file that existed       BLOCKED     (gate)  'Patton gate: this changes notes.txt, which existed when the session started.'
    run an unreadable command        BLOCKED     (gate)  'Patton gate cannot tell which files this command changes (unknown command: python3). Allow it only if it leave'
-   write a new file                 ran                 'File created successfully at: /tmp/tmp3rkueeq8/project/NEW.md (file state is current in your context — no need'
+   write a new file                 ran                 'File created successfully at: /tmp/tmplqife9_c/project/NEW.md (file state is current in your context — no need'
    delete a dependency directory    ran                 '(Bash completed with no output)'
-   delete the repository history    BLOCKED             'Claude requested permissions to edit /tmp/tmp3rkueeq8/project/.git which is a sensitive file.'
+   delete the repository history    BLOCKED             'Claude requested permissions to edit /tmp/tmplqife9_c/project/.git which is a sensitive file.'
 == permission mode bypassPermissions: rc 0, hook events 10, files {'notes.txt': True, 'NEW.md': True, 'node_modules': False, '.git': True}
-   list                             ran                 'total 4\ndrwxrwxr-x 4 ubuntu ubuntu 100 Oct 22 11:33 .\ndrwx------ 3 ubuntu ubuntu  60 Oct 22 11:33 ..\ndrwxrwxr-'
+   list                             ran                 '.git\nnode_modules\nnotes.txt'
    delete a file that existed       BLOCKED     (gate)  'PreToolUse:Bash hook error: Patton gate: this changes notes.txt, which existed when the session started. The s'
    run an unreadable command        BLOCKED     (gate)  'PreToolUse:Bash hook error: Patton gate: this command cannot be checked (unknown command: python3). Rewrite it'
-   write a new file                 ran                 'File created successfully at: /tmp/tmp677ovgvh/project/NEW.md (file state is current in your context — no need'
+   write a new file                 ran                 'File created successfully at: /tmp/tmpegn46kot/project/NEW.md (file state is current in your context — no need'
    delete a dependency directory    ran                 '(Bash completed with no output)'
    delete the repository history    BLOCKED     (gate)  'PreToolUse:Bash hook error: Patton gate: this changes .git/HEAD, which existed when the session started. The s'
 all checks passed
@@ -75,16 +77,34 @@ all checks passed
 === the approval prompt, as a person sees it (interactive Claude Code in tmux)
 == answered no: prompt shown True, gate reason on screen True, notes.txt kept True, mission finished False
 == answered yes: prompt shown True, gate reason on screen True, notes.txt kept False, mission finished True
+== an unreadable command twice: questions 1, gate reason on screen True, mission finished True
+== the same command, allowed by Bash(python3 -c:*) in the user's settings: questions 1, gate reason on screen True, mission finished True
 all checks passed
 
-=== what the gate recorded
-installed at /home/ubuntu/.claude/plugins/cache/patton-protocol/patton-gate/0.1.0, data in /home/ubuntu/.claude/plugins/data/patton-gate-patton-protocol
-Patton gate 0.1.0, session 3a55863d-d5e6-455e-95ec-fcb71c0dcad9
-11:36:39  asked     Bash: rm notes.txt
-11:36:39  approved  Bash: notes.txt
+=== what the gate recorded, with the README's command as written
+Patton gate 0.1.1, session 1886f64d-83f3-4bac-9dcf-652ce6f9ec03
+13:27:10  asked     Bash: python3 -c 'print(6 * 7)'
+13:27:10  approved  Bash: Bash
+13:27:10  allow     Bash: python3 -c 'print(6 * 7)'
 
-=== uninstall, and check the hooks are gone
+=== disable, then enable, from inside a project as a user would
+✔ Successfully disabled plugin: patton-gate (scope: user)
+after disable: no hook ran, as expected
+✔ Successfully enabled plugin: patton-gate (scope: user)
+after enable: the gate runs again
+
+=== uninstall with --keep-data, and check the hooks are gone and the ledgers stay
 ✔ Successfully uninstalled plugin: patton-gate (scope: user)
 No plugins installed. Use `claude plugin install` to install a plugin.
 after uninstall: no hook ran, as expected
+ledgers kept: 8 session(s) in /home/ubuntu/.claude/plugins/data/patton-gate-patton-protocol
+✔ Successfully removed marketplace: patton-protocol
+Configured marketplaces:
+
+  ❯ anthropic-plugin-directory
+    Source: Built in (Anthropic Directory)
+
+  ❯ claude-plugins-official
+    Source: GitHub (anthropics/claude-plugins-official)
+
 ALL VM CHECKS PASSED

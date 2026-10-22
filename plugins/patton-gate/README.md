@@ -134,5 +134,6 @@ against both. It changes three things for daily use: commands it cannot read are
 when nothing protected is at stake, and the session's file list skips build and dependency directories. Those
 changes are new behaviour that the study did not measure.
 
-Each Ubuntu LTS install is checked in a fresh VM by `tests/vm/plugin-vm.sh`; the transcripts are in
-[`docs/records/gate-plugin-vm/`](../../docs/records/gate-plugin-vm/).
+Each Ubuntu LTS install is checked in a fresh VM by `tests/vm/plugin-vm.sh`, installing from GitHub as a user
+would; the transcripts are in [`docs/records/gate-plugin-vm/`](../../docs/records/gate-plugin-vm/), with `host.log`
+for the development machine.
