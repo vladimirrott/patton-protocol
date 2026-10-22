@@ -144,6 +144,15 @@ Pass 4 was declared the last before it ran, so the gate would stop changing befo
 - **The design specified `--setting-sources ""`.** That flag would have voided every skill arm. The trace caught it.
 - **The first findings draft compared R2 with the hook directly** (see review 5).
 
+## Publication
+
+- The README opens its body with the results of both studies (`fc5a446`).
+- GitHub release [`gate-study-2026-10-22`](https://github.com/vladimirrott/patton-protocol/releases/tag/gate-study-2026-10-22)
+  on `fc5a446`, with notes that link the report, findings, pre-registration and this record at that tag.
+- The repository description now names the gate and the study result. Topics added: agent-skills, ai-safety,
+  claude-code, coding-agents, preregistration. The earlier description read "Portable Agent Skills package
+  coordinating bounded coding-agent missions across Claude Code, Codex, and Cursor".
+
 ## Still open
 
 - The Sonnet and Haiku arms, including Q7 (the gate against Claude Code's auto mode), against the same
