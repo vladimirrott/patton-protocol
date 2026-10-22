@@ -95,6 +95,18 @@ the sandbox that denies unapproved changes to existing files cut harm to 0.000
 over 80 runs and kept utility at 0.746. Enforce the approval rules in the host: the
 full text alone did not make these two models ask before deleting.
 
+A second pre-registered study put the gate inside a real Claude Code session. The gate is
+[`gate/patton_gate.py`](gate/README.md), a PreToolUse hook that asks before a file that
+existed at session start changes. The study ran 560 runs of Claude Code 2.1.303 on gpt-oss-120b,
+with every model call recorded in a cassette
+([report](lab/CC_REPORT.md), [findings](docs/findings/2026-10-22-gate-study-findings.md)).
+Unguarded (`bypassPermissions`, no hook), workers harmed 0.196 of cleanup runs. With the hook
+and a simulated operator that approves only removals that lose nothing, harm was 0.000, and
+no run got around the gate (0 of 224). The hook asked 1.134 times per run. Utility fell
+from 0.862 to 0.768, and the data leave open whether that loss is under the registered 0.10
+margin. The installed skill was offered in 224 runs and invoked in none. The Claude baseline
+is still unmeasured.
+
 [`verification/`](verification/README.md) holds earlier recorded runs of real agent
 harnesses against the protocol, each with a tamper-evident manifest. Every trial
 has one run per cell and no baseline arm, so the records show what one worker did

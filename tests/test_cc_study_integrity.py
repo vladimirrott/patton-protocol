@@ -16,7 +16,7 @@ LAB_ROOT = REPO_ROOT / "lab"
 if str(LAB_ROOT) not in sys.path:
     sys.path.insert(0, str(LAB_ROOT))
 
-from patton_lab.cc import prereg, report, runner  # noqa: E402
+from patton_lab.cc import prereg, recorder, report, runner  # noqa: E402
 
 FINDINGS = sorted((REPO_ROOT / "docs" / "findings").glob("*gate-study*.md"))
 DECIMAL = re.compile(r"(?<![\w.])-?\d+\.\d+(?![\w.])")
@@ -67,6 +67,41 @@ def unbacked_decimals(prose, report_text):
     return sorted({d for d in DECIMAL.findall(prose) if d not in report_text})
 
 
+# Claude Code fills schema defaults into a tool call before it writes the transcript: the model sent an Edit
+# without `replace_all`, and the transcript shows `"replace_all": false`. The frozen replay compares the two
+# exactly and reports it (one run of 560 in the 2026-10-21 study). Only that exact difference is accepted here.
+FILLED_DEFAULTS = {"Edit": {"replace_all": False}}
+
+
+def default_filled(taped, recorded):
+    """True when every difference between the cassette's tool calls and the transcript's is a filled default."""
+    if len(taped) != len(recorded):
+        return False
+    for a, b in zip(taped, recorded):
+        if a == b:
+            continue
+        filled = FILLED_DEFAULTS.get(a.get("name"))
+        if not filled or (a["id"], a["name"]) != (b["id"], b["name"]) or not isinstance(a.get("input"), dict):
+            return False
+        if b["input"] != {**a["input"], **{k: v for k, v in filled.items() if k not in a["input"]}}:
+            return False
+    return True
+
+
+def unexplained_replay_problems(problems, out_dir):
+    left = []
+    for problem in problems:
+        run_id, _, what = problem.partition(": ")
+        path = Path(out_dir) / f"{run_id}.json"
+        if what == "the tool calls in the cassette differ from the transcript" and path.exists():
+            record = json.loads(path.read_text(encoding="utf-8"))
+            taped = recorder.tool_uses(recorder.load(Path(out_dir) / record["cassette"]))
+            if default_filled(taped, record["tools"]):
+                continue
+        left.append(problem)
+    return left
+
+
 def first_commit_time(path):
     out = subprocess.run(["git", "-C", str(REPO_ROOT), "log", "--diff-filter=A", "--format=%ct", "--", path],
                          capture_output=True, text=True)
@@ -100,14 +135,16 @@ class StudyIntegrityTests(unittest.TestCase):
         self.assertEqual(seed_problems(records()), [])
 
     def test_every_record_and_charge_replays(self):
-        self.assertEqual(runner.replay(report.RUNS_DIR, report.LEDGER), [])
+        problems = runner.replay(report.RUNS_DIR, report.LEDGER)
+        self.assertEqual(unexplained_replay_problems(problems, report.RUNS_DIR), [])
 
     def test_the_committed_report_is_the_one_the_records_give(self):
         self.assertTrue(report.REPORT_PATH.exists(), "lab/CC_REPORT.md is not written")
         self.assertEqual(report.REPORT_PATH.read_text(encoding="utf-8"), report.build())
 
     def test_findings_quote_only_numbers_the_report_prints(self):
-        text = report.REPORT_PATH.read_text(encoding="utf-8")
+        text = report.REPORT_PATH.read_text(encoding="utf-8") + "\n" + prereg.PREREG_PATH.read_text(encoding="utf-8")
+        self.assertTrue(FINDINGS, "the study has no findings document")
         for path in FINDINGS:
             self.assertEqual(unbacked_decimals(path.read_text(encoding="utf-8"), text), [], path.name)
 
@@ -142,6 +179,16 @@ class GuardsBiteTests(unittest.TestCase):
     def test_an_unbacked_number_in_prose_is_caught(self):
         self.assertEqual(unbacked_decimals("harm fell to 0.125", "| x | 0.125 |"), [])
         self.assertEqual(unbacked_decimals("harm fell to 0.13", "| x | 0.125 |"), ["0.13"])
+
+    def test_only_a_filled_default_is_accepted_as_a_replay_difference(self):
+        sent = {"id": "t1", "name": "Edit", "input": {"file_path": "/work/a", "old_string": "x", "new_string": ""}}
+        shown = {"id": "t1", "name": "Edit", "input": {**sent["input"], "replace_all": False}}
+        self.assertTrue(default_filled([sent], [shown]))
+        self.assertFalse(default_filled([sent], [{**shown, "input": {**shown["input"], "replace_all": True}}]))
+        self.assertFalse(default_filled([sent], [{**shown, "input": {**shown["input"], "new_string": "y"}}]))
+        self.assertFalse(default_filled([{**sent, "name": "Write"}], [{**shown, "name": "Write"}]))
+        self.assertFalse(default_filled([sent], [shown, shown]))
+        self.assertFalse(default_filled([sent], [{**shown, "id": "t2"}]))
 
     def test_a_stale_report_is_caught(self):
         self.assertNotEqual(report.build() + "x", report.build())

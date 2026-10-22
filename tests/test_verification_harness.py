@@ -175,7 +175,9 @@ def privacy_offenders(roots):
             if EMPLOYER_TOKEN in text.lower():
                 offenders.append(f"{name}: employer name")
             for match in HOME_PATH.finditer(text):
-                if match.group(1) != "user":
+                # "user" is the container's home; "worker" is the pseudonym the gate study's scrub writes in place of
+                # the host user name (podman's keep-id puts host paths into /proc/self/mountinfo and passwd).
+                if match.group(1) not in ("user", "worker"):
                     offenders.append(f"{name}: {match.group(0)}")
             for match in KEY_SHAPES.finditer(text):
                 offenders.append(f"{name}: key-shaped string {match.group(0)[:8]}...")

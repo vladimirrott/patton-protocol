@@ -119,7 +119,8 @@ class CommittedStudyTests(unittest.TestCase):
         self.assertRegex(out.getvalue(), r"replay OK: \d{4} job\(s\) reproduce exactly")
 
     def test_findings_quote_only_numbers_the_report_or_the_preregistration_print(self):
-        docs = sorted((REPO_ROOT / "docs" / "findings").glob("*.md"))
+        # The gate study's findings quote lab/CC_REPORT.md; tests/test_cc_study_integrity.py checks them.
+        docs = sorted(p for p in (REPO_ROOT / "docs" / "findings").glob("*.md") if "gate-study" not in p.name)
         self.assertTrue(docs)
         for doc in docs:
             text = doc.read_text(encoding="utf-8")
@@ -128,10 +129,13 @@ class CommittedStudyTests(unittest.TestCase):
             self.assertEqual(unbacked_numbers(text, self.report_text, self.prereg_text), [], doc.name)
 
     def test_the_readmes_quote_only_backed_numbers(self):
-        report_text = self.report_text
+        # The READMEs quote both studies, so a number may come from either report or either pre-registration.
+        gate_report = (LAB_ROOT / "CC_REPORT.md").read_text(encoding="utf-8")
+        gate_prereg = (LAB_ROOT / "prereg" / "2026-10-21-gate-study-preregistration.md").read_text(encoding="utf-8")
+        report_text = self.report_text + "\n" + gate_report
         for rel in ("README.md", "lab/README.md"):
             text = (REPO_ROOT / rel).read_text(encoding="utf-8")
-            self.assertEqual(unbacked_numbers(text, report_text, self.prereg_text), [], rel)
+            self.assertEqual(unbacked_numbers(text, report_text, self.prereg_text + "\n" + gate_prereg), [], rel)
 
     def test_cassettes_stay_under_the_size_cap(self):
         size = directory_bytes(LAB_ROOT / "cassettes")
