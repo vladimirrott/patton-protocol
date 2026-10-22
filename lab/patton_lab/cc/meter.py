@@ -14,6 +14,8 @@ from .. import cost
 EPSILON = 1e-9
 GROQ_PRICE = cost.price("groq", "openai/gpt-oss-120b")
 SUBSCRIPTION_RUN_CAP = 500
+CAP_USD = 40.0  # every dollar since 2026-10-12: the lab ledger, the pilot and this study
+ABORT_USD = 38.0  # no attempt starts that could carry the total past this line
 
 
 class CapExceeded(Exception):
@@ -21,8 +23,8 @@ class CapExceeded(Exception):
 
 
 class Meter:
-    def __init__(self, path: Path | str, lab_ledger: Path | str, pilot_dirs: list[Path], cap: float = 15.0,
-                 abort: float = 14.0) -> None:
+    def __init__(self, path: Path | str, lab_ledger: Path | str, pilot_dirs: list[Path], cap: float = CAP_USD,
+                 abort: float = ABORT_USD) -> None:
         if abort > cap:
             raise ValueError(f"abort line {abort} is above the cap {cap}")
         self.path, self.lab_ledger, self.pilot_dirs = Path(path), Path(lab_ledger), [Path(d) for d in pilot_dirs]
@@ -50,17 +52,26 @@ class Meter:
     def total(self) -> float:
         return self.prior() + self.spent()
 
-    def charge(self, record_id: str, input_tokens: int, output_tokens: int, price: tuple[float, float] = GROQ_PRICE) -> float:
-        if input_tokens < 0 or output_tokens < 0:
-            raise ValueError("a charge cannot be negative")
+    def add(self, record_id: str, amount: float, tokens_in: int = 0, tokens_out: int = 0) -> float:
+        """Append one charge. An id is charged at most once."""
         if self.path.exists() and any(json.loads(line)["id"] == record_id
                                       for line in self.path.read_text(encoding="utf-8").splitlines() if line.strip()):
             raise ValueError(f"{record_id} was already charged")
-        amount = cost.usd(input_tokens, output_tokens, price)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({"id": record_id, "usd": amount, "in": input_tokens, "out": output_tokens}) + "\n")
+            handle.write(json.dumps({"id": record_id, "usd": amount, "in": tokens_in, "out": tokens_out}) + "\n")
         return amount
+
+    def charge(self, record_id: str, input_tokens: int, output_tokens: int, price: tuple[float, float] = GROQ_PRICE) -> float:
+        if input_tokens < 0 or output_tokens < 0:
+            raise ValueError("a charge cannot be negative")
+        return self.add(record_id, cost.usd(input_tokens, output_tokens, price), input_tokens, output_tokens)
+
+    def charge_flat(self, record_id: str, amount: float) -> float:
+        """A dollar amount for an attempt whose usage is unknown, such as a worker that died before it reported."""
+        if amount < 0:
+            raise ValueError("a charge cannot be negative")
+        return self.add(record_id, amount)
 
     def check(self, bound: float = 0.0) -> None:
         total = self.total()
@@ -69,7 +80,9 @@ class Meter:
 
 
 def live_runs(out_dir: Path, backend: str) -> int:
-    return sum(1 for p in Path(out_dir).glob("*.json") if json.loads(p.read_text(encoding="utf-8")).get("backend") == backend)
+    """Stored runs plus kept failed attempts: a retry spends the subscription as much as a run does."""
+    paths = list(Path(out_dir).glob("*.json")) + list((Path(out_dir) / "attempts").glob("*.json"))
+    return sum(1 for p in paths if json.loads(p.read_text(encoding="utf-8")).get("backend") == backend)
 
 
 def check_run_cap(out_dir: Path, backend: str, limit: int = SUBSCRIPTION_RUN_CAP) -> None:

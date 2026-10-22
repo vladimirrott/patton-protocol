@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a command while a local LiteLLM proxy forwards Anthropic-format calls to Groq.
 #
-#   lab/pilot/with_groq_proxy.sh python3 claude_baseline.py --backend groq ...
+#   lab/cc/with_groq_proxy.sh python3 -m patton_lab.cc.runner smoke --arms O-R1 --fixtures h01 --out cc_smoke
 #
 # Groq refuses Mullvad exit addresses, so this disconnects Mullvad first and reconnects on exit,
 # including on failure and Ctrl-C (standing approval for Groq work). The key is read from a file into

@@ -5,8 +5,13 @@ model_list:
     litellm_params:
       model: groq/openai/gpt-oss-120b
       api_key: os.environ/GROQ_API_KEY
+# Retries stay off: LiteLLM's router retries twice by default, and a retry the recorder cannot see is spend the
+# meter cannot count. Claude Code retries on its own, through the recorder.
 litellm_settings:
   drop_params: true
   telemetry: false
+  num_retries: 0
   callbacks: strip_thinking.proxy_handler_instance
+router_settings:
+  num_retries: 0
 general_settings: {}

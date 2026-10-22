@@ -47,6 +47,15 @@ class MeterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.charge("run-1", 10, 10, PRICE)
 
+    def test_a_flat_charge_adds_dollars_directly_once(self):
+        m = self.meter()
+        m.charge_flat("run-1#flat0", 0.02)
+        self.assertAlmostEqual(m.total(), 5.1 + 0.02, places=6)
+        with self.assertRaises(ValueError):
+            m.charge_flat("run-1#flat0", 0.02)
+        with self.assertRaises(ValueError):
+            m.charge_flat("run-1#flat1", -0.01)
+
     def test_a_negative_charge_is_refused(self):
         with self.assertRaises(ValueError):
             self.meter().charge("run-1", -1, 0, PRICE)
@@ -68,6 +77,12 @@ class MeterTests(unittest.TestCase):
         (self.dir / "spend.json").write_text("{broken")
         with self.assertRaises(ValueError):
             self.meter().prior()
+
+    def test_the_budget_is_forty_dollars_in_all_with_the_abort_line_at_thirty_eight(self):
+        # $40 covers every dollar since 2026-10-12: the lab ledger, the pilot and this study.
+        self.assertEqual((meter.CAP_USD, meter.ABORT_USD), (40.0, 38.0))
+        default = meter.Meter(self.dir / "d.jsonl", self.dir / "spend.json", [])
+        self.assertEqual((default.cap, default.abort), (40.0, 38.0))
 
     def test_the_abort_line_cannot_pass_the_cap(self):
         with self.assertRaises(ValueError):

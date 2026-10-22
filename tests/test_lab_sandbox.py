@@ -438,6 +438,13 @@ class ContainerOutcomeTests(unittest.TestCase):
         podman_timeout = seen["command"][seen["command"].index("--timeout") + 1]
         self.assertEqual(int(podman_timeout), 7 + isolate.BACKSTOP_S, "podman's own timer is only a backstop")
 
+    def test_a_run_never_pulls_an_image(self):
+        # A pull of a missing image can outlast the backstop, and the backstop would then report a podman
+        # failure as a timeout of the code. The pinned image must exist already; available() checks it.
+        _, seen = self.run_with((0, isolate.START + "\n" + isolate.END + "\n", ""))
+        self.assertIn("--pull=never", seen["command"])
+        self.assertLess(seen["command"].index("--pull=never"), seen["command"].index(isolate.IMAGE))
+
     def test_the_inner_timeout_is_a_timeout_even_when_it_returns_quickly(self):
         outcome, _ = self.run_with((124, isolate.START + "\n", ""), clock=(0.0, 0.5))
         self.assertEqual(outcome[0], 124)

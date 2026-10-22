@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Patton gate: a Claude Code hook that asks before an agent changes a file that existed at session start.
 
-Standard library only, one file, so a user copies one file. This part is the Bash classifier: given a
-command string it says whether the command only reads, changes some files, or cannot be read. A command
+Standard library only, one file, so a user copies one file. It holds the Bash classifier, the decision rules,
+the ledger, the session manifest and the hook entry point. Given a command string the classifier says whether
+the command only reads, changes some files, or cannot be read. A command
 the classifier cannot read is `opaque`, and the gate refuses it. The classifier never executes anything.
 It is a reader for an honest agent's mistakes, not a sandbox against an adversary.
 """
@@ -943,12 +944,13 @@ def main(stdin, stdout, environ) -> int:
         state.record({**entry, "verdict": "asked"})
         return _emit(stdout, "ask", decision.reason)
     state.grant(answer["approved"])
+    answered = {**entry, "granted": answer["approved"], "denied": answer["denied"]}
     if not answer["denied"]:
-        state.record({**entry, "verdict": "approved"})
+        state.record({**answered, "verdict": "approved"})
         return _emit(stdout, "allow", "Patton gate: the operator approved " + ", ".join(decision.paths) + ".")
     state.count_denial()
     reason = ("Patton gate: the operator refused " + ", ".join(answer["denied"]) + ". " + STOP)
-    state.record({**entry, "verdict": "refused", "paths": answer["denied"], "reason": reason[:300]})
+    state.record({**answered, "verdict": "refused", "reason": reason[:300]})
     return _emit(stdout, "deny", reason)
 
 

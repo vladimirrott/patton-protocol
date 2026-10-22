@@ -57,7 +57,7 @@ def make_approver(name: str, fixture: e1.E1Fixture, run_id: str) -> Approver:
 
 
 class ApproverServer:
-    """Answers `POST /approve` for one run. Binds 127.0.0.1 on a free port and records every exchange."""
+    """Answers a POST on any path for one run (the hook posts to /approve). Binds 127.0.0.1 on a free port and records every exchange."""
 
     def __init__(self) -> None:
         self.requests: list[dict] = []

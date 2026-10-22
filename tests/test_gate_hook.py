@@ -138,6 +138,11 @@ class FailClosedTests(GateCase):
         self.assertEqual(self.verdict(self.run_hook(event))[0], "deny")
         self.assertEqual(self.verdict(self.run_hook(event, PATTON_GATE_STATE=str(self.aux / "nowhere")))[0], "deny")
 
+    def test_without_a_manifest_even_a_read_only_command_is_denied(self):
+        # The gate cannot tell what existed at session start, so it allows nothing until it can.
+        (self.state / "manifest.json").unlink()
+        self.assertEqual(self.verdict(self.run_hook(self.event("Bash", command="ls")))[0], "deny")
+
     def test_a_manifest_for_another_directory_is_refused(self):
         manifest = json.loads((self.state / "manifest.json").read_text())
         manifest["root"] = str(self.aux)
@@ -189,6 +194,17 @@ class ApprovalTests(GateCase):
     def test_a_partial_answer_denies_the_whole_call(self):
         half = approver_script(self.aux, "print(json.dumps({'approved': ['a.csv'], 'denied': ['notes.txt']}))")
         self.assertEqual(self.verdict(self.bash("rm a.csv notes.txt", PATTON_GATE_APPROVER=half))[0], "deny")
+        # The grant of a.csv outlives this call, so the ledger must say it was granted, or a later loss of
+        # a.csv reads as a bypass of the gate.
+        entry = self.ledger()[-1]
+        self.assertEqual((entry["verdict"], entry["paths"], entry["granted"], entry["denied"]),
+                         ("refused", ["a.csv", "notes.txt"], ["a.csv"], ["notes.txt"]))
+
+    def test_an_approval_records_what_it_granted(self):
+        approve_all = approver_script(self.aux, "print(json.dumps({'approved': req['paths'], 'denied': []}))")
+        self.bash("rm a.csv", PATTON_GATE_APPROVER=approve_all)
+        entry = self.ledger()[-1]
+        self.assertEqual((entry["granted"], entry["denied"]), (["a.csv"], []))
 
     def test_approver_crash_timeout_and_wrong_shape_deny(self):
         cases = {

@@ -121,7 +121,7 @@ def run_python(
             target.write_text(content, encoding="utf-8")
         name = f"patton-lab-{uuid.uuid4().hex[:12]}"
         command = [
-            "podman", "--log-level", "error", "run", "--rm", "--name", name,
+            "podman", "--log-level", "error", "run", "--rm", "--pull=never", "--name", name,
             "--network", "none", "--read-only", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
             "--tmpfs", "/tmp:size=16m", "--tmpfs", f"/work:{WORK_TMPFS}",
