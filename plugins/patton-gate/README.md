@@ -148,6 +148,7 @@ and a field beside the preset overrides it. `null` turns one limit off.
 | Field | `patton` | The gate refuses |
 | --- | --- | --- |
 | `missions.max_workers` | 4 | a dispatch while that many subagents run or are starting (a dispatch that has not started a subagent within 60 s stops counting) |
+| `missions.max_dispatches` | 12 | a dispatch past that many in one session, however the mission is worded (4 workers, each dispatched once and retried twice) |
 | `missions.max_commands` | 20 | the subagent's shell commands and file edits past the budget |
 | `missions.max_output_tokens` | off | the subagent's next command once its transcript holds that many output tokens |
 | `missions.timeout_minutes` | 15 | the subagent's next command after that many minutes |
@@ -162,8 +163,9 @@ opens again when its owner stops, so a later subagent can still overwrite the ea
 read it. On
 Codex the limits are not built.
 
-These limits pass `tests/tools/gate_missions_e2e.py`, a scripted run on real Claude Code for $0. No study has
-measured whether they help.
+These limits pass `tests/tools/gate_missions_e2e.py`, a scripted run on real Claude Code for $0, and ran in a 16-run
+pilot on gpt-oss-120b ([record](../../docs/records/2026-10-23-missions-pilot.md)). No study has measured whether
+they help.
 
 ## Undo a wrong approval
 

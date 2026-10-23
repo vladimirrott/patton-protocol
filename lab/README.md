@@ -71,6 +71,19 @@ python3 -m patton_lab.cc.runner trace --arms O-R1 --fixtures h05   # free end-to
 container, Claude Code, the gate and the approver against a scripted model. The numbers are in `CC_REPORT.md`
 and the findings document, not here.
 
+## The subagent-limit pilot
+
+A 16-run pilot of the patton-gate plugin's subagent limits on gpt-oss-120b, with no pre-registration and no verdict
+([record](../docs/records/2026-10-23-missions-pilot.md)). Records and cassettes are in `missions_pilot/`, the ledger
+in `missions_spend.jsonl`, the harness in `patton_lab/missions/`.
+
+```
+cd lab
+python3 -m patton_lab.missions.runner trace      # both arms against a scripted model, for $0
+python3 -m patton_lab.missions.runner plan       # the runs and the spend bound
+python3 -m patton_lab.missions.report --check    # the record quotes the tables the records give
+```
+
 ## Post hoc analyses
 
 `patton_lab/posthoc/` holds analyses chosen after a study's results were seen; they carry no verdict.

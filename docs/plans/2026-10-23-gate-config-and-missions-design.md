@@ -62,6 +62,7 @@ and every ignored field. `config --check FILE` validates a file without a sessio
   "missions": {
     "preset": "off",
     "max_workers": null,
+    "max_dispatches": null,
     "max_commands": null,
     "max_output_tokens": null,
     "timeout_minutes": null,
@@ -80,7 +81,7 @@ and every ignored field. `config --check FILE` validates a file without a sessio
 - `files.ignore` and `files.always_protect`: glob patterns relative to the project (`**` crosses directories).
   `ignore` removes files from protection. `always_protect` protects matching paths that were created later too.
 - `files.max_refusals`: after this many refusals in a session, the gate tells the worker to stop and report.
-- `missions.preset`: `off`, or `patton`, which sets the protocol's numbers: 4 workers, 20 commands, 15 minutes, 2
+- `missions.preset`: `off`, or `patton`, which sets the protocol's numbers: 4 workers, 12 dispatches, 20 commands, 15 minutes, 2
   retries, exclusive paths. Any field set beside the preset overrides it. `null` turns a limit off.
 
 ## Mission limits
@@ -93,6 +94,7 @@ worker what to do.
 | Limit | Counted as | Refused call |
 | --- | --- | --- |
 | `max_workers` | subagents started and not stopped, plus dispatches allowed in the last 60 s that have not started yet | the `Agent` call that would exceed it |
+| `max_dispatches` | dispatches allowed in the session, added after a pilot run re-dispatched one change 19 times under new wordings | the dispatch past the limit |
 | `max_commands` | the subagent's Bash, Write, Edit, MultiEdit and NotebookEdit calls | the next such call; the reason says to report |
 | `max_output_tokens` | output tokens in the subagent's transcript, each message counted once | the next command |
 | `timeout_minutes` | wall clock since `SubagentStart` | the next command |

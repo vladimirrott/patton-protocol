@@ -22,6 +22,8 @@ REPO = Path(__file__).resolve().parents[2]
 TARGET = REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py"
 TESTS = ["test_gate_config", "test_gate_missions", "test_gate_originals", "test_gate_codex", "test_gate_plugin"]
 MUTANTS = [
+ ("dispatch total off by one", 'if missions["max_dispatches"] is not None and total >= missions["max_dispatches"]:', 'if missions["max_dispatches"] is not None and total > missions["max_dispatches"]:'),
+ ("dispatch total ignored", 'if missions["max_dispatches"] is not None and total >= missions["max_dispatches"]:', 'if False:'),
  ("ledger drops changed paths", '    if decision.changed:\n        entry["changed"] = list(decision.changed)', '    pass'),
  ("choice tighten", "return CHOICES[key].index(new) >= CHOICES[key].index(current)", "return True"),
  ("bool tighten", "return bool(new) or not current", "return True"),

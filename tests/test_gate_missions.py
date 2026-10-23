@@ -202,6 +202,32 @@ class RetryTests(MissionCase):
         self.assertIsNone(self.decision(self.dispatch("d3", "b")))
 
 
+class DispatchTotalTests(MissionCase):
+    def test_a_session_dispatches_at_most_max_dispatches_subagents_however_they_are_worded(self):
+        self.limits(max_dispatches=3)
+        for i, words in enumerate(("rename hello", "rename hello to greet", "Rename hello in pkg_a")):
+            self.assertIsNone(self.decision(self.dispatch(f"d{i}", words)))
+            self.launched(f"d{i}", f"a{i}")
+            self.stopped(f"a{i}")
+        result = self.dispatch("d9", "rename the hello function")
+        self.assertEqual(self.decision(result), "deny")
+        self.assertIn("missions.max_dispatches", self.reason(result))
+
+    def test_a_refused_dispatch_does_not_count_toward_the_total(self):
+        self.limits(max_dispatches=2, max_workers=1)
+        self.dispatch("d1", "a")
+        self.assertEqual(self.decision(self.dispatch("d2", "b")), "deny")  # the worker limit
+        self.event({"hook_event_name": "PostToolUseFailure", "tool_name": "Agent", "tool_use_id": "d1",
+                    "tool_input": {}, "error": "x"})
+        self.assertIsNone(self.decision(self.dispatch("d3", "b")))
+
+    def test_the_preset_allows_workers_times_one_plus_retries(self):
+        self.user_config({"missions": {"preset": "patton"}})
+        config, _s, _i = gate.load_config(str(self.root), {**self.env})
+        m = config["missions"]
+        self.assertEqual(m["max_dispatches"], m["max_workers"] * (1 + m["max_retries"]))
+
+
 class ExclusivePathTests(MissionCase):
     def test_a_path_one_running_subagent_changed_is_closed_to_the_others(self):
         self.limits(exclusive_paths=True)

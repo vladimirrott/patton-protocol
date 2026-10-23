@@ -9,8 +9,9 @@
 
 `patton-gate` is a hook for Claude Code and Codex CLI. Before your coding agent changes, moves or deletes a file that
 existed when the session started, it asks you. When nothing like that is at stake it stays silent, so your own
-permission settings keep working. It can also hold subagents to limits you set: how many run at once, how many
-commands and tokens each gets, how long each runs, how often one mission is retried, and which files each one owns.
+permission settings keep working. It can also hold subagents to limits you set: how many run at once and in all, how
+many commands and tokens each gets, how long each runs, how often one mission is retried, and which files each one
+owns.
 
 ## What it does, in one run
 
@@ -100,6 +101,7 @@ with an error makes the gate refuse every call and name the file, rather than fa
 | Setting | `patton` preset | What the gate refuses |
 | --- | --- | --- |
 | `max_workers` | 4 | a dispatch while that many subagents run or are starting |
+| `max_dispatches` | 12 | a dispatch past that many in one session, however it is worded |
 | `max_commands` | 20 | a subagent's next shell command or file edit past its budget |
 | `max_output_tokens` | off | a subagent's next command once its transcript holds that many output tokens |
 | `timeout_minutes` | 15 | a subagent's next command after that long |
@@ -107,7 +109,9 @@ with an error makes the gate refuse every call and name the file, rather than fa
 | `exclusive_paths` | on | a change to a file another running subagent changed |
 
 Each refusal tells the agent what to do next, such as reporting what it did. These limits pass a scripted end-to-end
-run on real Claude Code; no study has measured whether they help. They are built and tested for Claude Code only;
+run on real Claude Code. A 16-run pilot on gpt-oss-120b ([record](docs/records/2026-10-23-missions-pilot.md)) saw
+no lost update in either arm, and two runs without limits that dispatched the same change 19 and 10 times under new
+wordings, which led to `max_dispatches`. It carries no verdict, and no study has measured whether the limits help. They are built and tested for Claude Code only;
 on Codex the gate enforces the file settings.
 
 ## Undo a wrong approval

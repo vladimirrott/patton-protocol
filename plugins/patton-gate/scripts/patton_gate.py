@@ -772,17 +772,19 @@ MAX_LISTED = 200_000  # past this every existing file counts as protected
 
 # ---- configuration --------------------------------------------------------------------------------------
 
-MISSION_LIMITS = ("max_workers", "max_commands", "max_output_tokens", "timeout_minutes", "max_retries")
-PRESETS = {"off": {"max_workers": None, "max_commands": None, "max_output_tokens": None, "timeout_minutes": None,
-                   "max_retries": None, "exclusive_paths": False},
-           "patton": {"max_workers": 4, "max_commands": 20, "timeout_minutes": 15, "max_retries": 2,
-                                 "exclusive_paths": True}}
+MISSION_LIMITS = ("max_workers", "max_dispatches", "max_commands", "max_output_tokens", "timeout_minutes",
+                  "max_retries")
+PRESETS = {"off": {"max_workers": None, "max_dispatches": None, "max_commands": None, "max_output_tokens": None,
+                   "timeout_minutes": None, "max_retries": None, "exclusive_paths": False},
+           # 12 = 4 workers, each dispatched once and retried at most twice
+           "patton": {"max_workers": 4, "max_dispatches": 12, "max_commands": 20, "timeout_minutes": 15,
+                      "max_retries": 2, "exclusive_paths": True}}
 DEFAULTS = {
     "files": {"protect": True, "on_change": "ask", "unreadable_commands": "ask", "trusted_commands": [],
               "ignore": [], "always_protect": [], "skip_dirs": sorted(SKIP_DIRS), "max_refusals": DENIAL_LIMIT,
               "keep_originals_mb": 200},
-    "missions": {"preset": "off", "max_workers": None, "max_commands": None, "max_output_tokens": None,
-                 "timeout_minutes": None, "max_retries": None, "exclusive_paths": False},
+    "missions": {"preset": "off", "max_workers": None, "max_dispatches": None, "max_commands": None,
+                 "max_output_tokens": None, "timeout_minutes": None, "max_retries": None, "exclusive_paths": False},
 }
 # Each choice field lists its values from loosest to strictest.
 CHOICES = {"files.on_change": ("ask", "deny"), "files.unreadable_commands": ("allow", "ask", "deny"),
@@ -1244,6 +1246,10 @@ def dispatch_decision(event: dict, state_dir: str, missions: dict) -> Decision:
         if retries is not None and tries > retries:
             return _refuse("max_retries", f"this mission was dispatched {tries} times, and the limit is 1 plus "
                            f"{retries} retries", "Report the mission blocked to the person instead of dispatching it again.")
+        total = sum(data["dispatches"].values())
+        if missions["max_dispatches"] is not None and total >= missions["max_dispatches"]:
+            return _refuse("max_dispatches", f"this session has dispatched {total} subagents, and the limit is "
+                           f"{missions['max_dispatches']}", "Finish the work yourself, or report what is left.")
         busy = len(data["reservations"]) + len(data["running"])
         if workers is not None and busy >= workers:
             return _refuse("max_workers", f"{busy} subagents are running or starting, and the limit is {workers}",

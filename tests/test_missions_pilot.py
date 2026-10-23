@@ -137,6 +137,48 @@ class BudgetTests(unittest.TestCase):
         self.assertGreater(charged["usd"], 0)
 
 
+class ReplayParityTests(unittest.TestCase):
+    def test_the_replay_refuses_what_the_plugin_refuses(self):
+        from test_gate_plugin import gate
+        from patton_lab.missions import report
+        missions = {**gate.DEFAULTS["missions"], **gate.PRESETS["patton"], "max_workers": None}
+        self.assertEqual((missions["max_retries"], missions["max_dispatches"]), (report.RETRIES, report.TOTAL))
+        sequences = [[("t", "a")] * 6, [("t", f"w{i}") for i in range(15)],
+                     [("t", "a")] * 4 + [("t", f"w{i}") for i in range(12)] + [("u", "a")] * 2]
+        for keys in sequences:
+            with self.subTest(n=len(keys)), tempfile.TemporaryDirectory() as state:
+                refused = {"max_retries": 0, "max_dispatches": 0}
+                for i, (kind, words) in enumerate(keys):
+                    event = {"tool_use_id": f"d{i}", "tool_input": {"subagent_type": kind, "description": words}}
+                    decision = gate.dispatch_decision(event, state, missions)
+                    if decision.verdict == "deny":
+                        refused[decision.note.split(":")[1]] += 1
+                self.assertEqual(report.would_refuse(keys), (refused["max_retries"], refused["max_dispatches"]))
+
+
+class RecordTests(unittest.TestCase):
+    def test_the_record_quotes_the_tables_the_records_give(self):
+        from patton_lab.missions import report
+        self.assertEqual(report.main(["--check"]), 0)
+
+    def test_the_records_prose_quotes_only_numbers_its_tables_print(self):
+        from test_lab_study_integrity import unbacked_numbers
+        from patton_lab.missions import report
+        doc = report.RECORD.read_text(encoding="utf-8")
+        prose = doc
+        for begin, end in report.MARKS.values():
+            prose = prose.split(begin)[0] + prose.split(end)[1]
+        sources = list(report.tables().values())
+        self.assertEqual(unbacked_numbers(prose, *sources), [])
+        self.assertNotEqual(unbacked_numbers(prose + " 0.555 and 9 of 11", *sources), [])
+
+    def test_every_stored_run_finished_and_the_ledger_matches_the_records(self):
+        from patton_lab.missions import report
+        rows = report.load()
+        self.assertTrue(all(r["finished"] for r in rows))
+        self.assertAlmostEqual(sum(r["usd"] for r in rows), runner._ledger_sum(runner.LEDGER), places=6)
+
+
 class PilotCommandTests(unittest.TestCase):
     def test_the_pilot_refuses_without_a_trace_of_this_tree(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(runner, "LAB", Path(tmp)), \
