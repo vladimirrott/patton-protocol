@@ -1,5 +1,5 @@
 {
-  "description": "Patton gate: asks before a tool call changes a file that existed when the session started.",
+  "description": "Patton gate: asks before a tool call changes a file that existed when the session started, and enforces the mission limits set in its configuration.",
   "hooks": {
     "SessionStart": [
       {
@@ -15,7 +15,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Agent|Task",
         "hooks": [
           {
             "type": "command",
@@ -28,13 +28,47 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Agent|Task",
         "hooks": [
           {
             "type": "command",
             "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || { printf '%s\\n' 'Patton gate: python3 3.10 or newer is not on PATH, so the gate cannot check this call and blocks it. Install python3 3.10 or newer, or turn the gate off with: claude plugin disable patton-gate@patton-protocol' >&2; exit 2; }; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\"",
             "timeout": 30,
             "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\""
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\""
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\""
           }
         ]
       }

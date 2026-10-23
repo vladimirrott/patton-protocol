@@ -109,8 +109,14 @@ The plugin's tests run with the rest of the suite and need nothing beyond Python
 `claude plugin validate` when `claude` is installed, and is skipped otherwise):
 
 ```sh
-python3 -m unittest tests.test_gate_plugin tests.test_gate_corpus
+python3 -m unittest tests.test_gate_plugin tests.test_gate_corpus tests.test_gate_config tests.test_gate_missions \
+    tests.test_gate_originals tests.test_gate_codex
 ```
+
+`test_gate_config` covers the settings layers and the rule that a project file only tightens, `test_gate_missions`
+the subagent limits, `test_gate_originals` the kept copies and `restore`, and `test_gate_codex` the Codex mode. The
+mission tests replay event shapes that `tests/tools/probe_subagent_hooks.py` recorded from real Claude Code; run the
+probe again (it is free) when a Claude Code release changes how subagents reach hooks.
 
 `tests/test_gate_corpus.py` runs the bypass corpus against the studied gate, and `tests/test_gate_plugin.py` runs
 it again against the plugin's copy, so a classifier change has to keep every case. A new way to reach a file belongs in the corpus first: add
@@ -127,11 +133,17 @@ Two scripts drive real Claude Code with the plugin against a scripted model, for
 home, so your own Claude Code settings stay untouched:
 
 ```sh
-python3 tests/tools/gate_plugin_e2e.py --claude claude --plugin-dir plugins/patton-gate   # three permission modes
-python3 tests/tools/gate_plugin_tui.py --claude claude --plugin-dir plugins/patton-gate   # the prompt a person sees
+python3 tests/tools/gate_plugin_e2e.py --claude claude --plugin-dir plugins/patton-gate     # three permission modes
+python3 tests/tools/gate_plugin_tui.py --claude claude --plugin-dir plugins/patton-gate     # the prompt a person sees
+python3 tests/tools/gate_missions_e2e.py --claude claude --plugin-dir plugins/patton-gate   # settings and subagent limits
 ```
 
-Both end with `all checks passed` or a list of failures. `--installed` tests the plugin installed for your user
+`gate_missions_e2e.py` plays the main agent and each subagent with `tests/tools/fake_agents.py`, which tells their
+conversations apart by the prompt. For Codex, `python3 tests/tools/gate_codex_e2e.py` installs the plugin from this
+checkout into a scratch `CODEX_HOME`, trusts its hooks, and drives real Codex with the lab's scripted model, for $0;
+it needs `codex` 0.159 or newer on `PATH`, and `--source vladimirrott/patton-protocol` tests the published copy.
+
+All of them end with `all checks passed` or a list of failures. `--installed` tests the plugin installed for your user
 instead; it uses your real home and marks the scratch project as trusted in `~/.claude.json`, so the VM script uses
 it and you need not. To read what the gate recorded in your own `--plugin-dir` sessions, run
 `python3 plugins/patton-gate/scripts/patton_gate.py log`.
@@ -160,8 +172,14 @@ commit it when the run tested what you are shipping, and restore it otherwise. Q
 script does): Claude Code needs SSE4.2.
 
 To release a new version, change `VERSION` in `plugins/patton-gate/scripts/patton_gate.py`, `version` in
-`plugins/patton-gate/.claude-plugin/plugin.json`, and the plugin's `version` in `.claude-plugin/marketplace.json`
-together; a test fails when they differ.
+`plugins/patton-gate/.claude-plugin/plugin.json` and `plugins/patton-gate/.codex-plugin/plugin.json`, and the
+plugin's `version` in `.claude-plugin/marketplace.json` together; a test fails when they differ. The Codex
+marketplace, `.agents/plugins/marketplace.json`, names the same plugin directory and carries no version.
+
+Every guard in the gate should have a test that fails when the guard is removed. `python3 tests/tools/mutate_plugin.py`
+applies one mutant at a time to the plugin (a guard deleted, a comparison flipped), runs the plugin's tests, and
+restores the file from a copy, checking its hash; every mutant must end KILLED. Add a mutant when you add a guard.
+`tests/tools/mutate_gate.py` does the same for the studied gate's classifier against the bypass corpus.
 
 ## Opening a pull request
 

@@ -1,6 +1,6 @@
 # Design: the Patton gate as a Claude Code plugin
 
-Date 2026-10-22. Status: shipped; 0.1.1 is current. The study ([findings](../findings/2026-10-22-gate-study-findings.md)) measured
+Date 2026-10-22. Status: shipped as 0.1.1; 0.2.0 adds settings, subagent limits, kept copies and Codex ([design](2026-10-23-gate-config-and-missions-design.md)). The study ([findings](../findings/2026-10-22-gate-study-findings.md)) measured
 `gate/patton_gate.py` on cleanup missions in a headless harness. This design turns that gate into something a
 person installs with one command and keeps on in daily work.
 

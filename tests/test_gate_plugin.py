@@ -62,12 +62,21 @@ class PackagingTests(unittest.TestCase):
     def test_the_hooks_cover_every_tool_that_changes_files_and_name_a_script_that_exists(self):
         hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]
         for event in ("PreToolUse", "PostToolUse"):
-            self.assertEqual(hooks[event][0]["matcher"], "Bash|Write|Edit|MultiEdit|NotebookEdit", event)
+            self.assertEqual(hooks[event][0]["matcher"], "Bash|Write|Edit|MultiEdit|NotebookEdit|Agent|Task", event)
+        self.assertEqual(hooks["PostToolUseFailure"][0]["matcher"], "Agent|Task")
         self.assertIn("SessionStart", hooks)
-        commands = {h["command"] for event in hooks.values() for group in event for h in group["hooks"]}
-        self.assertEqual(len(commands), 1, "one command for every event")
-        command = commands.pop()
+        guarded = {h["command"] for event in ("SessionStart", "PreToolUse", "PostToolUse")
+                   for group in hooks[event] for h in group["hooks"]}
+        self.assertEqual(len(guarded), 1, "one command for the events that decide")
+        command = guarded.pop()
         self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py", command)
+        # The events that only count missions must never block: on SubagentStop a block keeps the subagent running.
+        for event in ("SubagentStart", "SubagentStop", "PostToolUseFailure"):
+            for group in hooks[event]:
+                for h in group["hooks"]:
+                    self.assertNotIn("onFailure", h, event)
+                    self.assertIn("|| exit 0; exec python3", h["command"], event)
+                    self.assertIn("${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py", h["command"], event)
 
     def test_the_plugin_needs_nothing_outside_its_directory(self):
         for path in PLUGIN.rglob("*"):

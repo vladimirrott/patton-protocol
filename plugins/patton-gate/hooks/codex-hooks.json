@@ -1,0 +1,39 @@
+{
+  "description": "Patton gate for Codex: holds a change to a file that existed when the session started until the person types approve <id>.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\" --host codex",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || { printf '%s\\n' 'Patton gate: python3 3.10 or newer is not on PATH, so the gate cannot check this call and blocks it. Install python3 3.10 or newer, or remove the gate with: codex plugin remove patton-gate@patton-protocol' >&2; exit 2; }; exec python3 \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\" --host codex",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\" --host codex",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
