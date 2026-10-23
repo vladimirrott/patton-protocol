@@ -112,7 +112,7 @@ EOF
 
     log "copying the checkout (code only) into the VM"
     rsync -a --delete -e "ssh ${ssh_opts[*]}" \
-        --exclude .git --exclude 'lab/cc_*' --exclude lab/cassettes --exclude lab/pilot --exclude lab/results \
+        --exclude .git --exclude 'lab/cc_*' --exclude 'lab/codex_*' --exclude lab/cassettes --exclude lab/pilot --exclude lab/results \
         --exclude lab/logs --exclude verification --exclude docs --exclude __pycache__ \
         "$REPO/" ubuntu@127.0.0.1:patton-protocol/
 

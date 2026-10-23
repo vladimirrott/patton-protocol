@@ -46,6 +46,10 @@ recorded="$(python3 ~/.claude/plugins/cache/patton-protocol/patton-gate/*/script
 printf '%s\n' "$recorded"
 grep -q "^Patton gate .*, session " <<<"$recorded" || { echo "!! the README's log command shows no session"; exit 1; }
 
+step "settings and subagent limits, against the installed copy"
+installed="$(ls -d ~/.claude/plugins/cache/patton-protocol/patton-gate/*/ | tail -1)"
+python3 "$HOME/patton-protocol/tests/tools/gate_missions_e2e.py" --claude "$(command -v claude)" --plugin-dir "$installed"
+
 e2e() { python3 "$HOME/patton-protocol/tests/tools/gate_plugin_e2e.py" --claude "$(command -v claude)" --installed \
         --modes bypassPermissions > /tmp/e2e.txt 2>&1; }
 expect_no_gate() {
@@ -77,4 +81,25 @@ expect_no_gate "after uninstall"
     || { echo "!! --keep-data did not keep $data_dir"; exit 1; }
 claude plugin marketplace remove patton-protocol
 claude plugin marketplace list
+
+step "Codex CLI: install Node and Codex, then install, trust and drive the plugin as the README says"
+node_version=v22.20.0
+node_dir="$HOME/.local/node-$node_version"
+if [ ! -x "$node_dir/bin/node" ]; then
+    tarball="node-$node_version-linux-x64.tar.xz"
+    curl -fsSLo "/tmp/$tarball" "https://nodejs.org/dist/$node_version/$tarball"
+    curl -fsSLo /tmp/SHASUMS256.txt "https://nodejs.org/dist/$node_version/SHASUMS256.txt"
+    (cd /tmp && grep " $tarball\$" SHASUMS256.txt | sha256sum -c -) || { echo "!! the Node download does not match its checksum"; exit 1; }
+    mkdir -p "$node_dir" && tar -xJf "/tmp/$tarball" -C "$node_dir" --strip-components 1
+fi
+export PATH="$node_dir/bin:$PATH"
+node --version
+npm install -g --silent @openai/codex@0.159.0
+codex --version
+if [ "${PATTON_VM_SOURCE:-checkout}" = github ]; then
+    codex_source="vladimirrott/patton-protocol"
+else
+    codex_source="$HOME/patton-protocol"
+fi
+python3 "$HOME/patton-protocol/tests/tools/gate_codex_e2e.py" --source "$codex_source"
 echo "ALL VM CHECKS PASSED"
