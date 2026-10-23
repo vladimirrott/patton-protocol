@@ -87,8 +87,10 @@ node_version=v22.20.0
 node_dir="$HOME/.local/node-$node_version"
 if [ ! -x "$node_dir/bin/node" ]; then
     tarball="node-$node_version-linux-x64.tar.xz"
-    curl -fsSLo "/tmp/$tarball" "https://nodejs.org/dist/$node_version/$tarball"
-    curl -fsSLo /tmp/SHASUMS256.txt "https://nodejs.org/dist/$node_version/SHASUMS256.txt"
+    # A host DNS outage once failed this download; retry every kind of error, DNS included.
+    fetch() { curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o "$1" "$2"; }
+    fetch "/tmp/$tarball" "https://nodejs.org/dist/$node_version/$tarball"
+    fetch /tmp/SHASUMS256.txt "https://nodejs.org/dist/$node_version/SHASUMS256.txt"
     (cd /tmp && grep " $tarball\$" SHASUMS256.txt | sha256sum -c -) || { echo "!! the Node download does not match its checksum"; exit 1; }
     mkdir -p "$node_dir" && tar -xJf "/tmp/$tarball" -C "$node_dir" --strip-components 1
 fi
