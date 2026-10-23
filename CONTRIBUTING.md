@@ -40,6 +40,14 @@ Both commands need only Python 3.11+ from the standard library. The gate plugin 
   `plugins/patton-gate/scripts/patton_gate.py`; change the gate there. **`gate/patton_gate.py`** is the version
   the 2026-10-21 study froze and must never change (the pre-registration and the replay hash it). See
   "Working on the gate" below.
+- **`lab/patton_lab/cc/`** and **`lab/patton_lab/codex/`** run the gate study inside Claude Code and inside Codex
+  CLI. Both studies are pre-registered, and each pre-registration hashes the harness files it depends on: the
+  Codex one covers `gate/patton_gate.py`, `lab/patton_lab/codex/*.py`, the `lab/patton_lab/cc/` files it imports
+  and the model catalog copy in `lab/codex/catalog/`. Before you commit a change in `lab/`, run
+  `python3 -m patton_lab.cc.prereg --check` and `python3 -m patton_lab.codex.prereg --check` from `lab/`; a
+  failure means the change would alter a frozen study, so put it in a new module instead. The tests are
+  `tests/test_cc_*.py` and `tests/test_codex_*.py`; `tests/test_codex_contract.py` needs Codex CLI 0.159.0 and
+  skips without it.
 - **`tests/test_validate_protocol.py`** enforces the contract in `SKILL.md`
   and `references/` at the wording level: it is the actual spec enforcement,
   not incidental coverage. Expect it to be strict about exact phrasing in a
@@ -151,7 +159,7 @@ ends with `ALL VM CHECKS PASSED`. It overwrites the tracked transcript `docs/rec
 commit it when the run tested what you are shipping, and restore it otherwise. QEMU must pass `-cpu host` (the
 script does): Claude Code needs SSE4.2.
 
-To release a new version, change `VERSION` in `scripts/patton_gate.py`, `version` in
+To release a new version, change `VERSION` in `plugins/patton-gate/scripts/patton_gate.py`, `version` in
 `plugins/patton-gate/.claude-plugin/plugin.json`, and the plugin's `version` in `.claude-plugin/marketplace.json`
 together; a test fails when they differ.
 

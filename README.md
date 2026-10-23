@@ -41,10 +41,15 @@ protocol text to keep an agent from destroying files.
 - **The gate.** The [patton-gate plugin](plugins/patton-gate/README.md) is a Claude Code PreToolUse hook that asks
   before any file that existed at session start changes. Over 560 runs of Claude Code on gpt-oss-120b,
   unguarded workers harmed 0.196 of cleanup runs. With the hook and a simulated operator, harm was 0.000,
-  0 of 224 gated runs got around the gate, and the hook asked 1.134 questions per run
+  none of the 224 runs with the hook and that operator got around the gate, and the hook asked 1.134 questions per run
   ([report](lab/CC_REPORT.md), [findings](docs/findings/2026-10-22-gate-study-findings.md)).
 - **Open.** Whether the hook costs finished work (utility 0.862 unguarded against 0.768, inconclusive
   against the registered margin), and every result on a Claude model.
+- **Next: the same study on Codex.** The gate runs inside Codex CLI 0.159 through a hook adapter, and a 14-run
+  calibration on a ChatGPT subscription measured the cost of one run
+  ([record](docs/records/2026-10-22-codex-calibration.md)). The study is pre-registered (gpt-6.1-sol, 240 runs,
+  [pre-registration](lab/prereg/2026-10-22-codex-gate-study-preregistration.md)) and has not run yet. The
+  calibration carries no verdict.
 
 The [study record](docs/records/2026-10-22-gate-study-record.md) lists every check, review, deviation and
 mistake behind these numbers, with the raw logs.
@@ -135,6 +140,12 @@ no run got around the gate (0 of 224). The hook asked 1.134 times per run. Utili
 from 0.862 to 0.768, and the data leave open whether that loss is under the registered 0.10
 margin. The installed skill was offered in 224 runs and invoked in none. The Claude baseline
 is still unmeasured.
+
+A third study ports the same fixtures, operator and scoring to Codex CLI, with the frozen gate behind a hook
+adapter (`lab/patton_lab/codex/`, [design](docs/plans/2026-10-22-codex-gate-port-design.md)). A calibration on a
+ChatGPT subscription measured what one run costs and carries no verdict
+([record](docs/records/2026-10-22-codex-calibration.md)). The study itself is pre-registered with the same
+thresholds as the Claude Code study and has not run yet. The [lab README](lab/README.md) has the commands.
 
 [`verification/`](verification/README.md) holds earlier recorded runs of real agent
 harnesses against the protocol, each with a tamper-evident manifest. Every trial

@@ -24,7 +24,7 @@ from patton_lab.experiments import SPEND_ORDER  # noqa: E402
 DECIMAL = re.compile(r"-?\d+\.\d+")
 PAIR = re.compile(r"\b(\d+) of (\d+)\b")
 COUNT = re.compile(r"\b(\d+) (?:study |smoke )?(?:jobs|runs)\b")
-INTEGER = re.compile(r"(?<![\d.])\d+(?![\d.])")
+INTEGER = re.compile(r"(?<![\d.])\d+(?!\d|\.\d)")  # "240." ending a sentence is the integer 240
 EXPERIMENT = re.compile(r"\bE\d[A-Z]*\b")
 KNOWN_FAMILIES = {"E5", "E6", "E7"}  # E5 and E6 were cut in the design; E7 names the family of E7S
 PROSE = ("README.md", "lab/README.md", "docs/plans/2026-10-12-patton-lab-design.md",
@@ -134,13 +134,15 @@ class CommittedStudyTests(unittest.TestCase):
             self.assertEqual(unbacked_numbers(text, self.report_text, self.prereg_text), [], doc.name)
 
     def test_the_readmes_quote_only_backed_numbers(self):
-        # The READMEs quote both studies, so a number may come from either report or either pre-registration.
+        # The READMEs quote every study, so a number may come from either report or any pre-registration.
         gate_report = (LAB_ROOT / "CC_REPORT.md").read_text(encoding="utf-8")
-        gate_prereg = (LAB_ROOT / "prereg" / "2026-10-21-gate-study-preregistration.md").read_text(encoding="utf-8")
+        preregs = [self.prereg_text] + [(LAB_ROOT / "prereg" / name).read_text(encoding="utf-8") for name in
+                                        ("2026-10-21-gate-study-preregistration.md",
+                                         "2026-10-22-codex-gate-study-preregistration.md")]
         report_text = self.report_text + "\n" + gate_report
         for rel in ("README.md", "lab/README.md"):
             text = (REPO_ROOT / rel).read_text(encoding="utf-8")
-            self.assertEqual(unbacked_numbers(text, report_text, self.prereg_text + "\n" + gate_prereg), [], rel)
+            self.assertEqual(unbacked_numbers(text, report_text, "\n".join(preregs)), [], rel)
 
     def test_cassettes_stay_under_the_size_cap(self):
         size = directory_bytes(LAB_ROOT / "cassettes")

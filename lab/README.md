@@ -71,6 +71,40 @@ python3 -m patton_lab.cc.runner trace --arms O-R1 --fixtures h05   # free end-to
 container, Claude Code, the gate and the approver against a scripted model. The numbers are in `CC_REPORT.md`
 and the findings document, not here.
 
+## The gate study on Codex
+
+The same fixtures, mission, operator and scoring, run inside Codex CLI 0.159.0 on the models a ChatGPT subscription
+serves. Its design is [`docs/plans/2026-10-22-codex-gate-port-design.md`](../docs/plans/2026-10-22-codex-gate-port-design.md).
+A 14-run calibration measured what one run costs
+([record](../docs/records/2026-10-22-codex-calibration.md)). The study is pre-registered (gpt-6.1-sol, 5 arms,
+16 fixtures, 3 reps, 240 runs) and has not run yet.
+
+| What | Where |
+| --- | --- |
+| pre-registration (frozen, not yet run) | `prereg/2026-10-22-codex-gate-study-preregistration.md` |
+| calibration records and cassettes | `codex_runs/` (run order in `codex_runs/ORDER`) |
+| study records, once it runs | `codex_study/` |
+| generated report, once it runs | `CODEX_REPORT.md` |
+| the model catalog entry every run installs | `codex/catalog/` |
+| harness code | `patton_lab/codex/` |
+
+```
+cd lab
+python3 -m patton_lab.codex.prereg --check                  # fail if the pre-registration no longer matches the code
+python3 -m patton_lab.codex.runner trace --arms X-R0,X-R0S,X-R1,X-R1S,X-R1D --model gpt-6.1-sol   # free trace
+python3 -m patton_lab.codex.runner replay --model gpt-6.1-sol   # re-score the 10 calibration runs offline
+python3 -m patton_lab.codex.runner replay --model gpt-6-luna    # and the other 4
+python3 -m patton_lab.codex.runner summary                  # the calibration table
+python3 -m patton_lab.codex.runner study                    # the registered study; spends subscription quota, resumable
+python3 -m patton_lab.codex.report                          # after the study: write CODEX_REPORT.md from codex_study/
+```
+
+`trace` needs podman, the pinned image and the Codex binary, and no login: a scripted model stands in. `study`
+refuses to start unless the pre-registration check passes, a trace passed on the same tree, the Codex binary
+matches the pinned hashes, and the login has more than an hour left. It stops itself at 60 % of the weekly limit or
+90 % of a 5-hour window, and the same command resumes it. A trace is tied to `adapter.py` and `runner.py`: after an
+edit to either, `study` refuses until `trace` passes again.
+
 ## Layout
 
 | Path | What it holds |
@@ -83,7 +117,10 @@ and the findings document, not here.
 | `REPORT.md` | the generated report |
 | `cc/` | LiteLLM config and proxy launcher for the gate study |
 | `patton_lab/cc/` | the gate study harness: arms, approvers, recorder, runner, report, pre-registration generator |
-| `cc_runs/` | the gate study's records, with `cassettes/` and `attempts/` |
+| `cc_runs/` | the gate study's records, with `cassettes/` (and `attempts/` when an attempt fails; none did) |
 | `cc_pilot*/`, `cc_smoke*/` | gate pilot passes and smoke runs, one directory each |
 | `cc_spend.jsonl` | the gate study's spend ledger |
 | `CC_REPORT.md` | the gate study's generated report |
+| `patton_lab/codex/` | the Codex port: hook adapter, Responses recorder, runner, report, pre-registration generator |
+| `codex/catalog/` | the model catalog entry the Codex runs install |
+| `codex_runs/` | the Codex calibration's records and cassettes |

@@ -14,7 +14,7 @@ route.
 The calibration ran X-R0 (no gate) and X-R1 (the gate and the oracle operator) in turns on E1 fixtures: 4 runs on
 gpt-6.1-sol, 4 on gpt-6-luna, then 6 more on gpt-6.1-sol, at reasoning effort medium, all on one ChatGPT
 subscription. Every model call went through the recorder; the records and cassettes are in `lab/codex_runs/`, and
-`runner replay` reproduces all 14. A scan of every stored file for the four credentials in `~/.codex/auth.json` and
+`runner replay --model gpt-6.1-sol` and `runner replay --model gpt-6-luna` reproduce all 14. A scan of every stored file for the four credentials in `~/.codex/auth.json` and
 the host user name found none.
 
 ## The measurement
