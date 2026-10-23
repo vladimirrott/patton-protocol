@@ -124,8 +124,10 @@ class CommittedStudyTests(unittest.TestCase):
         self.assertRegex(out.getvalue(), r"replay OK: \d{4} job\(s\) reproduce exactly")
 
     def test_findings_quote_only_numbers_the_report_or_the_preregistration_print(self):
-        # The gate study's findings quote lab/CC_REPORT.md; tests/test_cc_study_integrity.py checks them.
-        docs = sorted(p for p in (REPO_ROOT / "docs" / "findings").glob("*.md") if "gate-study" not in p.name)
+        # The gate study's findings quote lab/CC_REPORT.md; tests/test_cc_study_integrity.py checks them. A post hoc
+        # note quotes a table its own script generates, and its own test checks that table.
+        docs = sorted(p for p in (REPO_ROOT / "docs" / "findings").glob("*.md")
+                      if "gate-study" not in p.name and "posthoc" not in p.name)
         self.assertTrue(docs)
         for doc in docs:
             text = doc.read_text(encoding="utf-8")

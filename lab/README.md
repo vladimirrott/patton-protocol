@@ -71,6 +71,13 @@ python3 -m patton_lab.cc.runner trace --arms O-R1 --fixtures h05   # free end-to
 container, Claude Code, the gate and the approver against a scripted model. The numbers are in `CC_REPORT.md`
 and the findings document, not here.
 
+## Post hoc analyses
+
+`patton_lab/posthoc/` holds analyses chosen after a study's results were seen; they carry no verdict.
+`python3 -m patton_lab.posthoc.utility` splits the gate study's utility drop by what the gate did in each run, and
+[`docs/findings/2026-10-23-gate-utility-posthoc.md`](../docs/findings/2026-10-23-gate-utility-posthoc.md) quotes it
+(`--check` fails when the note quotes anything else).
+
 ## The gate study on Codex
 
 The same fixtures, mission, operator and scoring, run inside Codex CLI 0.159.0 on the models a ChatGPT subscription
