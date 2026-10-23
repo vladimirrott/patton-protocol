@@ -22,6 +22,7 @@ REPO = Path(__file__).resolve().parents[2]
 TARGET = REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py"
 TESTS = ["test_gate_config", "test_gate_missions", "test_gate_originals", "test_gate_codex", "test_gate_plugin"]
 MUTANTS = [
+ ("ledger drops changed paths", '    if decision.changed:\n        entry["changed"] = list(decision.changed)', '    pass'),
  ("choice tighten", "return CHOICES[key].index(new) >= CHOICES[key].index(current)", "return True"),
  ("bool tighten", "return bool(new) or not current", "return True"),
  ("list tighten", "    if key in LISTS:  # trusted_commands and ignore loosen whatever they add\n        return set(new) <= set(current)", "    if key in LISTS:\n        return True"),

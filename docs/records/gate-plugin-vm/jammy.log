@@ -16,7 +16,7 @@ Setting up launcher and shell integration...
 
 ✔ Claude Code successfully installed!
 
-  Version: 2.1.308
+  Version: 2.1.309
 
   Location: ~/.local/bin/claude
 
@@ -31,8 +31,8 @@ Setting up launcher and shell integration...
 
 ✅ Installation complete!
 
-2.1.308 (Claude Code)
-installer took 59 s
+2.1.309 (Claude Code)
+installer took 53 s
 
 === install the plugin with one command (source: github)
 Adding marketplace…
@@ -42,34 +42,34 @@ Cloning repository (timeout: 120s): https://github.com/vladimirrott/patton-proto
 Clone complete, validating marketplace…
 ✔ Successfully added marketplace: patton-protocol (declared in user settings)
 Installing plugin "patton-gate@patton-protocol"...✔ Successfully installed plugin: patton-gate@patton-protocol (scope: user)
-plugin install took 43 s
+plugin install took 15 s
 Installed plugins:
 
   ❯ patton-gate@patton-protocol
-    Version: 0.1.1
+    Version: 0.2.0
     Scope: user
     Status: ✔ enabled
 
 === the gate, end to end, in three permission modes
 == permission mode default: rc 0, hook events 8, files {'notes.txt': True, 'NEW.md': False, 'node_modules': True, '.git': True}
    list                             ran                 '.git\nnode_modules\nnotes.txt'
-   delete a file that existed       BLOCKED     (gate)  'Patton gate: this changes notes.txt, which existed when the session started.'
+   delete a file that existed       BLOCKED     (gate)  'Patton gate: this changes notes.txt, which existed when the session started. The gate keeps a copy of each as '
    run an unreadable command        BLOCKED     (gate)  'Patton gate cannot tell which files this command changes (unknown command: python3). Allow it only if it leave'
-   write a new file                 BLOCKED             "Claude requested permissions to write to /tmp/tmpunsatezq/project/NEW.md, but you haven't granted it yet."
-   delete a dependency directory    BLOCKED             "rm in '/tmp/tmpunsatezq/project/node_modules' needs approval. The path is inside the working directories for t"
-   delete the repository history    BLOCKED             'Claude requested permissions to edit /tmp/tmpunsatezq/project/.git which is a sensitive file.'
+   write a new file                 BLOCKED             "Claude requested permissions to write to /tmp/tmpx07xerkz/project/NEW.md, but you haven't granted it yet."
+   delete a dependency directory    BLOCKED             "rm in '/tmp/tmpx07xerkz/project/node_modules' needs approval. The path is inside the working directories for t"
+   delete the repository history    BLOCKED             'Claude requested permissions to edit /tmp/tmpx07xerkz/project/.git which is a sensitive file.'
 == permission mode acceptEdits: rc 0, hook events 10, files {'notes.txt': True, 'NEW.md': True, 'node_modules': False, '.git': True}
    list                             ran                 '.git\nnode_modules\nnotes.txt'
-   delete a file that existed       BLOCKED     (gate)  'Patton gate: this changes notes.txt, which existed when the session started.'
+   delete a file that existed       BLOCKED     (gate)  'Patton gate: this changes notes.txt, which existed when the session started. The gate keeps a copy of each as '
    run an unreadable command        BLOCKED     (gate)  'Patton gate cannot tell which files this command changes (unknown command: python3). Allow it only if it leave'
-   write a new file                 ran                 'File created successfully at: /tmp/tmp50sb2pw9/project/NEW.md (file state is current in your context — no need'
+   write a new file                 ran                 'File created successfully at: /tmp/tmpx8by_s1p/project/NEW.md (file state is current in your context — no need'
    delete a dependency directory    ran                 '(Bash completed with no output)'
-   delete the repository history    BLOCKED             'Claude requested permissions to edit /tmp/tmp50sb2pw9/project/.git which is a sensitive file.'
+   delete the repository history    BLOCKED             'Claude requested permissions to edit /tmp/tmpx8by_s1p/project/.git which is a sensitive file.'
 == permission mode bypassPermissions: rc 0, hook events 10, files {'notes.txt': True, 'NEW.md': True, 'node_modules': False, '.git': True}
    list                             ran                 '.git\nnode_modules\nnotes.txt'
    delete a file that existed       BLOCKED     (gate)  'PreToolUse:Bash hook error: Patton gate: this changes notes.txt, which existed when the session started. The s'
    run an unreadable command        BLOCKED     (gate)  'PreToolUse:Bash hook error: Patton gate: this command cannot be checked (unknown command: python3). Rewrite it'
-   write a new file                 ran                 'File created successfully at: /tmp/tmp731_9lnh/project/NEW.md (file state is current in your context — no need'
+   write a new file                 ran                 'File created successfully at: /tmp/tmpa8y13qrx/project/NEW.md (file state is current in your context — no need'
    delete a dependency directory    ran                 '(Bash completed with no output)'
    delete the repository history    BLOCKED     (gate)  'PreToolUse:Bash hook error: Patton gate: this changes .git/HEAD, which existed when the session started. The s'
 all checks passed
@@ -82,10 +82,22 @@ all checks passed
 all checks passed
 
 === what the gate recorded, with the README's command as written
-Patton gate 0.1.1, session 1627f12e-6597-4e30-8348-2d39d05f47f0
-13:10:00  asked     Bash: python3 -c 'print(6 * 7)'
-13:10:00  approved  Bash: Bash
-13:10:00  allow     Bash: python3 -c 'print(6 * 7)'
+Patton gate 0.2.0, session b8512ccb-692b-4bd4-ab91-2bf9ba32707d
+20:14:27  asked     Bash: python3 -c 'print(6 * 7)'
+20:14:27  approved  Bash: Bash
+20:14:28  allow     Bash: python3 -c 'print(6 * 7)'
+
+=== settings and subagent limits, against the installed copy
+ok   no settings: two subagents run as before  (rc 0, 6 tool results)
+ok   max_workers 1 refuses the second of two parallel dispatches  (rc 0, 3 tool results)
+ok   max_commands 1 stops a subagent at its second command  (rc 0, 3 tool results)
+ok   max_output_tokens 30 stops a subagent once its transcript holds 40  (rc 0, 4 tool results)
+ok   timeout_minutes 0.05 stops a subagent after 3 s  (rc 0, 3 tool results)
+ok   max_retries 0 refuses a second dispatch of the same mission  (rc 0, 2 tool results)
+ok   exclusive_paths lets one of two subagents change a shared file  (rc 0, 6 tool results)
+ok   files.on_change deny refuses a protected change without asking  (rc 0, 1 tool results)
+ok   a broken settings file refuses every call and names the file  (rc 0, 1 tool results)
+all scenarios passed
 
 === disable, then enable, from inside a project as a user would
 ✔ Successfully disabled plugin: patton-gate (scope: user)
@@ -107,4 +119,23 @@ Configured marketplaces:
   ❯ claude-plugins-official
     Source: GitHub (anthropics/claude-plugins-official)
 
+
+=== Codex CLI: install Node and Codex, then install, trust and drive the plugin as the README says
+node-v22.20.0-linux-x64.tar.xz: OK
+v22.20.0
+codex-cli 0.159.0
+$ codex plugin marketplace add vladimirrott/patton-protocol  -> rc 0
+$ codex plugin add patton-gate@patton-protocol  -> rc 0
+$ python3 .../patton_gate.py codex-trust  -> rc 0
+  trusted    patton-gate@patton-protocol:hooks/codex-hooks.json:pre_tool_use:0:0
+  trusted    patton-gate@patton-protocol:hooks/codex-hooks.json:session_start:0:0
+  trusted    patton-gate@patton-protocol:hooks/codex-hooks.json:user_prompt_submit:0:0
+patton-gate 0.2.0: 3 Codex hooks trusted. They take effect in the next session.
+
+$ codex exec ...  -> rc 0, 6 model requests
+pwd with workdir /tmp printed: ['[{\'type\': \'input_text\', \'text\': \'Script completed\\nWall time 0.3 seconds\\nOutput:\\n\'}, {\'type\': \'input_text\', \'text\': \'{"chunk_id":"dd16ac","wall_time_seconds":0.000008534,"exit_code":0,"original_token_count":7,"output":"/tmp/tmp__rft5mg/project\\\\n"}\'}]']
+held ids: ['6a1d9b', '16ef35']
+$ codex exec resume --last 'approve ...'  -> rc 0
+ledger verdicts: ['allow', 'asked', 'allow', 'allow', 'asked', 'approved', 'approved', 'allow', 'allow', 'allow']
+all checks passed
 ALL VM CHECKS PASSED

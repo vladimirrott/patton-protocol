@@ -15,7 +15,7 @@ existed when the session started. Everything else runs as it did before: the gat
 file is at stake and stays silent otherwise, so the user's own permission settings keep working. Uninstalling takes
 two commands (the plugin, then the marketplace); `--keep-data` keeps the per-session ledgers.
 
-Requirements: Claude Code 2.1.295 or newer (checked on 2.1.307 and 2.1.308) and `python3` 3.10 or newer on `PATH`.
+Requirements: Claude Code 2.1.295 or newer (checked on 2.1.307 to 2.1.309) and `python3` 3.10 or newer on `PATH`.
 
 ## Why the plugin ships a product gate and not the studied file
 

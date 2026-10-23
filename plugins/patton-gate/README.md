@@ -17,8 +17,8 @@ The gate starts with your next session. To check the install, run `claude plugin
 
 Needs **Claude Code 2.1.295 or newer**, the first release whose hooks can fail closed (`onFailure: "block"`), and
 **`python3` 3.10 or newer** on `PATH`. Nothing else: the gate is one Python file that uses the standard library
-only. Checked on Claude Code 2.1.307 on a development machine and 2.1.308 in fresh Ubuntu 22.04, 24.04 and 26.04
-VMs; macOS and Windows are untested.
+only. Version 0.2.0 is checked on Claude Code 2.1.309 and Codex CLI 0.159.0, installed from GitHub in fresh Ubuntu
+22.04, 24.04 and 26.04 VMs; 0.1.1 was also checked on 2.1.307 and 2.1.308. macOS and Windows are untested.
 
 For Codex, see [On Codex](#on-codex).
 
@@ -57,7 +57,7 @@ What the install does:
 ### By permission mode
 
 Observed by `tests/tools/gate_plugin_e2e.py` (headless) and `tests/tools/gate_plugin_tui.py` (interactive) on
-Claude Code 2.1.307 and 2.1.308:
+Claude Code 2.1.307 to 2.1.309:
 
 | Mode | Change to a file that existed | A command the gate cannot read | Nothing protected at stake |
 | --- | --- | --- | --- |
@@ -157,7 +157,9 @@ and a field beside the preset overrides it. `null` turns one limit off.
 Every refusal names its setting and tells the agent what to do: report, wait, or do the work itself. The main
 session has no budget and never claims a file. The gate only runs on shell commands, file edits and dispatches, so a
 subagent that only reads is not stopped at its timeout, and `exclusive_paths` covers the files a command names. Two
-subagents that reach for the same file at once are decided under one lock: one gets it, the other is refused. On
+subagents that reach for the same file at once are decided under one lock: one gets it, the other is refused. A file
+opens again when its owner stops, so a later subagent can still overwrite the earlier one's change without having
+read it. On
 Codex the limits are not built.
 
 These limits pass `tests/tools/gate_missions_e2e.py`, a scripted run on real Claude Code for $0. No study has

@@ -1578,6 +1578,8 @@ def _run(event, stdout, environ) -> int:
         state.own = own_files(state.root, state_dir, environ)
     decision = decide(event, state)
     entry["paths"] = list(decision.paths)
+    if decision.changed:
+        entry["changed"] = list(decision.changed)
     exclusive = limits_on and missions["exclusive_paths"] and decision.note != "stalled"
     if exclusive:
         conflict = exclusive_conflict(event, state_dir, decision.changed, claim=False)

@@ -258,6 +258,17 @@ class ExclusivePathTests(MissionCase):
         self.assertIsNone(self.decision(self.run_write("late.txt", "a2", "b2")))
 
 
+class LedgerTests(MissionCase):
+    def test_the_ledger_names_what_each_call_changes_and_which_subagent_made_it(self):
+        self.limits(exclusive_paths=True)
+        self.run_write("shared.txt", "a1", "w1")
+        self.run_bash("echo x > out.txt; ls", None, "m1")
+        entries = {e["tool_use_id"]: e for e in self.ledger() if e.get("event") == "PreToolUse"}
+        self.assertEqual((entries["w1"]["changed"], entries["w1"]["agent"]), (["shared.txt"], "a1"))
+        self.assertEqual(entries["m1"]["changed"], ["out.txt"])
+        self.assertNotIn("agent", entries["m1"])
+
+
 class PresetTests(MissionCase):
     def test_the_patton_preset_enforces_the_protocols_numbers(self):
         self.limits(preset="patton")
