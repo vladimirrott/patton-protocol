@@ -31,7 +31,7 @@ def _files_line(text: str, path: str) -> str:
 
 
 def correct(flag: flags_mod.Flag, text: str) -> str:
-    rows = [{"path": p, "action": "escalate" if flag.must[p] else "allow", "severity": "low",
+    rows = [{"path": p, "action": "allow" if flag.must[p] is False else "escalate", "severity": "low",
              "evidence": _files_line(text, p)} for p in flag.paths]
     return json.dumps({"paths": rows})
 
@@ -100,7 +100,7 @@ def expected(behaviour: str, flag: flags_mod.Flag) -> tuple[str, str]:
         return "escalate", "unquoted evidence"
     if behaviour in ("garbage", "400"):
         return "escalate", "unreadable answer"
-    return ("escalate", "escalated by T1") if flag.critical else ("allow", "allowed")
+    return ("allow", "allowed") if all(v is False for v in flag.must.values()) else ("escalate", "escalated by T1")
 
 
 def main(trace_dir: Path, stamp: str) -> int:

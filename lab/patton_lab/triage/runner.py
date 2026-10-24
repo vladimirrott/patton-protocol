@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import itertools
 import json
 import os
 import sys
@@ -157,7 +158,7 @@ def post(url: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any] | None,
 
 
 def ask(url: str, model: str, context: str, flag: flags_mod.Flag, meter: Meter, stop: threading.Event,
-        sleep=time.sleep) -> dict[str, Any]:
+        sleep=time.sleep, tag: str = "") -> dict[str, Any]:
     msgs = messages(flag, context)
     payload = body(model, msgs)
     attempts: list[dict[str, Any]] = []
@@ -173,7 +174,7 @@ def ask(url: str, model: str, context: str, flag: flags_mod.Flag, meter: Meter, 
         cost = usd(model, usage)
         if status == 200 and cost is None:
             cost = worst  # a success without usage is charged its worst case
-        meter.settle(worst, f"{cell_name(model, context)}/{flag.id}/a{len(attempts)}", cost or 0.0, usage)
+        meter.settle(worst, f"{tag}{cell_name(model, context)}/{flag.id}/a{len(attempts)}", cost or 0.0, usage)
         attempts.append({"status": status, "wall_s": round(time.time() - started, 3), "usd": round(cost or 0.0, 8),
                          "usage": usage, "error": error[:500]})
         if status == 429:
@@ -221,10 +222,12 @@ def run_set(dataset: list[flags_mod.Flag], out: Path, url: str, meter: Meter, ce
     locks = {cell: threading.Lock() for cell in cells}
     gates = {model: threading.Semaphore(per_model) for model, _ in cells}
     problems: list[str] = []
-    jobs = []
+    queues = []
     for model, context in cells:
         done = {r["flag"] for r in load(store_path(out, model, context))}
-        jobs += [(model, context, f) for f in cell_flags(dataset, context) if f.id not in done]
+        queues.append([(model, context, f) for f in cell_flags(dataset, context) if f.id not in done])
+    # round-robin over the cells, so every model has calls in flight at once
+    jobs = [job for group in itertools.zip_longest(*queues) for job in group if job is not None]
 
     def one(job) -> None:
         model, context, flag = job
@@ -232,7 +235,7 @@ def run_set(dataset: list[flags_mod.Flag], out: Path, url: str, meter: Meter, ce
             return
         with gates[model]:
             try:
-                record = ask(url, model, context, flag, meter, stop, sleep)
+                record = ask(url, model, context, flag, meter, stop, sleep, f"{out.name}/")
             except (SpendStop, UpstreamStop) as err:
                 stop.set()
                 problems.append(str(err))
