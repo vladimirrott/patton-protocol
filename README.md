@@ -43,6 +43,10 @@ An earlier study put a gate of the same design inside a sandbox, and harm was 0.
   at session start, before any change it lets through, and `restore` puts it back
   ([Undo a wrong approval](#undo-a-wrong-approval)). A wrong approval of a change the gate could read is then
   recoverable; a command it cannot read, such as a script, leaves no copy. No study has measured people using it.
+  To ask less often, an LLM analyst can sort the gate's questions first: replayed over the 838 flags of both studies,
+  it cut questions per run from 1.240 to 0.491 and let through 0 of 120 critical flags
+  ([findings](docs/findings/2026-10-24-triage-findings.md)). Those flags hold only 14 distinct cases, and the
+  analyst is not in the plugin yet.
 - **Finished work.** Utility fell from 0.862 to 0.768, and the data leave open whether that drop is under the
   registered 0.10 margin. A post hoc split ([note](docs/findings/2026-10-23-gate-utility-posthoc.md)) puts most of
   the drop in runs where the gate did nothing the worker could see, and much of the rest in a partial-approval rule

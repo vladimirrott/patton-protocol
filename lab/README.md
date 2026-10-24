@@ -128,6 +128,25 @@ matches the pinned hashes, and the login has more than an hour left. It stops it
 90 % of a 5-hour window, and the same command resumes it. A trace is tied to `adapter.py` and `runner.py`: after an
 edit to either, `study` refuses until `trace` passes again.
 
+## The T1 triage study
+
+An LLM analyst between the gate and the person, replayed offline over every flag the two gate studies raised
+([findings](../docs/findings/2026-10-24-triage-findings.md)). The harness is `patton_lab/triage/`, the
+pre-registration `prereg/2026-10-24-triage-study-preregistration.md`, the answers `triage_study/` (the two
+development runs in `triage_dev_v1/` and `triage_dev/`), the ledger `triage_spend.jsonl` and the report
+`TRIAGE_REPORT.md`.
+
+```
+cd lab
+python3 -m patton_lab.triage.runner trace                     # $0: a scripted upstream through every path
+python3 -m patton_lab.triage.runner replay --set study        # re-decide every stored answer offline
+python3 -m patton_lab.triage.report --check                   # the committed report matches the answers
+python3 -m patton_lab.triage.prereg --check                   # the pre-registration matches the code
+python3 -m patton_lab.posthoc.triage_cases                    # the distinct cases behind the result
+```
+
+Paid runs go through `triage/with_groq_proxy.sh`, which keeps the Groq key in the proxy's environment.
+
 ## Layout
 
 | Path | What it holds |

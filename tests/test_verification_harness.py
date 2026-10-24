@@ -14,6 +14,7 @@ import importlib.util
 import io
 import re
 from tempfile import TemporaryDirectory
+import subprocess
 import unittest
 
 
@@ -166,26 +167,33 @@ def readable_text(path):
 
 def privacy_offenders(roots):
     offenders = []
-    for root in roots:
-        for path in sorted(Path(root).rglob("*")):
-            if not path.is_file() or "__pycache__" in path.parts:
-                continue
-            text = readable_text(path)
-            name = str(path)
-            if EMPLOYER_TOKEN in text.lower():
-                offenders.append(f"{name}: employer name")
-            for match in HOME_PATH.finditer(text):
-                # "user" is the container's home; "worker" is the pseudonym the gate study's scrub writes in place of
-                # the host user name (podman's keep-id puts host paths into /proc/self/mountinfo and passwd).
-                if match.group(1) not in ("user", "worker"):
-                    offenders.append(f"{name}: {match.group(0)}")
-            for match in KEY_SHAPES.finditer(text):
-                offenders.append(f"{name}: key-shaped string {match.group(0)[:8]}...")
+    for path in sorted(scanned_files(roots)):
+        text = readable_text(path)
+        name = str(path)
+        if EMPLOYER_TOKEN in text.lower():
+            offenders.append(f"{name}: employer name")
+        for match in HOME_PATH.finditer(text):
+            # "user" is the container's home; "worker" is the pseudonym the gate study's scrub writes in place of
+            # the host user name (podman's keep-id puts host paths into /proc/self/mountinfo and passwd).
+            if match.group(1) not in ("user", "worker"):
+                offenders.append(f"{name}: {match.group(0)}")
+        for match in KEY_SHAPES.finditer(text):
+            offenders.append(f"{name}: key-shaped string {match.group(0)[:8]}...")
     return offenders
 
 
 def scanned_files(roots):
-    return [p for root in roots for p in Path(root).rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+    """Every file git would publish under `roots`: tracked, or untracked and not ignored. Ignored downloads and
+    traces (lab/harness_cache/, lab/*_trace/) never leave the machine, so they are not scanned. Without git,
+    every file is scanned."""
+    try:
+        listed = subprocess.run(["git", "-C", str(PACKAGE_ROOT), "ls-files", "-z", "--cached", "--others",
+                                 "--exclude-standard", "--", *[str(r) for r in roots]],
+                                capture_output=True, check=True, timeout=60).stdout.decode("utf-8")
+    except (OSError, subprocess.SubprocessError):
+        return [p for root in roots for p in Path(root).rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+    files = [PACKAGE_ROOT / name for name in listed.split("\0") if name]
+    return [p for p in files if p.is_file() and "__pycache__" not in p.parts]
 
 
 class PrivacyGateTests(unittest.TestCase):

@@ -4,6 +4,13 @@ Written 2026-10-24, after the Codex study. Nothing here has run. Every paid stud
 pre-registration, a free end-to-end trace before the first paid call, cassettes for every model call, and the
 lab-wide spend guard ($40 across every ledger; $24.199 spent before this plan).
 
+## Status
+
+- T1-offline ran on 2026-10-24 under its own pre-registration
+  ([findings](../findings/2026-10-24-triage-findings.md)). Both registered thresholds held, on 14 distinct critical
+  cases; the next triage measurement needs more distinct cases and sparser notes.
+- H0 harness traces are in progress under `lab/patton_lab/harness/`.
+
 ## Questions
 
 - **RQ1, triage.** The gate flags every change to a file that existed at session start. Can an LLM analyst (T1)
