@@ -1,0 +1,18 @@
+# OpenAI chat completions in, Groq out, for the T1 triage study. The Groq key reaches only this proxy, through its
+# environment. Retries stay off, so every call that reaches Groq is one the runner records and charges.
+model_list:
+  - model_name: gpt-oss-120b
+    litellm_params: {model: groq/openai/gpt-oss-120b, api_key: os.environ/GROQ_API_KEY}
+  - model_name: gpt-oss-20b
+    litellm_params: {model: groq/openai/gpt-oss-20b, api_key: os.environ/GROQ_API_KEY}
+  - model_name: gpt-oss-safeguard-20b
+    litellm_params: {model: groq/openai/gpt-oss-safeguard-20b, api_key: os.environ/GROQ_API_KEY}
+  - model_name: qwen3.8-27b
+    litellm_params: {model: groq/qwen/qwen3.8-27b, api_key: os.environ/GROQ_API_KEY}
+litellm_settings:
+  drop_params: true
+  telemetry: false
+  num_retries: 0
+router_settings:
+  num_retries: 0
+general_settings: {}
