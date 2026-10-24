@@ -20,7 +20,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 TARGET = REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py"
-TESTS = ["test_gate_config", "test_gate_missions", "test_gate_originals", "test_gate_codex", "test_gate_plugin"]
+TESTS = ["test_gate_config", "test_gate_missions", "test_gate_originals", "test_gate_codex", "test_gate_plugin",
+         "test_gate_verify"]
 MUTANTS = [
  ("dispatch total off by one", 'if missions["max_dispatches"] is not None and total >= missions["max_dispatches"]:', 'if missions["max_dispatches"] is not None and total > missions["max_dispatches"]:'),
  ("dispatch total ignored", 'if missions["max_dispatches"] is not None and total >= missions["max_dispatches"]:', 'if False:'),
@@ -58,6 +59,25 @@ MUTANTS = [
  ("unreadable allow ignored", 'if opaque and not study and (unreadable == "allow" or not config["files"]["protect"]):', 'if False:'),
  ("max_refusals fixed", 'if state.denials >= state.config["files"]["max_refusals"]:', 'if state.denials >= DENIAL_LIMIT:'),
  ("ancestor names nothing", "                            if self.root.startswith(real.rstrip(os.sep) + os.sep):", "                            if False:"),
+ ("verifier sees the report", "        source = verifier_input(mission, changes, notes, checks, digest)", "        source = verifier_input(mission + final, changes, notes, checks, digest)"),
+ ("claim reader sees the change", "claims_input(mission, final)))", "claims_input(mission + ''.join(c['diff'] for c in git_changes(root, state_dir, turn['base'], git_snapshot(root, state_dir))), final)))"),
+ ("evidence not checked", "                and _norm_text(evidence) in text:", "                and True:"),
+ ("short evidence accepted", "len(_norm_text(evidence)) >= VERIFY_MIN_EVIDENCE", "len(_norm_text(evidence)) >= 0"),
+ ("no round cap", '        if rounds >= cfg["max_rounds"]:', '        if False:'),
+ ("rounds never counted", '                turns[scope]["rounds"] = rounds + 1', '                pass'),
+ ("new prompt keeps rounds", 'turns[scope] = {"base": base, "rounds": 0,', 'turns[scope] = {"base": base, "rounds": old.get("rounds", 0),'),
+ ("no claim still verifies", '        if not claims:\n            entry["decision"] = "allow (no completion claimed)"', '        if False:\n            entry["decision"] = "allow (no completion claimed)"'),
+ ("unreadable claim skips", "    return True if claim is None or not isinstance", "    return False if claim is None or not isinstance"),
+ ("error refuses the stop", '        return {"systemMessage": f"Patton verify: this change was not verified ({str(err)[:200]})."}', '        return {"decision": "block", "reason": "x"}'),
+ ("notes from the candidate", '        notes = verify_notes(root, state_dir, turn["base"], cfg["notes"])', '        notes = verify_notes(root, state_dir, digest, cfg["notes"])'),
+ ("snapshot into the repo", '    return {"GIT_OBJECT_DIRECTORY": objects, "GIT_ALTERNATE_OBJECT_DIRECTORIES": os.path.join(common, "objects")}', '    return {}'),
+ ("snapshot uses the user index", '        env = {**env, "GIT_INDEX_FILE": index}', '        env = {**env}'),
+ ("project sets the endpoint", "        if tighten_only and key in USER_ONLY:", "        if False:"),
+ ("on without endpoint", '    if (verify["main"] or verify["subagents"]) and not (verify["endpoint"] and verify["model"]):', '    if False:'),
+ ("refused subagent released", '        refused = name == "SubagentStop" and (verdict or {}).get("decision") == "block"  # it keeps running', '        refused = False'),
+ ("stop falls through", '        if name in ("UserPromptSubmit", "Stop"):\n            return 0', '        if False:\n            return 0'),
+ ("checks not run", '        checks = run_checks(root, cfg["checks"], cfg["check_timeout_s"]) if cfg["checks"] else []', '        checks = []'),
+ ("subagent mission lost", '            mission = _mission_from_transcript(event.get("agent_transcript_path"))', '            mission = ""'),
  ("outside walked", "                        else:\n                            self.outside.add(real)\n", "                        else:\n                            self._files_under(real)\n                            self.outside.add(real)\n"),
  ("unknown field accepted", '            if name not in DEFAULTS[section]:\n                raise ConfigError(path, f"unknown field {key}")', '            if name not in DEFAULTS[section]:\n                continue'),
  ("limit type unchecked", "                if not ok or (name == \"timeout_minutes\"", "                if False and (name == \"timeout_minutes\""),

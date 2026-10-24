@@ -1,5 +1,5 @@
 {
-  "description": "Patton gate: asks before a tool call changes a file that existed when the session started, and enforces the mission limits set in its configuration.",
+  "description": "Patton gate: asks before a tool call changes a file that existed when the session started, enforces the mission limits set in its configuration, and, when turned on, has a blind verifier check the change before the agent may stop.",
   "hooks": {
     "SessionStart": [
       {
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "timeout": 30,
+            "timeout": 120,
             "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\""
           }
         ]
@@ -67,7 +67,29 @@
         "hooks": [
           {
             "type": "command",
-            "timeout": 30,
+            "timeout": 900,
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 120,
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 900,
             "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\""
           }
         ]

@@ -763,7 +763,7 @@ EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path
 SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
 DENIAL_LIMIT = 5
 DEFAULT_TIMEOUT = 10.0
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 # Rebuilt by tools, so not protected. `.git` is not here: deleting the repository's history must ask first.
 SKIP_DIRS = frozenset({"node_modules", "target", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache",
                        ".pytest_cache", ".ruff_cache", ".gradle", ".next"})
@@ -785,13 +785,25 @@ DEFAULTS = {
               "keep_originals_mb": 200},
     "missions": {"preset": "off", "max_workers": None, "max_dispatches": None, "max_commands": None,
                  "max_output_tokens": None, "timeout_minutes": None, "max_retries": None, "exclusive_paths": False},
+    "verify": {"main": False, "subagents": False, "endpoint": "", "model": "", "api_key_env": "", "timeout_s": 120,
+               "max_rounds": 2, "checks": [], "check_timeout_s": 300, "notes": ["README*", "HANDOFF*", "NOTES*", "*.md"],
+               "max_diff_chars": 24000},
 }
 # Each choice field lists its values from loosest to strictest.
 CHOICES = {"files.on_change": ("ask", "deny"), "files.unreadable_commands": ("allow", "ask", "deny"),
            "missions.preset": ("off", "patton")}
-BOOLS = ("files.protect", "missions.exclusive_paths")
-LISTS = ("files.trusted_commands", "files.ignore", "files.always_protect", "files.skip_dirs")
-COUNTS = ("files.max_refusals",)  # a whole number, at least 1, never off
+BOOLS = ("files.protect", "missions.exclusive_paths", "verify.main", "verify.subagents")
+LISTS = ("files.trusted_commands", "files.ignore", "files.always_protect", "files.skip_dirs", "verify.checks",
+         "verify.notes")
+COUNTS = ("files.max_refusals", "verify.timeout_s", "verify.max_rounds", "verify.check_timeout_s",
+          "verify.max_diff_chars")  # a whole number, at least 1, never off
+# A string field and the pattern it must match; an empty string leaves it unset.
+STRINGS = {"verify.endpoint": re.compile(r"(https?://\S+)?"), "verify.model": re.compile(r"\S*"),
+           "verify.api_key_env": re.compile(r"([A-Za-z_][A-Za-z0-9_]*)?")}
+# Fields a project file may never set: where the change and the key go, and what commands run. Anyone who commits
+# to the repository, the agent included, can write that file.
+USER_ONLY = frozenset(f"verify.{name}" for name in ("endpoint", "model", "api_key_env", "timeout_s", "max_rounds",
+                                                     "checks", "check_timeout_s", "notes", "max_diff_chars"))
 SIZES = ("files.keep_originals_mb",)  # a whole number of megabytes, 0 turns it off; more is stricter
 
 
@@ -832,7 +844,7 @@ def _read_config_file(path: str) -> dict | None:
 def _validate_layer(path: str, data: dict, allow_projects: bool) -> tuple[dict, dict]:
     """Check every field of one layer against the schema. Returns the values its preset sets and the fields it
     names, each as {"section.field": value}; a named field wins over the preset."""
-    known = {"files", "missions"} | ({"projects"} if allow_projects else set())
+    known = {"files", "missions", "verify"} | ({"projects"} if allow_projects else set())
     out: dict[str, object] = {}
     for section, body in data.items():
         if section not in known:
@@ -858,6 +870,9 @@ def _validate_layer(path: str, data: dict, allow_projects: bool) -> tuple[dict, 
             elif key in COUNTS:
                 if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                     raise ConfigError(path, f"{key} must be a whole number of at least 1")
+            elif key in STRINGS:
+                if not isinstance(value, str) or not STRINGS[key].fullmatch(value):
+                    raise ConfigError(path, f"{key} must be a string of the form {STRINGS[key].pattern}")
             elif key in SIZES:
                 if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                     raise ConfigError(path, f"{key} must be a whole number of at least 0")
@@ -902,6 +917,11 @@ def _apply(config: dict, sources: dict, ignored: list, layer: tuple[dict, dict],
         current = config[section][field]
         if key == "files.always_protect":
             value = sorted(set(current) | set(value))
+        if tighten_only and key in USER_ONLY:
+            if value != current:
+                ignored.append({"field": key, "value": value, "kept": current, "file": name,
+                                "why": "only the user file may set this"})
+            continue
         if tighten_only and not _tighter(key, current, value):
             if key in named:  # a preset value that would loosen is skipped without a note
                 ignored.append({"field": key, "value": value, "kept": current, "file": name,
@@ -935,6 +955,10 @@ def load_config(root: str, environ, host: str = "claude") -> tuple[dict, dict, l
     project = _read_config_file(project_path)
     if project is not None:
         _apply(config, sources, ignored, _validate_layer(project_path, project, False), "project file", True)
+    verify = config["verify"]
+    if (verify["main"] or verify["subagents"]) and not (verify["endpoint"] and verify["model"]):
+        raise ConfigError(user_path, "verify is on but verify.endpoint and verify.model are not set; set both in "
+                          "the user file")
     return config, sources, ignored
 
 
@@ -1518,6 +1542,400 @@ def own_files(root: str, state_dir: str, environ) -> tuple[str, ...]:
     return tuple(sorted({os.path.realpath(p) for p in found}))
 
 
+# ---- the blind Verifier and the candidate digest ------------------------------------------------------------
+#
+# When the agent (or a subagent) stops, a reader that sees only the person's request and the agent's final message
+# says whether the agent claims the work is done. If it does, a Verifier that never sees that message reads the
+# request, the change since the turn began, the project notes as they were before it, and the configured checks'
+# output, and says pass or fail. A failure it backs with a quote from what it read refuses the stop, at most
+# verify.max_rounds times a turn; after that the person is told. The change is named by a git tree hash, the
+# candidate digest, taken through a private index and object store, so the user's index, refs and objects stay as
+# they were. Any error lets the agent stop and says the change was not verified: a check that could not run must
+# not trap the session.
+
+CLAIMS_SYSTEM = """You read the final message of a coding agent. Say whether the message states that the work the
+person asked for is done. A message that reports a problem, asks a question, or says part of the work is left
+undone does not claim it is done.
+
+Answer with JSON only: {"claims_done": true or false, "quote": "<the sentence that says the work is done, copied
+word for word, or empty>"}"""
+
+VERIFIER_SYSTEM = """You are an independent verifier. A coding agent has changed a project to do what a person
+asked. You see the person's request, the project's notes as they were before the change, the output of the
+project's checks run on the change, and the change itself. You do not see what the agent said about its work.
+
+Decide whether the change does what was asked without losing or breaking anything the request or the notes say
+must stay. Fail only for a concrete problem: the requested change is missing or only partly made, a check fails,
+or the change removes, overwrites or breaks something the notes or the request say is needed. Pass when the change
+does what was asked, including when you would have done it differently.
+
+Answer with JSON only: {"verdict": "pass" or "fail", "findings": [{"problem": "<one sentence>", "evidence":
+"<text copied word for word from the request, the notes, the checks or the change that shows the problem>"}]}"""
+
+VERIFY_MIN_EVIDENCE = 12
+VERIFY_PROMPTS_KEPT = 3
+_FILE_CAP = 20000
+
+
+class VerifyError(Exception):
+    pass
+
+
+def _git_run(root: str, args: list[str], env_extra: dict | None = None, timeout: float = 60) -> bytes:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(env_extra or {})
+    done = subprocess.run(["git", "-C", root, *args], capture_output=True, env=env, timeout=timeout)
+    if done.returncode != 0:
+        raise VerifyError(f"git {args[0]} failed: {done.stderr.decode('utf-8', 'replace').strip()[:200]}")
+    return done.stdout
+
+
+def _git_env(root: str, state_dir: str) -> dict | None:
+    """The environment that points git at the gate's own object store, borrowing the repository's objects."""
+    try:
+        common = _git_run(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]).decode().strip()
+    except (VerifyError, OSError, subprocess.SubprocessError):
+        return None
+    objects = os.path.join(state_dir, "git-objects")
+    os.makedirs(objects, exist_ok=True)
+    return {"GIT_OBJECT_DIRECTORY": objects, "GIT_ALTERNATE_OBJECT_DIRECTORIES": os.path.join(common, "objects")}
+
+
+def git_snapshot(root: str, state_dir: str) -> str | None:
+    """The git tree hash of the working tree as git sees it (tracked and untracked files, ignored files left out),
+    or None when `root` is not in a git repository. It writes only into the gate's state directory."""
+    env = _git_env(root, state_dir)
+    if env is None:
+        return None
+    try:
+        git_dir = _git_run(root, ["rev-parse", "--absolute-git-dir"]).decode().strip()
+    except (VerifyError, OSError, subprocess.SubprocessError):
+        return None
+    index = os.path.join(state_dir, f"git-index-{os.getpid()}-{time.time_ns()}")
+    try:
+        try:
+            with open(os.path.join(git_dir, "index"), "rb") as src, open(index, "wb") as dst:
+                dst.write(src.read())  # its stat cache saves hashing every unchanged file
+        except OSError:
+            pass
+        env = {**env, "GIT_INDEX_FILE": index}
+        _git_run(root, ["add", "-A", "--", "."], env, timeout=120)
+        return _git_run(root, ["write-tree"], env).decode().strip()
+    finally:
+        for leftover in (index, index + ".lock"):
+            with contextlib.suppress(OSError):
+                os.remove(leftover)
+
+
+def _blob(root: str, env: dict, tree: str, path: str) -> str:
+    data = _git_run(root, ["cat-file", "blob", f"{tree}:{path}"], env)
+    if b"\0" in data[:8000]:
+        return f"[binary file, {len(data)} bytes]"
+    text = data.decode("utf-8", "replace")
+    return text if len(text) <= _FILE_CAP else text[:_FILE_CAP] + "\n[cut]"
+
+
+def file_changes(pairs, max_chars: int = 24000) -> list[dict]:
+    """(path, status, text before or None, text after or None) to the change records the Verifier reads, each with a
+    unified diff; past `max_chars` of diff the rest is cut."""
+    import difflib
+    changes, used = [], 0
+    for path, status, before, after in pairs:
+        diff = "".join(difflib.unified_diff((before or "").splitlines(True), (after or "").splitlines(True),
+                                            f"a/{path}", f"b/{path}"))
+        if used + len(diff) > max_chars:
+            diff = diff[:max(0, max_chars - used)] + "\n[diff cut]"
+        used += len(diff)
+        changes.append({"path": path, "status": status, "before": before, "after": after, "diff": diff})
+    return changes
+
+
+def git_changes(root: str, state_dir: str, base: str, head: str, max_chars: int = 24000) -> list[dict]:
+    """Every file that differs between two snapshot trees, with its text before and after and a unified diff."""
+    env = _git_env(root, state_dir)
+    if env is None:
+        raise VerifyError("not a git repository")
+    raw = _git_run(root, ["diff-tree", "-r", "-z", "--no-renames", "--name-status", base, head], env).decode()
+    parts = [p for p in raw.split("\0") if p]
+    names = {"A": "added", "D": "deleted", "M": "modified", "T": "modified"}
+    pairs = [(path, names.get(status[:1], "modified"), None if status == "A" else _blob(root, env, base, path),
+              None if status == "D" else _blob(root, env, head, path))
+             for status, path in zip(parts[0::2], parts[1::2])]
+    return file_changes(pairs, max_chars)
+
+
+def verify_notes(root: str, state_dir: str, tree: str, patterns, cap: int = 8000) -> list[tuple[str, str]]:
+    env = _git_env(root, state_dir)
+    if env is None or not patterns:
+        return []
+    names = [n for n in _git_run(root, ["ls-tree", "-r", "-z", "--name-only", tree], env).decode().split("\0") if n]
+    notes, used = [], 0
+    for name in sorted(n for n in names if _matches(patterns, n)):
+        text = _blob(root, env, tree, name)
+        if used + len(text) > cap:
+            break
+        notes.append((name, text))
+        used += len(text)
+    return notes
+
+
+def run_checks(root: str, checks, timeout: float) -> list[dict]:
+    results = []
+    for command in checks:
+        try:
+            done = subprocess.run(["/bin/sh", "-c", command], cwd=root, capture_output=True, timeout=timeout)
+            code, output = str(done.returncode), (done.stdout + done.stderr).decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            code, output = "timeout", f"the check did not finish within {timeout:g} s"
+        except OSError as err:
+            code, output = "error", f"the check could not start ({err})"
+        results.append({"command": command, "code": code, "output": output[-3000:]})
+    return results
+
+
+def verifier_input(mission: str, changes: list[dict], notes, checks: list[dict], digest: str) -> str:
+    lines = ["## The person's request", mission.strip() or "(no request recorded)", "",
+             "## Project notes before the change"]
+    lines += [f"### {path}\n{text.rstrip()}\n" for path, text in notes] or ["(none)", ""]
+    lines += ["## Checks run on the change"]
+    for check in checks:
+        lines += [f"### `{check['command']}` (exit code {check['code']})", check["output"].rstrip() or "(no output)", ""]
+    if not checks:
+        lines += ["(none configured)", ""]
+    lines += [f"## The change (candidate {digest[:12]})"]
+    for change in changes:
+        lines += [f"### {change['path']} ({change['status']})", "```diff", change["diff"].rstrip(), "```", ""]
+    if not changes:
+        lines += ["No file changed."]
+    return "\n".join(lines)
+
+
+def claims_input(mission: str, final: str) -> str:
+    return "\n".join(["## The person's request", mission.strip() or "(no request recorded)", "",
+                      "## The agent's final message", final.strip() or "(empty)"])
+
+
+def parse_reply(text) -> dict | None:
+    """The first JSON object in a model's reply, inside a code fence or not."""
+    if not isinstance(text, str):
+        return None
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    candidates = [fence.group(1)] if fence else []
+    start = text.find("{")
+    if start >= 0:
+        candidates.append(text[start:])
+    for candidate in candidates:
+        try:
+            value, _ = json.JSONDecoder().raw_decode(candidate)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def verify_chat(cfg: dict, environ, system: str, user: str) -> str:
+    """One OpenAI-compatible chat completion. The key comes from the environment variable the user file names."""
+    key = environ.get(cfg["api_key_env"], "") if cfg["api_key_env"] else ""
+    body = json.dumps({"model": cfg["model"], "max_tokens": 4096,
+                       "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]})
+    request = urllib.request.Request(cfg["endpoint"].rstrip("/") + "/chat/completions", data=body.encode("utf-8"),
+                                     headers={"Content-Type": "application/json",
+                                              **({"Authorization": f"Bearer {key}"} if key else {})})
+    try:
+        with urllib.request.urlopen(request, timeout=cfg["timeout_s"]) as response:
+            data = json.loads(response.read())
+        content = data["choices"][0]["message"]["content"]
+    except Exception as err:  # noqa: BLE001 - any failure means "not verified"
+        raise VerifyError(f"the verifier endpoint failed ({type(err).__name__}: {str(err)[:160]})") from err
+    if not isinstance(content, str):
+        raise VerifyError("the verifier endpoint returned no text")
+    return content
+
+
+def _norm_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.replace("`", "")).strip().lower()
+
+
+def quoted_findings(reply: dict, source: str) -> list[dict]:
+    """The findings whose evidence is quoted from what the Verifier read; the rest cannot refuse a stop."""
+    findings = reply.get("findings") if isinstance(reply.get("findings"), list) else []
+    text = _norm_text(source)
+    out = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        problem, evidence = finding.get("problem"), finding.get("evidence")
+        if isinstance(problem, str) and isinstance(evidence, str) and len(_norm_text(evidence)) >= VERIFY_MIN_EVIDENCE \
+                and _norm_text(evidence) in text:
+            out.append({"problem": problem.strip(), "evidence": evidence.strip()})
+    return out
+
+
+def read_claim(reply) -> bool:
+    """Whether the agent claimed the work done. An answer that cannot be read counts as a claim, so the change is
+    still checked."""
+    claim = parse_reply(reply)
+    return True if claim is None or not isinstance(claim.get("claims_done"), bool) else claim["claims_done"]
+
+
+def judge(reply, source: str) -> tuple[str | None, list[dict], str]:
+    """(verdict, quoted findings, decision) from the Verifier's answer and the text it read. Only a failure backed by
+    a quote can refuse a stop; an answer that cannot be read is no verdict at all."""
+    parsed = parse_reply(reply)
+    if parsed is None or parsed.get("verdict") not in ("pass", "fail"):
+        return None, [], "allow (not verified)"
+    if parsed["verdict"] == "pass":
+        return "pass", [], "allow (passed)"
+    findings = quoted_findings(parsed, source)
+    return "fail", findings, "block" if findings else "allow (failure without quoted evidence)"
+
+
+def _turns_file(state_dir: str) -> str:
+    return os.path.join(state_dir, "verify-turns.json")
+
+
+def _mission_from_transcript(path) -> str:
+    """The first user message of a subagent's transcript: the prompt its dispatcher gave it."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    item = json.loads(line)
+                except ValueError:
+                    continue
+                message = item.get("message") if isinstance(item, dict) else None
+                if not isinstance(message, dict) or message.get("role") != "user":
+                    continue
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    return "\n".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text")
+    except (OSError, TypeError):
+        pass
+    return ""
+
+
+def verify_event(name: str, event: dict, state_dir: str, root: str, environ, cfg: dict) -> dict | None:
+    """Handle one hook event for the Verifier. Returns the JSON to print, or None."""
+    scope = "main" if name in ("UserPromptSubmit", "Stop") else f"agent:{event.get('agent_id') or ''}"
+    if (scope == "main" and not cfg["main"]) or (scope != "main" and not cfg["subagents"]):
+        return None
+    if name in ("UserPromptSubmit", "SubagentStart"):
+        base = git_snapshot(root, state_dir)
+        with _locked(state_dir):
+            turns = _read_json(_turns_file(state_dir), {})
+            turns = turns if isinstance(turns, dict) else {}
+            old = turns.get(scope) or {}
+            prompts = (old.get("prompts") or []) + ([str(event.get("prompt") or "")] if scope == "main" else [])
+            turns[scope] = {"base": base, "rounds": 0, "prompts": prompts[-VERIFY_PROMPTS_KEPT:]}
+            _atomic_write(_turns_file(state_dir), json.dumps(turns))
+        return None
+    with _locked(state_dir):
+        turns = _read_json(_turns_file(state_dir), {})
+    turn = (turns.get(scope) if isinstance(turns, dict) else None) or {}
+    entry = {"t": round(_now(), 3), "scope": scope, "root": root, "base": turn.get("base")}
+    try:
+        if not turn.get("base"):
+            raise VerifyError("no snapshot of the turn's start (the project is not a git repository, or the turn "
+                              "began before the verifier was on)")
+        if scope == "main":
+            prompts = turn.get("prompts") or []
+            mission = prompts[-1] if prompts else ""
+            if len(prompts) > 1:
+                mission = "Earlier requests in this session:\n" + "\n".join(f"- {p}" for p in prompts[:-1]) + \
+                          "\n\nThe latest request:\n" + mission
+        else:
+            mission = _mission_from_transcript(event.get("agent_transcript_path"))
+        final = str(event.get("last_assistant_message") or "")
+        claims = read_claim(verify_chat(cfg, environ, CLAIMS_SYSTEM, claims_input(mission, final)))
+        entry["claims_done"] = claims
+        if not claims:
+            entry["decision"] = "allow (no completion claimed)"
+            return None
+        digest = git_snapshot(root, state_dir)
+        if digest is None:
+            raise VerifyError("the candidate could not be snapshotted")
+        entry["digest"] = digest
+        changes = git_changes(root, state_dir, turn["base"], digest, cfg["max_diff_chars"])
+        entry["files"] = [c["path"] for c in changes]
+        notes = verify_notes(root, state_dir, turn["base"], cfg["notes"])
+        checks = run_checks(root, cfg["checks"], cfg["check_timeout_s"]) if cfg["checks"] else []
+        entry["checks"] = [{"command": c["command"], "code": c["code"]} for c in checks]
+        source = verifier_input(mission, changes, notes, checks, digest)
+        verdict, findings, judged = judge(verify_chat(cfg, environ, VERIFIER_SYSTEM, source), source)
+        if verdict is None:
+            raise VerifyError("the verifier's answer could not be read")
+        entry["verdict"] = verdict
+        if judged != "block":
+            entry["decision"] = judged
+            if findings:
+                entry["findings"] = findings
+            return None
+        entry["findings"] = findings
+        listed = "\n".join(f"- {f['problem']} (evidence: \"{f['evidence']}\")" for f in findings)
+        rounds = int(turn.get("rounds") or 0)
+        if rounds >= cfg["max_rounds"]:
+            entry["decision"] = "allow (round cap)"
+            return {"systemMessage": f"Patton verify: the independent check of candidate {digest[:12]} still fails "
+                                     f"after {rounds} refused stop(s), so the agent was allowed to stop:\n{listed}"}
+        with _locked(state_dir):
+            turns = _read_json(_turns_file(state_dir), {})
+            if isinstance(turns, dict) and isinstance(turns.get(scope), dict):
+                turns[scope]["rounds"] = rounds + 1
+                _atomic_write(_turns_file(state_dir), json.dumps(turns))
+        entry["decision"] = "block"
+        return {"decision": "block",
+                "reason": (f"Patton verify: an independent check of this change (candidate {digest[:12]}) found a "
+                           f"problem:\n{listed}\nFix it, or say plainly in your final message what is wrong and what "
+                           "is left undone. The check runs again when you stop.")}
+    except (VerifyError, OSError, subprocess.SubprocessError, ValueError) as err:
+        entry["decision"] = "allow (not verified)"
+        entry["error"] = str(err)[:300]
+        return {"systemMessage": f"Patton verify: this change was not verified ({str(err)[:200]})."}
+    finally:
+        if "decision" in entry:
+            with _locked(state_dir), open(os.path.join(state_dir, "verify.jsonl"), "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry) + "\n")
+
+
+def verify_command(args: list[str], stdout, environ) -> int:
+    """List a session's verdicts, and whether the working tree still matches the last checked candidate."""
+    if "--state" in args:
+        state_dir = args[args.index("--state") + 1]
+    else:
+        base = _sessions_dir(environ, "--codex" in args)
+        sessions = sorted(_glob.glob(os.path.join(base, "*", "verify.jsonl")), key=os.path.getmtime)
+        if "--session" in args:
+            sessions = [os.path.join(base, args[args.index("--session") + 1], "verify.jsonl")]
+        if not sessions:
+            stdout.write("no verified session found\n")
+            return 1
+        state_dir = os.path.dirname(sessions[-1])
+    try:
+        with open(os.path.join(state_dir, "verify.jsonl"), encoding="utf-8") as handle:
+            entries = [json.loads(line) for line in handle if line.strip()]
+    except (OSError, ValueError) as err:
+        stdout.write(f"cannot read the verdicts in {state_dir}: {err}\n")
+        return 1
+    for entry in entries:
+        when = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(entry.get("t", 0)))
+        digest = (entry.get("digest") or "")[:12] or "-"
+        stdout.write(f"{when}  {entry.get('scope', '?'):14} {digest:12}  {entry.get('decision')}\n")
+        for finding in entry.get("findings") or []:
+            stdout.write(f"    {finding['problem']}\n")
+        if entry.get("error"):
+            stdout.write(f"    {entry['error']}\n")
+    last = next((e for e in reversed(entries) if e.get("digest")), None)
+    if last:
+        now = git_snapshot(last["root"], state_dir)
+        same = now == last["digest"]
+        stdout.write(f"the working tree {'matches' if same else 'changed since'} candidate {last['digest'][:12]}"
+                     f"{'' if same else f' (now {(now or chr(63))[:12]})'}\n")
+    return 0
+
+
 def _run(event, stdout, environ) -> int:
     name = event.get("hook_event_name") if isinstance(event, dict) else None
     state_dir, root = environ.get("PATTON_GATE_STATE"), environ.get("PATTON_GATE_ROOT")
@@ -1531,9 +1949,23 @@ def _run(event, stdout, environ) -> int:
             except OSError:
                 pass
         return 0
+    verdict = None
+    if name in ("UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop") and state_dir and root and not study:
+        session = _session_config(state_dir)
+        if not session.get("error"):
+            try:
+                verdict = verify_event(name, event, state_dir, root, environ, (session["config"] or DEFAULTS)["verify"])
+            except Exception as err:  # noqa: BLE001 - a broken check must never trap the session
+                verdict = {"systemMessage": f"Patton verify: this change was not verified ({type(err).__name__})."}
+        if verdict:
+            stdout.write(json.dumps(verdict))
+        if name in ("UserPromptSubmit", "Stop"):
+            return 0
     if name in ("SubagentStart", "SubagentStop", "PostToolUseFailure") or (
             name == "PostToolUse" and event.get("tool_name") in MISSION_TOOLS):
-        if state_dir and not study and _missions_on((_session_config(state_dir).get("config") or DEFAULTS)["missions"]):
+        refused = name == "SubagentStop" and (verdict or {}).get("decision") == "block"  # it keeps running
+        if state_dir and not study and not refused and _missions_on(
+                (_session_config(state_dir).get("config") or DEFAULTS)["missions"]):
             subagent_event(name, event, state_dir)
         return 0
     if name == "PostToolUse":
@@ -2131,6 +2563,8 @@ if __name__ == "__main__":
         sys.exit(config_command(args[args.index("config") + 1:], sys.stdout, os.environ))
     if "restore" in args:
         sys.exit(restore_command(args[args.index("restore") + 1:], sys.stdout, os.environ))
+    if "verify" in args:
+        sys.exit(verify_command(args[args.index("verify") + 1:], sys.stdout, os.environ))
     if "log" in args:  # a glob over two installed versions puts a second path before "log"
         rest = [a for a in args[args.index("log") + 1:] if a != "--codex"]
         sys.exit(log(sys.stdout, os.environ, rest[0] if rest else None, codex="--codex" in args))

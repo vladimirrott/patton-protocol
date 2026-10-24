@@ -167,6 +167,50 @@ These limits pass `tests/tools/gate_missions_e2e.py`, a scripted run on real Cla
 pilot on gpt-oss-120b ([record](../../docs/records/2026-10-23-missions-pilot.md)). No study has measured whether
 they help.
 
+## Check the work before the agent stops
+
+Off by default. When it is on, the gate checks a change before Claude Code lets the agent, or a subagent, end its
+turn. Two separate model calls do the checking:
+
+- a **claim reader** sees your request and the agent's final message, and says whether the agent claims the work is
+  done;
+- a **Verifier** sees your request, the project's notes as they were when the turn began, the output of the checks
+  you list, and the change. It never sees what the agent said about its work.
+
+When the agent claims the work done and the Verifier finds a problem it can quote from what it read, the gate
+refuses the stop and sends the agent the finding: fix it, or say plainly what is wrong. It refuses at most
+`verify.max_rounds` times a turn and then lets the agent stop and tells you. A failure with no quote, an answer it
+cannot read, or an endpoint that does not answer never refuses: the turn ends, marked not verified.
+
+The change is named by its git tree hash, the candidate digest. The gate snapshots the project at your prompt (and
+at each subagent's start) and again at the stop, through its own index and object store, so your index, refs and
+objects stay as they were. A project outside git cannot be verified.
+
+```json
+{"verify": {"main": true, "subagents": true, "endpoint": "https://api.groq.com/openai/v1",
+            "model": "openai/gpt-oss-120b", "api_key_env": "GROQ_API_KEY", "checks": ["python3 -m pytest -q"]}}
+```
+
+| Field | Default | What it sets |
+| --- | --- | --- |
+| `verify.main`, `verify.subagents` | `false` | check the main agent's stops, a subagent's stops |
+| `verify.endpoint` | none | an OpenAI-compatible base URL; the change and your request are sent there |
+| `verify.model` | none | the model both readers use |
+| `verify.api_key_env` | none | the name of the environment variable that holds the key; the key itself never goes in a file |
+| `verify.checks` | `[]` | shell commands run in the project at the stop; their exit codes and output go to the Verifier |
+| `verify.notes` | `README*`, `HANDOFF*`, `NOTES*`, `*.md` | which files count as the project's notes |
+| `verify.max_rounds` | 2 | refused stops per turn before the gate lets the agent stop and tells you |
+| `verify.timeout_s`, `verify.check_timeout_s` | 120, 300 | seconds for one model call, for one check |
+| `verify.max_diff_chars` | 24000 | how much of the change the Verifier reads |
+
+A project file may turn `main` or `subagents` on; every other field belongs to the user file, because anyone who
+commits to the repository could otherwise send your changes to another endpoint or run commands at each stop.
+`python3 <plugin>/scripts/patton_gate.py verify` lists a session's verdicts and says whether the working tree still
+matches the last checked candidate.
+
+`tests/tools/gate_verify_e2e.py` drives real Claude Code through a refused stop, a pass, the round cap and a dead
+endpoint, for $0. No study has measured the Verifier's accuracy yet; a replay over the gate studies' stored runs is in progress.
+
 ## Undo a wrong approval
 
 ```sh

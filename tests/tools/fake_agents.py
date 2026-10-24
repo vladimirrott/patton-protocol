@@ -88,7 +88,7 @@ class FakeAgents:
                     return
                 key, step = pick(body, outer.scripts)
                 n = sum(1 for m in body.get("messages") or [] if isinstance(m, dict) and m.get("role") == "assistant")
-                outer.requests.append({"key": key, "n": n})
+                outer.requests.append({"key": key, "n": n, "messages": body.get("messages") or []})
                 if isinstance(step, dict) and step.get("delay"):
                     time.sleep(float(step["delay"]))
                 reply = message(step, n, key or "x", outer.output_tokens)
