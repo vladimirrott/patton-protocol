@@ -96,15 +96,17 @@ python3 -m patton_lab.missions.report --check    # the record quotes the tables 
 The same fixtures, mission, operator and scoring, run inside Codex CLI 0.159.0 on the models a ChatGPT subscription
 serves. Its design is [`docs/plans/2026-10-22-codex-gate-port-design.md`](../docs/plans/2026-10-22-codex-gate-port-design.md).
 A 14-run calibration measured what one run costs
-([record](../docs/records/2026-10-22-codex-calibration.md)). The study is pre-registered (gpt-6.1-sol, 5 arms,
-16 fixtures, 3 reps, 240 runs) and has not run yet.
+([record](../docs/records/2026-10-22-codex-calibration.md)). The pre-registered study (gpt-6.1-sol, 5 arms,
+16 fixtures, 3 reps, 240 runs) ran on 2026-10-23 and 2026-10-24
+([findings](../docs/findings/2026-10-24-codex-gate-study-findings.md),
+[record](../docs/records/2026-10-24-codex-gate-study-record.md)).
 
 | What | Where |
 | --- | --- |
-| pre-registration (frozen, not yet run) | `prereg/2026-10-22-codex-gate-study-preregistration.md` |
+| pre-registration (frozen before the first run) | `prereg/2026-10-22-codex-gate-study-preregistration.md` |
 | calibration records and cassettes | `codex_runs/` (run order in `codex_runs/ORDER`) |
-| study records, once it runs | `codex_study/` |
-| generated report, once it runs | `CODEX_REPORT.md` |
+| study records and cassettes | `codex_study/` (a failed attempt in `attempts/`) |
+| generated report | `CODEX_REPORT.md` |
 | the model catalog entry every run installs | `codex/catalog/` |
 | harness code | `patton_lab/codex/` |
 
@@ -116,7 +118,8 @@ python3 -m patton_lab.codex.runner replay --model gpt-6.1-sol   # re-score the 1
 python3 -m patton_lab.codex.runner replay --model gpt-6-luna    # and the other 4
 python3 -m patton_lab.codex.runner summary                  # the calibration table
 python3 -m patton_lab.codex.runner study                    # the registered study; spends subscription quota, resumable
-python3 -m patton_lab.codex.report                          # after the study: write CODEX_REPORT.md from codex_study/
+python3 -m patton_lab.codex.runner replay --out codex_study  # re-score the 240 study runs offline
+python3 -m patton_lab.codex.report --check                  # the committed report matches the records
 ```
 
 `trace` needs podman, the pinned image and the Codex binary, and no login: a scripted model stands in. `study`
@@ -144,3 +147,5 @@ edit to either, `study` refuses until `trace` passes again.
 | `patton_lab/codex/` | the Codex port: hook adapter, Responses recorder, runner, report, pre-registration generator |
 | `codex/catalog/` | the model catalog entry the Codex runs install |
 | `codex_runs/` | the Codex calibration's records and cassettes |
+| `codex_study/` | the Codex study's records and cassettes |
+| `CODEX_REPORT.md` | the Codex study's generated report |

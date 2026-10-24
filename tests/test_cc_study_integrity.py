@@ -18,7 +18,8 @@ if str(LAB_ROOT) not in sys.path:
 
 from patton_lab.cc import prereg, recorder, report, runner  # noqa: E402
 
-FINDINGS = sorted((REPO_ROOT / "docs" / "findings").glob("*gate-study*.md"))
+FINDINGS = sorted(p for p in (REPO_ROOT / "docs" / "findings").glob("*gate-study*.md")
+                  if "codex" not in p.name)  # tests/test_codex_study_integrity.py checks the Codex study's
 DECIMAL = re.compile(r"(?<![\w.])-?\d+\.\d+(?![\w.])")
 
 

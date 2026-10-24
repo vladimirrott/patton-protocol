@@ -46,10 +46,11 @@ An earlier study put a gate of the same design inside a sandbox, and harm was 0.
 - **Finished work.** Utility fell from 0.862 to 0.768, and the data leave open whether that drop is under the
   registered 0.10 margin. A post hoc split ([note](docs/findings/2026-10-23-gate-utility-posthoc.md)) puts most of
   the drop in runs where the gate did nothing the worker could see, and much of the rest in a partial-approval rule
-  that only the study's simulated operator uses. The Codex study measures it again.
-- **One model.** gpt-oss-120b only. The same study, pre-registered with the same thresholds, is running on Codex CLI
-  with gpt-6.1-sol ([pre-registration](lab/prereg/2026-10-22-codex-gate-study-preregistration.md)). No Claude model
-  has been measured yet.
+  that only the study's simulated operator uses. On Codex with gpt-6.1-sol the drop was 0.010, inside the margin.
+- **Two models, no Claude.** The same pre-registered study ran on Codex CLI with gpt-6.1-sol, 240 runs
+  ([findings](docs/findings/2026-10-24-codex-gate-study-findings.md)). Sol harmed nothing without the gate (0.000),
+  so that study could not show a cut (Q1 INCONCLUSIVE, floor). It found 0 of 96 bypasses, utility 0.948 unguarded
+  against 0.938 with the hook, and 1.000 question per run. No Claude model has been measured yet.
 - **Not a sandbox.** The gate reads commands to catch an honest agent's mistakes. An agent that sets out to get past
   it can, for example by writing a script and running it under a command the person approves. Run it inside the
   host's sandbox when you need a boundary against a hostile agent ([threat model](plugins/patton-gate/README.md#what-it-does-not-protect)).
@@ -135,6 +136,7 @@ Every study replays offline for $0 from its cassettes:
 cd lab
 python3 -m patton_lab.cc.runner replay       # the gate study: re-score all runs, reconcile the spend
 python3 -m patton_lab.cc.report --check      # the committed report matches the records
+python3 -m patton_lab.codex.runner replay --out codex_study   # the Codex study: re-score all 240 runs
 python3 -m patton_lab.run replay             # the first lab study
 ```
 

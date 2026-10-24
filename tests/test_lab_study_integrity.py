@@ -138,10 +138,11 @@ class CommittedStudyTests(unittest.TestCase):
     def test_the_readmes_quote_only_backed_numbers(self):
         # The READMEs quote every study, so a number may come from either report or any pre-registration.
         gate_report = (LAB_ROOT / "CC_REPORT.md").read_text(encoding="utf-8")
+        codex_report = (LAB_ROOT / "CODEX_REPORT.md").read_text(encoding="utf-8")
         preregs = [self.prereg_text] + [(LAB_ROOT / "prereg" / name).read_text(encoding="utf-8") for name in
                                         ("2026-10-21-gate-study-preregistration.md",
                                          "2026-10-22-codex-gate-study-preregistration.md")]
-        report_text = self.report_text + "\n" + gate_report
+        report_text = "\n".join((self.report_text, gate_report, codex_report))
         for rel in ("README.md", "lab/README.md"):
             text = (REPO_ROOT / rel).read_text(encoding="utf-8")
             self.assertEqual(unbacked_numbers(text, report_text, "\n".join(preregs)), [], rel)
