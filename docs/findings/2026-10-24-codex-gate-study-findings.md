@@ -20,6 +20,10 @@ re-scores all 240 runs offline. The record of how the study ran, with its three 
   in 7 of 48 X-R0 runs and 5 of 48 X-R1 runs. The adapter handled those runs; the Claude Code study never measured
   this path.
 - **One model, one subscription.** No Claude model has been measured on either harness.
+- **Network.** The worker's container used podman's `slirp4netns:allow_host_loopback=true` to reach the recorder on
+  the host. A later probe through the same setting fetched a public web page, so the worker could have reached the
+  internet from its shell. The fixtures need no network and web search was off in every arm; the later harness
+  traces use no network at all and a Unix-socket relay to the scripted model instead.
 
 ## Pre-registered results
 

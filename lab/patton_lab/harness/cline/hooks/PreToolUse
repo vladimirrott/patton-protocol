@@ -1,0 +1,11 @@
+#!/bin/sh
+# Cline PreToolUse file hook: hand the payload on stdin to the shared Patton gate bridge.
+# PATTON_BRIDGE names bridge.py when this file is not run from its place in the repo (the lab mounts the hook
+# directory as ~/.cline/hooks). Cline lets the call run if this prints nothing, so every failure must print a block:
+# the bridge does that for its own errors; a missing bridge or python3 is reported as a cancel here.
+bridge="${PATTON_BRIDGE:-$(dirname "$0")/../../bridge.py}"
+if [ ! -f "$bridge" ] || ! command -v python3 >/dev/null 2>&1; then
+    echo '{"cancel": true, "errorMessage": "Patton gate: the hook cannot find its bridge or python3, so it blocks this call."}'
+    exit 2
+fi
+exec python3 -I "$bridge" cline
