@@ -16,6 +16,9 @@ reaches the model. So a refused `run_commands` is instead rewritten with `overri
 the gate's refusal and exits 1: the original command never runs and the model reads the refusal as the command's
 output, as it would from Claude Code. Every other refused tool, and every bridge error, cancels the run.
 
+A reminder from the gate goes out as `context`, which Cline appends for the model (`appendContext`, the parser
+around FBe in the shipped binary) unless the answer cancels; a cancel drops it, like the reason.
+
 Tools (sdk/packages/core/src/extensions/tools/schemas.ts): `run_commands` takes shell strings in several shapes
 (RunCommandsInputUnionSchema), joined here with " ; " so the gate sees every command; a structured
 {command, args} entry runs without a shell and is quoted as one. `editor` {path, old_text?, new_text} edits or
@@ -96,6 +99,14 @@ def emit(verdict: str, reason: str) -> tuple[str, int]:
         refusal = "printf '%s\\n' " + shlex.quote(reason) + "; exit 1"
         return json.dumps({"overrideInput": {"commands": [refusal]}}), 0
     return json.dumps({"cancel": True, "errorMessage": reason}), 0
+
+
+def emit_context(verdict: str, reason: str, context: str) -> tuple[str, int]:
+    text, code = emit(verdict, reason)
+    answer = json.loads(text)
+    if not answer.get("cancel"):
+        answer["context"] = context
+    return json.dumps(answer), code
 
 
 def emit_error(reason: str) -> tuple[str, int]:

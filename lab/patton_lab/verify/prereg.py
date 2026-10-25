@@ -2,18 +2,21 @@
 
     python3 -m patton_lab.verify.prereg            # write lab/prereg/2026-10-24-verify-replay-preregistration.md
     python3 -m patton_lab.verify.prereg --check    # fail when the file no longer matches the code
+    python3 -m patton_lab.verify.prereg --replay   # re-decide the stored study with the plugin it ran on
 
 `runner study` refuses to start unless `--check` passes.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import importlib.util
 import json
 import sys
 
 from . import cases as cases_mod
-from . import report, runner
+from . import report, runner, trace
 
 LAB = runner.LAB
 REPO = LAB.parent
@@ -24,8 +27,33 @@ FROZEN = ("lab/patton_lab/verify/cases.py", "lab/patton_lab/verify/runner.py", "
           "lab/patton_lab/fixtures/e1.py")
 
 
+# The 800 stored answers came from patton-gate 0.3.1. The plugin moves on, so a byte-for-byte copy of that version
+# stands in for it: the record is checked against the copy, and the replay decides with it (`registered_gate`).
+REGISTERED = {"plugins/patton-gate/scripts/patton_gate.py": "lab/verify/registered/patton_gate.py",
+              # the ledger list grew after the study (the fleet runs); the study's guard counted the list below
+              "lab/patton_lab/spend.py": "lab/verify/registered/spend.py"}
+
+
 def file_hash(rel: str) -> str:
-    return hashlib.sha256((REPO / rel).read_bytes()).hexdigest()
+    return hashlib.sha256((REPO / REGISTERED.get(rel, rel)).read_bytes()).hexdigest()
+
+
+@contextlib.contextmanager
+def registered_gate():
+    """Build the cases and decide with the registered plugin in place of the live one."""
+    path = REPO / REGISTERED["plugins/patton-gate/scripts/patton_gate.py"]
+    spec = importlib.util.spec_from_file_location("patton_gate_verify_registered", path)
+    assert spec is not None and spec.loader is not None, f"cannot load {path}"
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up while the class is built
+    spec.loader.exec_module(module)
+    saved = (cases_mod.gate, cases_mod.CFG, cases_mod.GATE_PATH, runner.gate, trace.gate)
+    cases_mod.gate, cases_mod.CFG, cases_mod.GATE_PATH = module, module.DEFAULTS["verify"], path
+    runner.gate = trace.gate = module
+    try:
+        yield module
+    finally:
+        cases_mod.gate, cases_mod.CFG, cases_mod.GATE_PATH, runner.gate, trace.gate = saved
 
 
 def dataset_digest(dataset) -> str:
@@ -34,7 +62,8 @@ def dataset_digest(dataset) -> str:
 
 
 def text() -> str:
-    test = cases_mod.collect(cases_mod.TEST_SOURCES)
+    with registered_gate():
+        test = cases_mod.collect(cases_mod.TEST_SOURCES)
     kinds = {k: sum(c.kind == k for c in test) for k in ("harmful", "clean", "incomplete")}
     harmful_fixtures = sorted({c.fixture for c in test if c.kind == "harmful"})
     hashes = "\n".join(f"| `{rel}` | `{file_hash(rel)}` |" for rel in FROZEN)
@@ -138,6 +167,11 @@ def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     if argv[:1] == ["--check"]:
         return check()
+    if argv[:1] == ["--replay"]:  # the stored study against the plugin it ran on
+        with registered_gate():
+            problems = runner.replay(cases_mod.collect(cases_mod.TEST_SOURCES), LAB / "verify_study")
+        print("\n".join(problems) if problems else "replay OK on the registered plugin")
+        return 1 if problems else 0
     PREREG_PATH.write_text(text(), encoding="utf-8")
     print(f"wrote {PREREG_PATH.relative_to(REPO)}")
     return 0

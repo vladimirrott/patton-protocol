@@ -2,7 +2,11 @@
 
 A plugin for Claude Code and Codex CLI that asks before the agent changes, moves or deletes a file that existed
 when the session started. When nothing like that is at stake it stays silent, so your own permission settings keep
-working. In Claude Code it can also hold subagents to limits you set ([Subagent limits](#subagent-limits)).
+working. Each of these is off until you turn it on: an analyst model that answers the questions your notes already
+settle ([Triage](#let-an-analyst-answer-the-easy-questions)), rules that keep the agent to its process
+([Discipline](#keep-the-agent-to-its-process)), a blind check of the work before the agent stops
+([Verifier](#check-the-work-before-the-agent-stops)), and limits on subagents in Claude Code
+([Subagent limits](#subagent-limits)).
 
 ![Ubuntu 22.04, 24.04 and 26.04: VM validated](https://img.shields.io/badge/Ubuntu%2022.04%20%7C%2024.04%20%7C%2026.04-VM%20validated-2f855a?style=flat-square&logo=ubuntu&logoColor=white)
 
@@ -28,8 +32,10 @@ What the install does:
 2. Copies the plugin into `~/.claude/plugins/cache/`, and enables it for your user. `--scope project` enables it
    for one repository instead.
 3. Registers its hooks: one when a session starts, one before and one after every `Bash`, `Write`, `Edit`,
-   `MultiEdit`, `NotebookEdit` and subagent dispatch (`Agent`), and three that only count subagents
-   (`SubagentStart`, `SubagentStop`, and a failed dispatch). Those three never block anything.
+   `MultiEdit`, `NotebookEdit` and subagent dispatch (`Agent`), one after a failed command, one at each prompt and
+   each stop (they do nothing until the Verifier, triage or a discipline rule is on), and two that count subagents
+   (`SubagentStart`, `SubagentStop`). When one of these fails, Claude Code lets the agent go on; only the hooks
+   around a tool call fail closed.
 
 ## What it does
 
@@ -215,6 +221,72 @@ file and 25 of 457 clean runs, and both predictions came out inconclusive. It ca
 notes call the only copy and 4 of 16 losses of a file the notes never mention. Keep file protection on: the Verifier
 checks the work on top of the gate, not in its place.
 
+## Let an analyst answer the easy questions
+
+Off by default. Most questions the gate asks are about files your notes already call disposable: rotated logs,
+build output, a scratch dump. With triage on, an analyst model reads each flagged shell command first and may let
+it run without asking you:
+
+- It reads what the gate recorded when the session started: your request, every file with its size and any
+  byte-identical twin, the project's notes (`README*`, `HANDOFF*`, `NOTES*`, `CHANGELOG*`, `*.md`, `*.sha256`), the
+  flagged files and the command. The command is marked as written by the agent, and nothing the agent said reaches
+  the analyst.
+- Only a change the gate can undo reaches it: every flagged file has a kept copy and still holds the bytes it had at
+  session start. Its own files, a command the gate cannot read, a change outside the project and file edits
+  (`Write`, `Edit`) always go to you.
+- It lets a change through only when it allows every flagged path with a sentence copied word for word from the
+  notes or the file list. Anything else goes to you, with the reason: an escalation, a quote it made up, a reply it
+  could not read, an endpoint that did not answer.
+- When the agent stops, you get one message listing what triage let through, each with the command and the quote,
+  and `restore` puts any of it back.
+
+```json
+{"triage": {"on": true, "endpoint": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b",
+            "api_key_env": "GROQ_API_KEY", "reasoning_effort": "medium"}}
+```
+
+| Field | Default | What it sets |
+| --- | --- | --- |
+| `triage.on` | `false` | ask the analyst before asking you; a project file can turn it off, never on |
+| `triage.endpoint`, `triage.model`, `triage.api_key_env` | none | as for the Verifier; user file only |
+| `triage.reasoning_effort` | none | `low`, `medium` or `high`, for models that take it |
+| `triage.timeout_s` | 60 | seconds for one call; a timeout sends the question to you |
+
+The prompt and the rules are the ones a pre-registered replay measured over 838 stored flags
+([findings](../../docs/findings/2026-10-24-triage-findings.md)): with gpt-oss-120b it let through none of the 120
+flags that would have lost a needed file, and it cut the questions per run from 1.240 to 0.491. Those flags came
+from 14 distinct dangerous cases, so the evidence is narrow. Triage reads shell commands only, because the replay
+measured nothing else. `tests/tools/gate_triage_e2e.py` drives it in real Claude Code for $0.
+
+## Keep the agent to its process
+
+Off by default. Each rule is mechanical: no model is called, and the gate reads only the hook events and its own
+record of the turn.
+
+```json
+{"discipline": {"reminders": true, "scope": ["src/**", "tests/**"], "out_of_scope": "remind", "max_calls": 40,
+                "check_before_stop": true, "report": "subagents"}}
+```
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `discipline.reminders` | `false` | when a call changes a test, a note next to its result: change a test only when the request asks, never to make it pass, and say so when a test cannot pass |
+| `discipline.tests` | `test_*`, `*_test.*`, `tests/**` and the like | which files count as tests |
+| `discipline.scope` | `[]` | the files this work may change; empty means no scope |
+| `discipline.out_of_scope` | `"allow"` | `"remind"` adds a note when a call changes a file outside the scope, `"deny"` refuses the call |
+| `discipline.max_calls` | `null` | shell commands and edits per turn: a warning at four fifths, then each further call is refused with "report what is done" |
+| `discipline.check_before_stop` | `false` | refuse a stop when files changed after the last check ran, or no check ran |
+| `discipline.check_commands` | `pytest`, `npm test`, `cargo test`, `go test`, `make test` and more | commands that count as running the checks; user file only |
+| `discipline.report` | `"off"` | `"subagents"` or `"all"`: the final message must hold the worker report (`status`, `files_changed`, `commands_run`, `evidence`, `risks`, `next_action`), and it is refused when it leaves out a file the turn changed, lists a check that never ran, or says `completed` after the last check failed |
+| `discipline.max_rounds` | 1 | refused stops per turn; after that the agent may stop and you are told what is left; user file only |
+
+A turn starts at your prompt, or at a subagent's start. A refused stop comes before the Verifier, which then checks
+the fixed work. Claude Code sends `PostToolUseFailure` when a command fails, which is how the gate knows a check
+failed; Codex sends no exit code, so there a check's outcome stays unknown and only the other report rules apply.
+`tests/tools/gate_discipline_e2e.py` drives the reminder, both stop refusals and an honest partial report through
+real Claude Code for $0. No study has measured whether these rules change what an agent does; that is the next
+pilot's question.
+
 ## Undo a wrong approval
 
 ```sh
@@ -240,7 +312,7 @@ codex plugin marketplace add vladimirrott/patton-protocol && codex plugin add pa
 
 Codex runs a plugin's hooks only after you trust them. The last command does what Codex's `/hooks` review does: it
 asks `codex app-server` for this plugin's hooks, records each one's current hash as trusted in `hooks.state`, and
-checks that Codex now reports all three as trusted. Codex drops trust when a hook changes, so run it again after
+checks that Codex now reports all five as trusted. Codex drops trust when a hook changes, so run it again after
 `codex plugin marketplace upgrade`. You can review and trust them in `/hooks` yourself instead.
 
 Codex hooks cannot ask a question, and Codex lets a call run when its hook fails, so the gate works differently
@@ -253,11 +325,18 @@ there:
   the directory a command runs in.
 - Patches are read for every file they add, update, delete or move.
 - Any error inside the gate refuses the call with the reason.
+- Triage, the discipline rules and the Verifier work as in Claude Code: Codex 0.159 sends the agent's final message
+  to the `Stop` hook and passes a refusal's reason back to the model, and a reminder reaches the model from
+  `PreToolUse`. A check's outcome stays unknown, because Codex gives a hook a command's output and never its exit
+  code.
+- Subagent limits cannot be built: in Codex 0.159 no hook fires when the agent spawns a subagent. Use
+  `discipline.max_calls` for a budget on the main agent.
 
 Logs, settings and `restore` work as in Claude Code; add `--codex` to `log` and `restore`, and run the script from
 `${CODEX_HOME:-~/.codex}/plugins/cache/patton-protocol/patton-gate/*/scripts/`. To remove it:
 `codex plugin remove patton-gate@patton-protocol`. `tests/tools/gate_codex_e2e.py` installs, trusts and drives it
-in real Codex with a scripted model, for $0.
+in real Codex with a scripted model, for $0, and `tests/tools/gate_codex_turn_e2e.py` does the same for a reminder and a
+refused stop. `tests/test_codex_contract.py` pins each Codex behaviour the gate relies on.
 
 ## Uninstall
 

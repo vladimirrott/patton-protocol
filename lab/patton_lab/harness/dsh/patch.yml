@@ -1,5 +1,6 @@
 # Overlay for `dsh --profile headless --patch <this file>` (dsh 0.2.1-rc.3). trace.py replaces __BASE_URL__ with the
-# scripted model's address as the container sees it (http://10.0.2.2:<port>/v1).
+# model's address as the container sees it (the relay, http://127.0.0.1:18080/v1) and __MODEL__ with the model name,
+# and appends patch-hooks.yml for a guarded run.
 
 # One hand-declared OpenAI chat-completions route to the scripted model; the key is a dummy env var.
 - id: llm-pi-ai
@@ -14,23 +15,15 @@
           mode: normal
           maxRetries: 0
         models:
-          - id: scripted
-            name: scripted
+          - id: __MODEL__
+            name: __MODEL__
             reasoningEfforts: false
 
 - id: agent-default-model
   config:
     provider: lab
-    model: scripted
+    model: __MODEL__
 
 # The title generator would send its own request to the scripted model and take a step of the script.
 - id: session-title-llm
   disabled: true
-
-# The Claude-Code-compatible command-hook bridge, which the npm package does not mount by default.
-- insert:
-    - id: hooks-claude-code
-      name: '@deepseek-ai/dsh-hooks-claude-code'
-      config:
-        configPath: /patton-hooks/hooks.json
-        projectDir: /work

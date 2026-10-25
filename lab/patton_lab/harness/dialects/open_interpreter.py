@@ -11,7 +11,14 @@ What the fork sends (codex-rs/core/src/tools/handlers/...):
 - MCP tools under their own names. The gate cannot read them, so they are refused.
 
 The fork lets a call run when its hook exits with anything but 0 or 2, or exits 2 with an empty stderr
-(hooks/src/events/pre_tool_use.rs), so every refusal here, errors included, is a deny JSON with exit code 0.
+(hooks/src/events/pre_tool_use.rs), so every refusal here, errors included, is a deny JSON with exit code 0. The
+hook command is the fail-closed shim (`shim/patton-hook.sh open_interpreter`), which prints the same deny when the
+bridge crashes or hangs.
+
+A Stop hook (`shim/patton-hook.sh open_interpreter stop`) gets {"hook_event_name": "Stop", "session_id", "cwd",
+"stop_hook_active", "last_assistant_message", ...}; a refusal is {"decision": "block", "reason"}, whose reason the
+fork sends to the model as the next user message. The fork has no cap of its own, so the bridge's cap is the only
+one. A reminder from the gate goes out as `additionalContext` next to the verdict.
 """
 
 from __future__ import annotations
@@ -31,6 +38,13 @@ class Refused(Exception):
 def parse(payload: dict) -> dict | None:
     global _pending
     _pending = None
+    if payload.get("hook_event_name") == "Stop":
+        cwd = payload.get("cwd")
+        if not isinstance(cwd, str) or not cwd.startswith("/"):
+            raise Refused("Patton gate: the stop names no absolute working directory.")
+        return {"event": "Stop", "final": str(payload.get("last_assistant_message") or ""), "cwd": cwd,
+                "session": str(payload.get("session_id") or "session"),
+                "active": bool(payload.get("stop_hook_active"))}
     tool = payload.get("tool_name")
     tool_input = payload.get("tool_input") or {}
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
@@ -59,14 +73,36 @@ def _deny(reason: str) -> tuple[str, int]:
                                               "permissionDecisionReason": reason}}), 0
 
 
-def emit(verdict: str, reason: str) -> tuple[str, int]:
+def _answer(verdict: str, reason: str, context: str = "") -> dict | None:
     if verdict != "allow":
-        return _deny(reason or "Patton gate: refused.")
-    if _pending is None:
-        return "", 0  # a patch, or a call the gate does not guard: no answer lets it run as written
-    rewritten = f"cd {shlex.quote(_pending['cwd'])} && {_pending['command']}"
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
-                                              "updatedInput": {"command": rewritten}}}), 0
+        out = {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+               "permissionDecisionReason": reason or "Patton gate: refused."}
+    elif _pending is not None:
+        rewritten = f"cd {shlex.quote(_pending['cwd'])} && {_pending['command']}"
+        out = {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": {"command": rewritten}}
+    elif context:
+        out = {"hookEventName": "PreToolUse"}
+    else:
+        return None  # a patch the gate allows: no answer lets it run as written
+    if context:
+        out["additionalContext"] = context
+    return {"hookSpecificOutput": out}
+
+
+def emit(verdict: str, reason: str) -> tuple[str, int]:
+    answer = _answer(verdict, reason)
+    return (json.dumps(answer), 0) if answer else ("", 0)
+
+
+def emit_context(verdict: str, reason: str, context: str) -> tuple[str, int]:
+    answer = _answer(verdict, reason, context)
+    return (json.dumps(answer), 0) if answer else ("", 0)
+
+
+def emit_stop(verdict: str, reason: str) -> tuple[str, int]:
+    if verdict != "block":
+        return "", 0
+    return json.dumps({"decision": "block", "reason": reason or "Patton: the stop was refused."}), 0
 
 
 def emit_error(reason: str) -> tuple[str, int]:

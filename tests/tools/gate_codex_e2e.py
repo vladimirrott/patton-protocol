@@ -68,46 +68,59 @@ def codex(argv: list[str], env: dict, cwd: Path, timeout: int = 90) -> subproces
         return subprocess.CompletedProcess(err.cmd, 124, out, errs + f"\n[timed out after {timeout} s]")
 
 
+def setup(tmp: str, script: list[dict]):
+    """A scratch HOME and CODEX_HOME, a project, and the scripted model: (home, codex_home, root, fake, env)."""
+    home, codex_home, root = Path(tmp) / "home", Path(tmp) / "home" / ".codex", Path(tmp) / "project"
+    codex_home.mkdir(parents=True)
+    root.mkdir()
+    catalog = json.loads((REPO / "lab" / "codex" / "catalog" / f"{MODEL}.json").read_text())
+    (codex_home / "catalog.json").write_text(json.dumps({"models": [catalog]}))
+    fake = FakeUpstream(script)
+    port = fake.start()
+    (codex_home / "config.toml").write_text(
+        f'model = "{MODEL}"\nmodel_reasoning_effort = "medium"\nmodel_provider = "fake"\n'
+        f'model_catalog_json = "{codex_home / "catalog.json"}"\nweb_search = "disabled"\n\n'
+        "[agents]\nenabled = false\n\n"
+        f'[model_providers.fake]\nname = "fake"\nbase_url = "http://127.0.0.1:{port}/backend-api/codex"\n'
+        'wire_api = "responses"\nenv_key = "PATTON_PLACEHOLDER_KEY"\nsupports_websockets = false\n')
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("OPENAI", "CODEX", "PATTON_GATE"))}
+    env.update(HOME=str(home), CODEX_HOME=str(codex_home), PATTON_PLACEHOLDER_KEY="placeholder",
+               XDG_CONFIG_HOME=str(home / ".config"), XDG_STATE_HOME=str(home / ".local" / "state"))
+    return home, codex_home, root, fake, env
+
+
+def install(source: str, env: dict, root: Path, codex_home: Path, problems: list[str]) -> bool:
+    """Add the marketplace and the plugin, then trust its hooks, as a person does. False when a step failed."""
+    for argv in (["plugin", "marketplace", "add", source], ["plugin", "add", "patton-gate@patton-protocol"]):
+        done = codex(argv, env, root)
+        print(f"$ codex {' '.join(argv)}  -> rc {done.returncode}")
+        if done.returncode != 0:
+            problems.append(f"codex {' '.join(argv)} failed: {(done.stdout + done.stderr)[-400:]}")
+            return False
+    scripts = sorted(glob.glob(str(codex_home / "plugins" / "cache" / "patton-protocol" / "patton-gate" / "*"
+                                   / "scripts" / "patton_gate.py")))
+    if not scripts:
+        problems.append("the plugin is not in the Codex plugin cache")
+        return False
+    trust = subprocess.run([sys.executable, scripts[-1], "codex-trust"], cwd=root, env=env, capture_output=True,
+                           text=True, timeout=120)
+    print(f"$ python3 .../patton_gate.py codex-trust  -> rc {trust.returncode}\n{trust.stdout}")
+    if trust.returncode != 0:
+        problems.append("codex-trust failed")
+        return False
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", default=str(REPO), help="marketplace source: a path or owner/repo")
     args = parser.parse_args()
     problems: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
-        home, codex_home, root = Path(tmp) / "home", Path(tmp) / "home" / ".codex", Path(tmp) / "project"
-        codex_home.mkdir(parents=True)
-        root.mkdir()
+        home, codex_home, root, fake, env = setup(tmp, SCRIPT)
         (root / "notes.txt").write_text("keep me\n")
-        catalog = json.loads((REPO / "lab" / "codex" / "catalog" / f"{MODEL}.json").read_text())
-        (codex_home / "catalog.json").write_text(json.dumps({"models": [catalog]}))
-        fake = FakeUpstream(SCRIPT)
-        port = fake.start()
-        (codex_home / "config.toml").write_text(
-            f'model = "{MODEL}"\nmodel_reasoning_effort = "medium"\nmodel_provider = "fake"\n'
-            f'model_catalog_json = "{codex_home / "catalog.json"}"\nweb_search = "disabled"\n\n'
-            "[agents]\nenabled = false\n\n"
-            f'[model_providers.fake]\nname = "fake"\nbase_url = "http://127.0.0.1:{port}/backend-api/codex"\n'
-            'wire_api = "responses"\nenv_key = "PATTON_PLACEHOLDER_KEY"\nsupports_websockets = false\n')
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("OPENAI", "CODEX", "PATTON_GATE"))}
-        env.update(HOME=str(home), CODEX_HOME=str(codex_home), PATTON_PLACEHOLDER_KEY="placeholder",
-                   XDG_CONFIG_HOME=str(home / ".config"), XDG_STATE_HOME=str(home / ".local" / "state"))
         try:
-            for argv in (["plugin", "marketplace", "add", args.source], ["plugin", "add", "patton-gate@patton-protocol"]):
-                done = codex(argv, env, root)
-                print(f"$ codex {' '.join(argv)}  -> rc {done.returncode}")
-                if done.returncode != 0:
-                    problems.append(f"codex {' '.join(argv)} failed: {(done.stdout + done.stderr)[-400:]}")
-                    raise SystemExit
-            scripts = sorted(glob.glob(str(codex_home / "plugins" / "cache" / "patton-protocol" / "patton-gate" / "*"
-                                           / "scripts" / "patton_gate.py")))
-            if not scripts:
-                problems.append("the plugin is not in the Codex plugin cache")
-                raise SystemExit
-            trust = subprocess.run([sys.executable, scripts[-1], "codex-trust"], cwd=root, env=env, capture_output=True,
-                                   text=True, timeout=120)
-            print(f"$ python3 .../patton_gate.py codex-trust  -> rc {trust.returncode}\n{trust.stdout}")
-            if trust.returncode != 0:
-                problems.append("codex-trust failed")
+            if not install(args.source, env, root, codex_home, problems):
                 raise SystemExit
             base = ["exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "-m", MODEL]
             first = codex(base + ["Tidy this project."], env, root)

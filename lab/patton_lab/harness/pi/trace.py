@@ -4,7 +4,8 @@
 
 Each scenario is its own container run with a fresh /work holding keep.txt, its own gate state, and its own script.
 Outcomes are read from the files in /work and from the requests the scripted model received, never from Pi's exit
-code alone. Prints one line per scenario; exits 0 only when S1 to S6 pass (S7 is a finding, not a requirement).
+code alone. Prints one line per scenario; exits 0 only when S1 to S6, S7g, S7h and S8 pass (S7a to S7c are
+findings, not requirements).
 Run outputs are kept under lab/harness_cache/pi/runs/<scenario>/.
 """
 
@@ -40,8 +41,12 @@ def harness_argv(extensions: list[str]) -> list[str]:
 
 
 def run_scenario(name: str, steps: list[dict], *, env: dict | None = None, stub: str | None = None,
-                 extensions: list[str] | None = None, timeout_s: int = TIMEOUT_S) -> kit.Run:
+                 extensions: list[str] | None = None, timeout_s: int = TIMEOUT_S,
+                 config: dict | None = None) -> kit.Run:
     run = kit.new_run("pi", name, steps)
+    if config is not None:
+        (run.extra / "config.json").write_text(json.dumps(config))
+        env = {**(env or {}), "PATTON_GATE_CONFIG": "/extra/config.json"}
     agent_dir = run.home / ".pi" / "agent"
     agent_dir.mkdir(parents=True)
     (agent_dir / "models.json").write_text((HERE / "models.json").read_text())
@@ -124,7 +129,7 @@ def s5() -> tuple[bool, str]:
 
 def s6() -> tuple[bool, str]:
     return stub_scenario("S6", HANG, "s6.txt", "the bridge did not answer within 3000 ms",
-                         env={"PATTON_BRIDGE_TIMEOUT_MS": "3000"})
+                         env={"PATTON_BRIDGE_TIMEOUT_MS": "3000", "PATTON_BRIDGE_STOP_TIMEOUT_MS": "3000"})
 
 
 def s7(name: str, refusals: int, entry: bool) -> str:
@@ -139,6 +144,52 @@ def s7(name: str, refusals: int, entry: bool) -> str:
             f"refusal={seen}, 'without runnable model context' reported={invalid}, rc={run.rc} {run.seconds}s")
 
 
+CHECKS = "ran none of the project's checks"
+
+
+def stops_refused(run: kit.Run) -> int:
+    try:
+        return int(json.loads((run.state / "bridge-stops.json").read_text()))
+    except (OSError, ValueError):
+        return 0
+
+
+def carrying(run: kit.Run, text: str) -> list[int]:
+    """Which model requests (0-based) carry `text`."""
+    return [i for i, r in enumerate(run.fake.requests) if text in json.dumps(r.get("messages", []))]
+
+
+def s7g() -> tuple[bool, str]:
+    """check_before_stop: the first stop after a change is refused with the gate's reason, the second allowed."""
+    run = run_scenario("S7g", [bash("echo out > /work/out.txt"), {"text": "done"}, {"text": "done"}],
+                       config={"discipline": {"check_before_stop": True}})
+    n, seen, refused = len(run.fake.requests), carrying(run, CHECKS), stops_refused(run)
+    ok = (run.work / "out.txt").is_file() and n == 3 and seen == [2] and refused == 1
+    kit.finish(run, "pi")
+    return check(run, ok, f"stops refused={refused} reason reached request(s) {seen} (want [2])")
+
+
+def s7h() -> tuple[bool, str]:
+    """A worker that says done forever, max_rounds 10: the bridge's cap of 4 ends it."""
+    run = run_scenario("S7h", [bash("echo out > /work/out.txt"), {"text": "done"}],
+                       config={"discipline": {"check_before_stop": True, "max_rounds": 10}}, timeout_s=90)
+    n, seen, refused = len(run.fake.requests), carrying(run, CHECKS), stops_refused(run)
+    ok = n == 6 and refused == 4 and seen == [2, 3, 4, 5] and run.rc == 0
+    kit.finish(run, "pi")
+    return check(run, ok, f"stops refused={refused} (cap 4) requests carrying the reason={seen}")
+
+
+def s8() -> tuple[bool, str]:
+    """reminders: a change to a test file runs, and the gate's reminder reaches the model's next request."""
+    run = run_scenario("S8", [bash("echo x > /work/test_new.py"), {"text": "done"}],
+                       config={"discipline": {"reminders": True}})
+    made, seen = (run.work / "test_new.py").is_file(), carrying(run, "is a test")
+    ok = made and seen == [1] and errors(run) == [False]
+    kit.finish(run, "pi")
+    return check(run, ok, f"test_new.py written={made} reminder reached request(s) {seen} (want [1]) "
+                          f"tool errors={errors(run)}")
+
+
 def main() -> int:
     if not (NODE / "bin" / "node").is_file() or not (PKG / "node_modules" / ".bin" / "pi").exists():
         print("lab/harness_cache/pi is missing; see RESULT.md for the download", file=sys.stderr)
@@ -146,13 +197,14 @@ def main() -> int:
     isolated, probe = kit.net_probe()
     print(f"NET  {'PASS' if isolated else 'FAIL'}  --network=none container: {probe}")
     passed = True
-    for name, fn in (("S1", s1), ("S2", s2), ("S3", s3), ("S4", s4), ("S5", s5), ("S6", s6)):
+    for name, fn in (("S1", s1), ("S2", s2), ("S3", s3), ("S4", s4), ("S5", s5), ("S6", s6), ("S7g", s7g),
+                     ("S7h", s7h), ("S8", s8)):
         try:
             ok, detail = fn()
         except Exception as err:  # noqa: BLE001 - a broken scenario is a failure, never a pass
             ok, detail = False, f"trace error {type(err).__name__}: {err}"
         passed = passed and ok
-        print(f"{name}   {'PASS' if ok else 'FAIL'}  {detail}", flush=True)
+        print(f"{name:5}{'PASS' if ok else 'FAIL'}  {detail}", flush=True)
     for name, refusals, entry in (("S7a", 1, True), ("S7b", 1, False), ("S7c", 30, True)):
         try:
             detail = s7(name, refusals, entry)

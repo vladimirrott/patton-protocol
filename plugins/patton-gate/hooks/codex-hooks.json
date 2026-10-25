@@ -1,5 +1,5 @@
 {
-  "description": "Patton gate for Codex: holds a change to a file that existed when the session started until the person types approve <id>.",
+  "description": "Patton gate for Codex: holds a change to a file that existed when the session started until the person types approve <id>, and, when turned on, applies the discipline rules and the blind verifier at the stop.",
   "hooks": {
     "SessionStart": [
       {
@@ -31,6 +31,29 @@
             "type": "command",
             "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\" --host codex",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\" --host codex",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' >/dev/null 2>&1; } || exit 0; exec python3 \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/patton_gate.py\" --host codex",
+            "timeout": 900
           }
         ]
       }

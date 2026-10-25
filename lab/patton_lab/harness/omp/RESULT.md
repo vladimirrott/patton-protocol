@@ -3,7 +3,8 @@
 Run on 2026-10-24. Every scenario ran the real omp CLI, headless (`omp -p --mode json`), on Bun in podman, against
 the scripted model in `lab/patton_lab/harness/fake_chat.py`. No real model API and no key was used.
 
-Result: **S1 to S6 pass.** S7 is recorded below as a finding.
+Result: **S1 to S6 pass.** S7 is recorded below as a finding. The stop and reminder scenarios added on
+2026-10-25 (S7g, S7h, S8) are below.
 
 ## Versions and downloads
 
@@ -37,6 +38,7 @@ the npm-plus-Bun pin.
 - `lab/patton_lab/harness/dialects/omp.py`: the bridge dialect.
 - `lab/patton_lab/harness/omp/models.yml`: endpoint config.
 - `lab/patton_lab/harness/omp/stop_probe.ts`: S7 probe only.
+- `lab/patton_lab/fleet/ports/omp.py`: the fleet port (it runs through `harness/pi/fleetkit.py`).
 - `lab/patton_lab/harness/omp/trace.py`: the trace (`python3 -m patton_lab.harness.omp.trace` from `lab/`). It uses
   `lab/patton_lab/harness/pi/tracekit.py` and `pi/fwd.py`.
 
@@ -114,6 +116,9 @@ mounts (`.../harness_cache/omp/bun/bun-linux-x64:/opt/bun:ro`, `.../harness_cach
 | S7a | `session_stop` returns `{decision: "block", reason}` once | 2 model requests; the 2nd carries the reason | finding |
 | S7b | `decision: "block"` 30 times | 31 model requests, 30 carrying a refusal: no cap | finding |
 | S7c | advisory `{continue: true, additionalContext}` 30 times | 9 model requests, 8 carrying a refusal: capped at 8 (`SESSION_STOP_CONTINUATION_CAP`) | finding |
+| S7g | config `{"discipline": {"check_before_stop": true}}`; `bash echo out > /work/out.txt`, then "done" twice | out.txt written; the first stop refused, and the 3rd request carries "ran none of the project's checks"; the second stop allowed; 3 requests | PASS |
+| S7h | the same with `"max_rounds": 10`; the worker says "done" forever | 4 stops refused (the bridge's cap), requests 2 to 5 carry the reason; 6 requests, rc 0 | PASS |
+| S8 | config `{"discipline": {"reminders": true}}`; `bash echo x > /work/test_new.py` | the file is written; the 2nd request carries the "is a test" reminder, sent as the call's `additionalContext` | PASS |
 | PODMAN | trace-labelled containers left | 0 | PASS |
 
 Proof that the checks can go red: S2 with no extension loaded reads `keep.txt intact=False` (FAIL). S5 with a mutant
@@ -126,6 +131,37 @@ omp's `session_stop` refuses a stop cleanly. A refusal comes back to the model a
 two forms behave as documented. The advisory `continue` form stops after 8 continuations. The Claude/Codex
 `decision: "block"` form is not capped: 30 blocks gave 30 extra requests. A stop hook that uses `block` must cap
 itself, or a model that keeps stopping loops until `--max-time` or the operator stops it.
+
+## Stop and reminder support (2026-10-25)
+
+Result: **S1 to S6, S7g, S7h and S8 pass**; S7a to S7c unchanged.
+
+- **Stop.** `gate.ts` now also handles `session_stop` (main session only; omp never fires it for subagents). It
+  sends `{"event": "Stop", "final": <text of event.last_assistant_message>, "active": stop_hook_active}` to
+  `bridge.py omp`, and on `{"block": true, "reason"}` returns `{decision: "block", reason}`, which omp queues as a
+  hidden `session-stop-continuation` message for the next request. The advisory `continue` form is not used: omp
+  caps it at 8 but the bridge already caps at 4, and `block` is the form that maps one to one. Stops fail open on
+  any error or a timeout (`PATTON_BRIDGE_STOP_TIMEOUT_MS`, default 25 000, below omp's 30 000 ms handler timeout).
+  S7h ends at the bridge's 4 although the gate would refuse 10 (with the cap raised to 100: 10 refusals, 12
+  requests).
+- **Reminders.** omp's `tool_call` result has `additionalContext`, sent after the tool result with developer
+  priority, so an allowed call returns the gate's reminder there; a blocked call gets it appended to the refusal.
+- **Not sent:** the prompt (`before_agent_start`) and check results, as on Pi; the gate learns the request from
+  `PATTON_GATE_MISSION`.
+- **Proof the new checks go red:** with no extension loaded, S7g and S8 read FAIL.
+
+## Fleet port (2026-10-25)
+
+`lab/patton_lab/fleet/ports/omp.py` follows `fleet/spec.py` through `harness/pi/fleetkit.py` (see `../pi/RESULT.md`:
+the same image with git, relay, mounts, naming and final-text reading). `STOP = True`, `CONTEXT = True`.
+
+- Provider: a fresh `~/.omp/agent/models.yml`, one `openai-completions` provider at `http://127.0.0.1:8099/v1`
+  with the run's model, a zero cost table (required by omp's schema; the recorder charges) and
+  `apiKey: PATTON_FAKE_KEY` (an env var name). omp streams.
+- Flags as the trace's plus `--approval-mode yolo` (omp's default, stated outright). `PI_EDIT_VARIANT=replace` is
+  kept, so paid runs use the edit form the trace ran end to end, not omp's default hashline form.
+- `python3 -m patton_lab.fleet.runner trace --set h1 --harness omp` and `--set p1 --harness omp` both print
+  `trace OK: every arm behaved; stamps written`.
 
 ## Problems and unsupported pieces
 

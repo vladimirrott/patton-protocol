@@ -1,6 +1,7 @@
 """The Verifier replay as committed: every planned answer stored once, replay, the report, and the prose."""
 
 from pathlib import Path
+import contextlib
 import json
 import sys
 import unittest
@@ -15,6 +16,18 @@ from test_lab_study_integrity import DECIMAL, PAIR, unbacked_numbers  # noqa: E4
 
 FINDINGS = verify_cases.FINDINGS
 STUDY = runner.LAB / "verify_study"
+
+
+_REGISTERED = contextlib.ExitStack()
+
+
+def setUpModule():
+    # the stored answers came from patton-gate 0.3.1; replay decides with that copy, not the live plugin
+    _REGISTERED.enter_context(prereg.registered_gate())
+
+
+def tearDownModule():
+    _REGISTERED.close()
 
 
 def sources():

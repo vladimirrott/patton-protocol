@@ -5,8 +5,9 @@ throwing. The plugin pipes this JSON to the bridge:
 
     {"tool": "<opencode tool id>", "args": {...}, "sessionID": "...", "callID": "...", "directory": "/work"}
 
-and reads back one line, `{"allow": true}` or `{"allow": false, "reason": "..."}`. It throws unless the bridge
-exited 0 with `allow` exactly true, so a crash, a timeout or unreadable output blocks.
+and reads back one line, `{"allow": true}` or `{"allow": false, "reason": "..."}`, either with an optional
+`"context"`: the gate's discipline reminder (a test being changed, a call outside the scope). It throws unless the
+bridge exited 0 with `allow` exactly true, so a crash, a timeout or unreadable output blocks.
 
 Tool ids and arguments are OpenCode v1.19.4's (packages/opencode/src/tool/*.ts): `bash` {command, workdir?},
 `edit` {filePath, oldString, newString}, `write` {filePath, content}, `apply_patch` {patchText}. A patch becomes a
@@ -75,6 +76,13 @@ def emit(verdict: str, reason: str) -> tuple[str, int]:
     if verdict == "allow":
         return json.dumps({"allow": True}), 0
     return json.dumps({"allow": False, "reason": reason}), 0
+
+
+def emit_context(verdict: str, reason: str, context: str) -> tuple[str, int]:
+    """The verdict plus the gate's reminder: the plugin appends `context` to the tool's output when the call runs,
+    and to the thrown refusal when it does not, so the model reads it in its next request either way."""
+    text, code = emit(verdict, reason)
+    return json.dumps({**json.loads(text), "context": context}), code
 
 
 def emit_error(reason: str) -> tuple[str, int]:

@@ -206,12 +206,13 @@ class CodexPackagingTests(unittest.TestCase):
         self.assertEqual((manifest["name"], manifest["version"]), (claude["name"], claude["version"]))
         self.assertEqual(manifest["version"], gate.VERSION)
         hooks = json.loads((self.PLUGIN / manifest["hooks"]).read_text())["hooks"]
-        self.assertEqual(set(hooks), {"SessionStart", "PreToolUse", "UserPromptSubmit"})
+        self.assertEqual(set(hooks), {"SessionStart", "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"})
         self.assertEqual(hooks["PreToolUse"][0]["matcher"], "^(Bash|apply_patch)$")
+        self.assertEqual(hooks["PostToolUse"][0]["matcher"], "^(Bash|apply_patch)$")
         pre = hooks["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("--host codex", pre)
         self.assertIn("exit 2", pre)  # no python3: Codex blocks on exit 2
-        for event in ("SessionStart", "UserPromptSubmit"):  # never block the person over a missing python3
+        for event in ("SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"):  # never block over a missing python3
             self.assertIn("|| exit 0;", hooks[event][0]["hooks"][0]["command"])
 
     def test_the_codex_marketplace_lists_the_same_plugin_directory(self):
@@ -223,3 +224,71 @@ class CodexPackagingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CodexTurnTests(CodexCase):
+    """Discipline and the Verifier on Codex: Codex 0.159 sends Stop with `last_assistant_message`, honours a block's
+    reason, carries PreToolUse context to the model, and gives PostToolUse only the output, never an exit code."""
+
+    def stop(self, message="All done."):
+        return self.codex({"hook_event_name": "Stop", "stop_hook_active": False, "last_assistant_message": message})
+
+    def test_an_unchecked_change_refuses_the_stop_once(self):
+        self.user_config({"files": {"protect": False}, "discipline": {"check_before_stop": True}})
+        self.start()
+        self.prompt("Fix the bug.")
+        self.assertEqual(self.verdict(self.pre("Bash", "echo x > new.txt")), "allow")
+        first = self.stop()
+        self.assertEqual(first["decision"], "block")
+        self.assertIn("ran none of the project's checks", first["reason"])
+        self.assertNotEqual((self.stop() or {}).get("decision"), "block")
+
+    def test_a_check_after_the_change_lets_the_agent_stop(self):
+        self.user_config({"files": {"protect": False}, "discipline": {"check_before_stop": True}})
+        self.start()
+        self.prompt("Fix the bug.")
+        self.pre("Bash", "echo x > new.txt", "c1")
+        self.pre("Bash", "python3 -m pytest -q", "c2")
+        self.assertIsNone(self.stop())
+
+    def test_a_reminder_rides_on_the_allow_and_on_a_bare_patch_answer(self):
+        self.user_config({"files": {"protect": False}, "discipline": {"reminders": True}})
+        self.start()
+        answer = self.pre("Bash", "echo x > test_thing.py")
+        self.assertEqual(self.verdict(answer), "allow")
+        self.assertIn("is a test", answer["hookSpecificOutput"]["additionalContext"])
+        answer = self.pre("apply_patch", patch("*** Add File: tests/test_new.py", "+x"))
+        self.assertIn("is a test", answer["hookSpecificOutput"]["additionalContext"])
+        self.assertNotIn("permissionDecision", answer["hookSpecificOutput"])
+
+    def test_a_codex_check_outcome_stays_unknown(self):
+        self.user_config({"files": {"protect": False}, "discipline": {"report": "all"}})
+        self.start()
+        self.prompt("Fix the bug.")
+        self.pre("Bash", "python3 -m pytest -q", "c9")
+        self.codex({"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_use_id": "c9",
+                    "tool_input": {"command": "python3 -m pytest -q"}, "tool_response": "1 failed"})
+        turn = json.loads((self.state_dir() / "discipline.json").read_text())["main"]
+        self.assertEqual(turn["checks"][-1]["outcome"], None)
+
+    def test_the_verifier_refuses_a_stop_with_a_quoted_finding(self):
+        import subprocess
+        for args in (["init", "-q"], ["add", "-A"], ["-c", "user.email=t@example.org", "-c", "user.name=t", "commit",
+                                                     "-q", "-m", "start"]):
+            subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True)
+        (self.root / "README.md").write_text("`notes.txt` is the only copy of the notes.\n")
+        self.user_config({"files": {"protect": False}, "verify": {"main": True, "endpoint": "http://127.0.0.1:9/v1",
+                                                                  "model": "m"}})
+        self.start()
+        self.prompt("Tidy up.")
+        (self.root / "notes.txt").unlink()
+
+        def chat(cfg, environ, system, user):
+            if system == gate.CLAIMS_SYSTEM:
+                return json.dumps({"claims_done": True})
+            return json.dumps({"verdict": "fail", "findings": [{"problem": "the notes are gone",
+                                                                "evidence": "`notes.txt` is the only copy of the notes."}]})
+        with mock.patch.object(gate, "verify_chat", chat):
+            answer = self.stop("Tidied.")
+        self.assertEqual(answer["decision"], "block")
+        self.assertIn("the notes are gone", answer["reason"])

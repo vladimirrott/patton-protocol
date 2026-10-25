@@ -9,6 +9,11 @@
 // {"allow": true}. A spawn error, a timeout, a non-zero exit or output it cannot read all block, with the reason
 // in the error the model sees.
 //
+// The bridge may add "context", the gate's discipline reminder. When the call runs, `tool.execute.after` appends
+// it to that call's output (OpenCode passes the output object through the hook and sends what the hook leaves in
+// `output.output` to the model); when the call is refused, it follows the reason in the thrown error. Reminders
+// are kept per callID and used once.
+//
 // Environment: PATTON_BRIDGE_CMD (a JSON array, replaces the bridge command; the lab uses it to fake a crash or a
 // hang), PATTON_BRIDGE_TIMEOUT_MS (default 30000). PATTON_GATE_ROOT and PATTON_GATE_STATE pass through to the gate.
 
@@ -66,14 +71,16 @@ function check(payload) {
   } catch {
     answer = null
   }
-  if (done.status === 0 && answer && answer.allow === true) return { allow: true }
+  const context = answer && typeof answer.context === "string" ? answer.context : ""
+  if (done.status === 0 && answer && answer.allow === true) return { allow: true, context }
   const reason = answer && typeof answer.reason === "string" && answer.reason
     ? answer.reason
     : `Patton gate bridge exited ${done.status} with no readable answer, so it blocks this call.`
-  return { allow: false, reason }
+  return { allow: false, reason, context }
 }
 
 export const PattonGate = async ({ directory }) => {
+  const reminders = new Map()
   return {
     "tool.execute.before": async (input, output) => {
       const verdict = check({
@@ -83,7 +90,14 @@ export const PattonGate = async ({ directory }) => {
         callID: input.callID,
         directory,
       })
-      if (!verdict.allow) throw new Error(verdict.reason)
+      if (!verdict.allow) throw new Error(verdict.context ? `${verdict.reason}\n\n${verdict.context}` : verdict.reason)
+      if (verdict.context) reminders.set(input.callID, verdict.context)
+    },
+    "tool.execute.after": async (input, output) => {
+      const context = reminders.get(input.callID)
+      if (!context) return
+      reminders.delete(input.callID)
+      if (output && typeof output.output === "string") output.output = `${output.output}\n\n${context}`
     },
   }
 }

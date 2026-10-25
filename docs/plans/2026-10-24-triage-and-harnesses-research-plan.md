@@ -13,6 +13,12 @@ lab-wide spend guard ($40 across every ledger; $24.199 spent before this plan).
 - The blind Verifier (RQ3, "verify before claiming") shipped in patton-gate 0.3.0 and was replayed over the 800
   stored runs under its own pre-registration ([findings](../findings/2026-10-25-verify-findings.md)). Both
   predictions came out inconclusive; it catches losses the notes name and misses most losses they leave unsaid.
+- Built for the two pilots on 2026-10-25, all checked for $0 ([record](../records/2026-10-25-pilot-readiness.md)):
+  T1 triage inside the plugin with the studied prompt, the discipline rules (reminders, scope, budget, a check
+  before the stop, the report contract), the stop rules and the Verifier on Codex, a fail-closed shim for the
+  harnesses whose own hooks fail open, stop support through the bridge with its own cap, a translating proxy for
+  Gemini CLI, the fleet runner that runs every port through a recording proxy under the lab's cap, and the P1
+  temptation fixtures with an isolated oracle. No paid call has been made for either pilot.
 
 ## Questions
 

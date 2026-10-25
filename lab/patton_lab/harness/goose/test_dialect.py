@@ -54,7 +54,7 @@ class GooseDialectTests(unittest.TestCase):
 
     def test_reads_and_unknown_tools_pass_without_the_gate(self):
         self.assertEqual(goose.parse({"tool_name": "tree", "tool_input": {"path": "."}, "working_dir": "/w"}), None)
-        self.assertEqual(goose.parse({"event": "Stop", "session_id": "s"}), None)
+        self.assertEqual(goose.parse({"event": "PostToolUse", "tool_name": "shell", "working_dir": "/w"}), None)
 
     def test_garbage_blocks_with_exit_2(self):
         self.assertEqual(self.call("shell", {}, raw="{nope")[0], 2)

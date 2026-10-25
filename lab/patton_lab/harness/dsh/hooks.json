@@ -6,8 +6,31 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /patton/lab/patton_lab/harness/bridge.py dsh",
-            "timeout": 30
+            "command": "sh /patton/lab/patton_lab/harness/shim/patton-hook.sh dsh",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "bash|write|edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I /patton/lab/patton_lab/harness/dsh/context_hook.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh /patton/lab/patton_lab/harness/shim/patton-hook.sh dsh stop",
+            "timeout": 60
           }
         ]
       }

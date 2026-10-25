@@ -12,7 +12,7 @@ from . import ledgers
 
 LAB = ledgers.LAB
 GLOBAL_CAP = ledgers.GLOBAL_CAP
-LINE_LEDGERS = {**ledgers.LINE_LEDGERS, "verify": "verify_spend.jsonl"}
+LINE_LEDGERS = {**ledgers.LINE_LEDGERS, "verify": "verify_spend.jsonl", "fleet": "fleet_spend.jsonl"}
 
 
 def spent_everywhere(lab: Path = LAB) -> dict[str, float]:

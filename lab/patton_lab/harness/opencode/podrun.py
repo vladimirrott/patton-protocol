@@ -90,7 +90,8 @@ def run(name: str, steps: list[dict[str, Any]], command: list[str], *, env: dict
     fake = FakeChat(steps)
     port = fake.start("127.0.0.1")
     relay = HostRelay(str(root / "relay" / "chat.sock"), port)
-    argv = ["podman", "--log-level", "error", "run", "--rm", "--pull=never", "--userns=keep-id", "--network=none",
+    argv = ["podman", "--log-level", "error", "run", "--rm", "--pull=never", "--label", f"patton-trace={name}",
+            "--userns=keep-id", "--network=none",
             "--cap-drop=all", "--security-opt=no-new-privileges", "--read-only", "--tmpfs", "/tmp:size=256m",
             "--memory=3g", "--pids-limit=1024",
             "-e", "HOME=/home/user", "-e", "PATTON_GATE_ROOT=/work", "-e", "PATTON_GATE_STATE=/state",

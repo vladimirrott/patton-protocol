@@ -1,0 +1,6 @@
+# The fleet image for the Pi-family ports (pi, omp): the lab's pinned python:3.12-slim plus git, which the gate's
+# Verifier and the P1 fixtures need inside the container. Built once, with network, by
+#   podman build --label patton-fleet=image -t localhost/patton-fleet-pi:1 -f Containerfile.fleet .
+# from lab/patton_lab/harness/pi/; every run then starts it with --network=none.
+FROM docker.io/library/python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*

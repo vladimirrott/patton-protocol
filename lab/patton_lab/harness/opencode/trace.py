@@ -8,7 +8,9 @@ dummy key, the plugin by absolute path, every permission allowed (so the plugin 
 `--title` stops OpenCode from spending a scripted step on a session title.
 
 Outcomes are read from the files in /work, the fake's requests and the tool parts in the JSON event stream, never
-from OpenCode's exit code alone. Exit 0 only when S1 to S6 all pass; S7 is a finding from the source.
+from OpenCode's exit code alone. Exit 0 only when S1 to S6 and S8 all pass; S7 is a finding from the source.
+S8 turns on the gate's test reminders (and file protection off) and checks the reminder for a write to
+tests/test_x.py reaches the model's next request, carried on the write's output by the plugin.
 """
 
 from __future__ import annotations
@@ -58,12 +60,14 @@ def tool_parts(run: podrun.Run) -> list[dict]:
     return parts
 
 
-def go(name: str, steps: list[dict], env: dict[str, str] | None = None, keep: bool = False) -> podrun.Run:
+def go(name: str, steps: list[dict], env: dict[str, str] | None = None, keep: bool = False,
+       prepare=None) -> podrun.Run:
     command = ["/opt/opencode/bin/opencode", "run", "--format", "json", "--title", f"lab-{name}", "-m", MODEL,
                "--print-logs", "--log-level", "WARN", "Do the task."]
     full_env = {"OPENCODE_CONFIG_CONTENT": json.dumps(config()), "OPENCODE_DISABLE_AUTOUPDATE": "1",
                 "OPENCODE_DISABLE_MODELS_FETCH": "1", **(env or {})}
-    return podrun.run(name, steps, command, env=full_env, mounts=[(PACKAGE, "/opt/opencode:ro")], keep=keep)
+    return podrun.run(name, steps, command, env=full_env, mounts=[(PACKAGE, "/opt/opencode:ro")], keep=keep,
+                      prepare=prepare)
 
 
 def bash(command: str) -> dict:
@@ -136,13 +140,34 @@ def s6(keep: bool) -> tuple[bool, str]:
                         "timed out after 3000 ms", keep)
 
 
+REMINDERS = {"discipline": {"reminders": True}, "files": {"protect": False}}
+
+
+def s8(keep: bool) -> tuple[bool, str]:
+    """The gate's reminder for a test file rides on the write's output into the model's next request."""
+    def prepare(root: Path) -> None:
+        (root / "home" / "gate-config.json").write_text(json.dumps(REMINDERS), encoding="utf-8")
+        (root / "work" / "tests").mkdir()
+    steps = [{"tool": "write", "args": {"filePath": "/work/tests/test_x.py", "content": "assert True\n"}}, DONE]
+    run = go("s8", steps, env={"PATTON_GATE_CONFIG": "/home/user/gate-config.json"}, keep=keep, prepare=prepare)
+    parts = [p for p in tool_parts(run) if p["tool"] == "write"]
+    wrote = run.files.get("tests/test_x.py") == "assert True\n"
+    second = json.dumps(run.requests[1].get("messages", [])) if len(run.requests) >= 2 else ""
+    reached = "tests/test_x.py is a test" in second
+    first = json.dumps(run.requests[0].get("messages", [])) if run.requests else ""
+    return wrote and reached and "is a test" not in first, (
+        f"write part status={[p['status'] for p in parts]}; test file written={wrote}; reminder in request 2="
+        f"{reached}; requests={len(run.requests)}")
+
+
 S7 = ("no hook can refuse a stop. Hooks (packages/plugin/src/index.ts) has no stop or turn-end hook; session.idle "
       "reaches the `event` hook, which returns void; `opencode run` exits when the session goes idle "
       "(packages/opencode/src/cli/cmd/run.ts). A plugin could only send a new prompt after the fact.")
 
 SCENARIOS = [("S1", "read-only shell runs", s1, True), ("S2", "rm keep.txt blocked", s2, True),
              ("S3", "shell writes new.txt", s3, True), ("S4", "edit/write keep.txt blocked", s4, True),
-             ("S5", "bridge crash blocks", s5, True), ("S6", "bridge hang blocks", s6, True)]
+             ("S5", "bridge crash blocks", s5, True), ("S6", "bridge hang blocks", s6, True),
+             ("S8", "test reminder reaches the model", s8, True)]
 
 
 def main(argv: list[str] | None = None) -> int:

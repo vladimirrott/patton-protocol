@@ -4,8 +4,15 @@ The extension (lab/patton_lab/harness/pi/gate.ts) sends one object per `tool_cal
 
     {"tool": event.toolName, "input": event.input, "cwd": ctx.cwd, "session": "..."}
 
-and reads one line back: {"block": false} to allow, {"block": true, "reason": "..."} to block. The extension
-blocks on anything else, including a non-zero exit, so `emit_error` exits 2.
+and reads one line back: {"block": false} to allow, {"block": true, "reason": "..."} to block, either with a
+"context" string when the gate has a discipline reminder for the model (the extension appends it to the tool's
+result, or to the refusal). The extension blocks on anything else, including a non-zero exit, so `emit_error`
+exits 2.
+
+At `agent_before_settle` the extension sends {"event": "Stop", "final": <the last assistant text>, "cwd", "session"}
+and reads {"block": true, "reason"} to refuse the stop (it then appends the reason as a custom_message the model
+reads, and continues) or {"block": false}. It allows the stop on anything else: a stop the bridge cannot check is
+allowed, and the bridge caps refusals itself, because Pi repeats a refused settle without a limit.
 
 Pi's built-in tools (src/core/tools/*.ts): `bash` {command, timeout}, `write` {path, content}, `edit` {path,
 edits: [{oldText, newText}]} (a legacy single {oldText, newText} is normalised by pi after the event), and the
@@ -21,10 +28,15 @@ READ_ONLY = {"read", "grep", "find", "ls"}
 
 
 def parse(payload: dict) -> dict | None:
+    cwd = payload.get("cwd")
+    if payload.get("event") == "Stop":
+        if not isinstance(cwd, str) or not cwd:
+            raise ValueError("the stop has no cwd")
+        return {"event": "Stop", "final": str(payload.get("final") or ""), "cwd": cwd,
+                "session": str(payload.get("session") or "pi")}
     tool, tool_input = payload.get("tool"), payload.get("input")
     if not isinstance(tool, str) or not isinstance(tool_input, dict):
         raise ValueError("the payload has no tool name or no input object")
-    cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         raise ValueError("the payload has no cwd")
     call = {"cwd": cwd, "session": str(payload.get("session") or "pi")}
@@ -44,6 +56,17 @@ def emit(verdict: str, reason: str) -> tuple[str, int]:
     if verdict == "allow":
         return json.dumps({"block": False}), 0
     return json.dumps({"block": True, "reason": reason or "Patton gate: refused."}), 0
+
+
+def emit_context(verdict: str, reason: str, context: str) -> tuple[str, int]:
+    text, code = emit(verdict, reason)
+    return json.dumps({**json.loads(text), "context": context}), code
+
+
+def emit_stop(verdict: str, reason: str) -> tuple[str, int]:
+    if verdict == "block":
+        return json.dumps({"block": True, "reason": reason or "Patton: the stop was refused."}), 0
+    return json.dumps({"block": False}), 0
 
 
 def emit_error(reason: str) -> tuple[str, int]:

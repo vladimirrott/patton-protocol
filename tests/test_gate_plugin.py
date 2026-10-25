@@ -63,7 +63,7 @@ class PackagingTests(unittest.TestCase):
         hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]
         for event in ("PreToolUse", "PostToolUse"):
             self.assertEqual(hooks[event][0]["matcher"], "Bash|Write|Edit|MultiEdit|NotebookEdit|Agent|Task", event)
-        self.assertEqual(hooks["PostToolUseFailure"][0]["matcher"], "Agent|Task")
+        self.assertEqual(hooks["PostToolUseFailure"][0]["matcher"], "Bash|Agent|Task")  # Bash: a failed check
         self.assertIn("SessionStart", hooks)
         guarded = {h["command"] for event in ("SessionStart", "PreToolUse", "PostToolUse")
                    for group in hooks[event] for h in group["hooks"]}

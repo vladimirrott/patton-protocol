@@ -3,7 +3,8 @@
 Run on 2026-10-24. Every scenario ran the real Pi CLI, headless (`pi --mode json`), in podman, against the scripted
 model in `lab/patton_lab/harness/fake_chat.py`. No real model API and no key was used.
 
-Result: **S1 to S6 pass.** S7 is recorded below as a finding.
+Result: **S1 to S6 pass.** S7 is recorded below as a finding. The stop and reminder scenarios added on
+2026-10-25 (S7g, S7h, S8) are below.
 
 ## Versions and downloads
 
@@ -35,6 +36,8 @@ podman run --rm --pull=never --userns=keep-id -v lab/harness_cache/pi/node:/opt/
 - `lab/patton_lab/harness/pi/stop_probe.ts`: S7 probe only (it is not part of the gate).
 - `lab/patton_lab/harness/pi/trace.py`: the trace (`python3 -m patton_lab.harness.pi.trace` from `lab/`).
 - `lab/patton_lab/harness/pi/tracekit.py`, `fwd.py`: shared container and network kit, also used by the omp trace.
+- `lab/patton_lab/harness/pi/fleetkit.py`, `Containerfile.fleet`: the fleet runs of pi and omp, and their image.
+- `lab/patton_lab/fleet/ports/pi.py`: the fleet port.
 
 ## The extension and how Pi loads it headless
 
@@ -85,10 +88,10 @@ podman --log-level error run --rm --pull=never --userns=keep-id --label patton-h
   --network=none --cap-drop=all --security-opt=no-new-privileges --read-only --tmpfs /tmp:size=256m,exec \
   --memory=4g --pids-limit=512 \
   -v <run>/work:/work:rw -v <run>/home:/home/user:rw -v <run>/state:/state:rw -v <run>/sock:/sock:rw \
-  -v /home/worker/Desktop/patton-protocol/lab/patton_lab/harness/pi/fwd.py:/kit/fwd.py:ro -v <run>/extra:/extra:ro \
-  -v /home/worker/Desktop/patton-protocol/lab:/repo/lab:ro -v /home/worker/Desktop/patton-protocol/plugins:/repo/plugins:ro \
-  -v /home/worker/Desktop/patton-protocol/lab/harness_cache/pi/node:/opt/node:ro \
-  -v /home/worker/Desktop/patton-protocol/lab/harness_cache/pi/pkg:/pkg:ro \
+  -v <repo>/lab/patton_lab/harness/pi/fwd.py:/kit/fwd.py:ro -v <run>/extra:/extra:ro \
+  -v <repo>/lab:/repo/lab:ro -v <repo>/plugins:/repo/plugins:ro \
+  -v <repo>/lab/harness_cache/pi/node:/opt/node:ro \
+  -v <repo>/lab/harness_cache/pi/pkg:/pkg:ro \
   -e HOME=/home/user -e PATTON_GATE_ROOT=/work -e PATTON_GATE_STATE=/state -e XDG_CONFIG_HOME=/home/user/.config \
   -e PYTHONDONTWRITEBYTECODE=1 -e PI_CODING_AGENT_DIR=/home/user/.pi/agent -e PI_OFFLINE=1 \
   -e PATH=/opt/node/bin:/usr/local/bin:/usr/bin:/bin [-e PATTON_BRIDGE=/extra/bridge.py] [-e PATTON_BRIDGE_TIMEOUT_MS=3000] \
@@ -116,6 +119,9 @@ Outcomes come from `/work` and from the requests the fake received, never from P
 | S7a | `agent_before_settle` returns `continue: true` plus a `custom_message` entry, once | 2 model requests; the 2nd carries the refusal text | finding |
 | S7b | same, `continue: true` with no entry | 1 model request; Pi reports `agent_before_settle requested continuation without runnable model context` and settles | finding |
 | S7c | refuse 30 times, with an entry each time | 31 model requests, 30 of them carrying a refusal | finding |
+| S7g | config `{"discipline": {"check_before_stop": true}}`; `bash echo out > /work/out.txt`, then "done" twice | out.txt written; the first stop refused, and the 3rd request carries "you changed files and ran none of the project's checks"; the second stop allowed; 3 requests; `bridge-stops.json` = 1 | PASS |
+| S7h | the same with `"max_rounds": 10`; the worker says "done" forever | 4 stops refused (the bridge's cap), requests 2 to 5 carry the reason, the 5th stop allowed; 6 requests, rc 0 | PASS |
+| S8 | config `{"discipline": {"reminders": true}}`; `bash echo x > /work/test_new.py` | the file is written; the 2nd request carries the gate's "is a test" reminder, appended to the tool result | PASS |
 | PODMAN | trace-labelled containers left | 0 | PASS |
 
 Proof that the checks can go red: S2 with no extension loaded reads `keep.txt intact=False ... tool errors=[False]`
@@ -128,6 +134,50 @@ the handler also appends an entry the model can see (a `custom_message`). A bare
 diagnostic and the agent settles (S7b). Pi has no cap on repeated refusals: `_runBeforeSettleBoundary` sits in an
 unbounded `while` loop (`src/core/agent-session.ts` ~line 1900), and 30 refusals gave 30 extra requests. A stop
 hook on Pi has to cap itself.
+
+## Stop and reminder support (2026-10-25)
+
+Result: **S1 to S6, S7g, S7h and S8 pass**; S7a to S7c unchanged.
+
+- **Stop.** `gate.ts` now also handles `agent_before_settle`. It sends `{"event": "Stop", "final": <the last
+  assistant text in event.context.contextMessages>}` to `bridge.py pi`; the dialect maps it to the bridge's Stop
+  event and answers `{"block": true, "reason"}` or `{"block": false}`. A refusal returns `continue: true` with a
+  `custom_message` (`customType: patton-stop`) holding the reason, the one form Pi continues on (S7a, S7b). Stops
+  fail open: a crash, a non-zero exit, unreadable output or a timeout (`PATTON_BRIDGE_STOP_TIMEOUT_MS`, default
+  25 000) lets the agent stop. Pi's loop has no cap, so the bridge's (`PATTON_BRIDGE_STOP_CAP`, default 4) is the
+  only one: S7h stops at 4 refusals although the gate would refuse 10 (with the cap raised to 100 the same run
+  makes 12 requests and 10 refusals). S6 now also sets the stop timeout to 3000 ms, since its hanging stub is asked
+  at the stop too.
+- **Reminders.** A verdict may carry `"context"`, the gate's `additionalContext`. On an allowed call the extension
+  keeps it by tool call id and appends it as a text part at `tool_result`, passing `structuredContent` through
+  (Pi drops it when a handler replaces `content` without it). On a blocked call it is appended to the refusal.
+- **Not sent:** the person's prompt. The extension does not send `before_agent_start` as `UserPromptSubmit`, so
+  the gate learns the request only from `PATTON_GATE_MISSION` (the lab sets it) and its discipline turn is not
+  reset between prompts of an interactive session. Check results are not reported back either (the bridge has no
+  PostToolUse event), so the discipline report cannot see a failed check.
+- **Proof the new checks go red:** with no extension loaded, S7g, S7h and S8 each read FAIL (no refusal, no
+  reminder).
+
+## Fleet port (2026-10-25)
+
+`lab/patton_lab/fleet/ports/pi.py` follows `fleet/spec.py`; the container run is `harness/pi/fleetkit.py`, shared
+with omp. `STOP = True`, `CONTEXT = True`.
+
+- The container is `localhost/patton-fleet-pi:1`, the trace's pinned `python:3.12-slim` plus git
+  (`Containerfile.fleet`, git 2.47.3 from Debian, built once with network), because P1 makes `/work` a git
+  repository and the Verifier reads it. Runs use `--network=none`, the same unix-socket relay as the trace (to the
+  recorder's port), `--name patton-fleet-pi-<random>` and `--label patton-fleet=pi`; a run past its host timeout
+  is removed by that name.
+- Mounts: `/work`, `/patton-state`, `/home/user`, and with a gate the config at `/patton-config/config.json`,
+  `lab/patton_lab` and `plugins`, read-only. The rest of `lab/harness_cache` is never mounted. Without a gate there
+  is no extension and no `PATTON_GATE_*` variable. `{model_base}` becomes `http://127.0.0.1:8099`.
+- Provider: a fresh `~/.pi/agent/models.json` with one `openai-completions` provider at
+  `http://127.0.0.1:8099/v1` whose one model is the run's model (`maxTokens` 16 384, the recorder's ceiling).
+  Pi streams every request; the recorder answers in SSE. The final text is the last `message_end` of role
+  `assistant` in the `--mode json` stream.
+- `python3 -m patton_lab.fleet.runner trace --set h1 --harness pi` and `--set p1 --harness pi` both print
+  `trace OK: every arm behaved; stamps written`. Pi is not in the `p1` set's harness list, though its stop hook
+  works.
 
 ## Problems and unsupported pieces
 

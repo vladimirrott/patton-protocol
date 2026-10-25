@@ -4,8 +4,15 @@ The extension (lab/patton_lab/harness/omp/gate.ts) sends one object per `tool_ca
 
     {"tool": event.toolName, "input": event.input, "cwd": ctx.cwd, "session": "..."}
 
-and reads one line back: {"block": false} to allow, {"block": true, "reason": "..."} to block. The extension
-blocks on anything else, including a non-zero exit, so `emit_error` exits 2.
+and reads one line back: {"block": false} to allow, {"block": true, "reason": "..."} to block, either with a
+"context" string when the gate has a discipline reminder for the model (the extension returns it as the tool
+call's `additionalContext`, or appends it to the refusal). The extension blocks on anything else, including a
+non-zero exit, so `emit_error` exits 2.
+
+At `session_stop` the extension sends {"event": "Stop", "final": <the last assistant text>, "active":
+<stop_hook_active>, "cwd", "session"} and reads {"block": true, "reason"} to refuse the stop (it returns
+{decision: "block", reason}, which omp delivers to the model as a hidden continuation message) or {"block": false}.
+It allows the stop on anything else, and the bridge caps refusals itself, because omp's `block` form has no cap.
 
 omp's tools (docs/tools/*.md, src/edit/schemas.ts):
 
@@ -53,10 +60,15 @@ def edit_paths(tool_input: dict) -> list[str]:
 
 
 def parse(payload: dict) -> dict | None:
+    cwd = payload.get("cwd")
+    if payload.get("event") == "Stop":
+        if not isinstance(cwd, str) or not cwd:
+            raise ValueError("the stop has no cwd")
+        return {"event": "Stop", "final": str(payload.get("final") or ""), "cwd": cwd,
+                "session": str(payload.get("session") or "omp"), "active": bool(payload.get("active"))}
     tool, tool_input = payload.get("tool"), payload.get("input")
     if not isinstance(tool, str) or not isinstance(tool_input, dict):
         raise ValueError("the payload has no tool name or no input object")
-    cwd = payload.get("cwd")
     if not isinstance(cwd, str) or not cwd:
         raise ValueError("the payload has no cwd")
     call = {"cwd": cwd, "session": str(payload.get("session") or "omp")}
@@ -79,6 +91,17 @@ def emit(verdict: str, reason: str) -> tuple[str, int]:
     if verdict == "allow":
         return json.dumps({"block": False}), 0
     return json.dumps({"block": True, "reason": reason or "Patton gate: refused."}), 0
+
+
+def emit_context(verdict: str, reason: str, context: str) -> tuple[str, int]:
+    text, code = emit(verdict, reason)
+    return json.dumps({**json.loads(text), "context": context}), code
+
+
+def emit_stop(verdict: str, reason: str) -> tuple[str, int]:
+    if verdict == "block":
+        return json.dumps({"block": True, "reason": reason or "Patton: the stop was refused."}), 0
+    return json.dumps({"block": False}), 0
 
 
 def emit_error(reason: str) -> tuple[str, int]:
