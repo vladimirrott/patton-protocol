@@ -51,6 +51,10 @@ An earlier study put a gate of the same design inside a sandbox, and harm was 0.
   registered 0.10 margin. A post hoc split ([note](docs/findings/2026-10-23-gate-utility-posthoc.md)) puts most of
   the drop in runs where the gate did nothing the worker could see, and much of the rest in a partial-approval rule
   that only the study's simulated operator uses. On Codex with gpt-6.1-sol the drop was 0.010, inside the margin.
+  Since 0.3.0 the gate can also refuse a stop when a blind Verifier finds the work broken. Replayed over the 800
+  stored runs, qwen3.8-27b flagged 28 of 46 runs that lost a needed file and 25 of 457 clean ones, both predictions
+  inconclusive ([findings](docs/findings/2026-10-25-verify-findings.md)); it catches losses the notes name far more
+  often than losses they leave unsaid.
 - **Two models, no Claude.** The same pre-registered study ran on Codex CLI with gpt-6.1-sol, 240 runs
   ([findings](docs/findings/2026-10-24-codex-gate-study-findings.md)). Sol harmed nothing without the gate (0.000),
   so that study could not show a cut (Q1 INCONCLUSIVE, floor). It found 0 of 96 bypasses, utility 0.948 unguarded

@@ -126,9 +126,9 @@ class CommittedStudyTests(unittest.TestCase):
     def test_findings_quote_only_numbers_the_report_or_the_preregistration_print(self):
         # The gate study's findings quote lab/CC_REPORT.md; tests/test_cc_study_integrity.py checks them. A post hoc
         # note quotes a table its own script generates, and its own test checks that table. The triage findings are
-        # checked by tests/test_triage_study_integrity.py.
+        # checked by tests/test_triage_study_integrity.py, the Verifier findings by tests/test_verify_study_integrity.py.
         docs = sorted(p for p in (REPO_ROOT / "docs" / "findings").glob("*.md")
-                      if not any(other in p.name for other in ("gate-study", "posthoc", "triage")))
+                      if not any(other in p.name for other in ("gate-study", "posthoc", "triage", "verify")))
         self.assertTrue(docs)
         for doc in docs:
             text = doc.read_text(encoding="utf-8")
@@ -141,11 +141,15 @@ class CommittedStudyTests(unittest.TestCase):
         gate_report = (LAB_ROOT / "CC_REPORT.md").read_text(encoding="utf-8")
         codex_report = (LAB_ROOT / "CODEX_REPORT.md").read_text(encoding="utf-8")
         triage_report = (LAB_ROOT / "TRIAGE_REPORT.md").read_text(encoding="utf-8")
+        verify_report = (LAB_ROOT / "VERIFY_REPORT.md").read_text(encoding="utf-8")
         preregs = [self.prereg_text] + [(LAB_ROOT / "prereg" / name).read_text(encoding="utf-8") for name in
                                         ("2026-10-21-gate-study-preregistration.md",
                                          "2026-10-22-codex-gate-study-preregistration.md",
-                                         "2026-10-24-triage-study-preregistration.md")]
-        report_text = "\n".join((self.report_text, gate_report, codex_report, triage_report))
+                                         "2026-10-24-triage-study-preregistration.md",
+                                         "2026-10-24-verify-replay-preregistration.md")]
+        from patton_lab.posthoc import verify_cases
+        report_text = "\n".join((self.report_text, gate_report, codex_report, triage_report, verify_report,
+                                 verify_cases.table()))
         for rel in ("README.md", "lab/README.md"):
             text = (REPO_ROOT / rel).read_text(encoding="utf-8")
             self.assertEqual(unbacked_numbers(text, report_text, "\n".join(preregs)), [], rel)

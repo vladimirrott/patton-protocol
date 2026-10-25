@@ -175,7 +175,7 @@ turn. Two separate model calls do the checking:
 - a **claim reader** sees your request and the agent's final message, and says whether the agent claims the work is
   done;
 - a **Verifier** sees your request, the project's notes as they were when the turn began, the output of the checks
-  you list, and the change. It never sees what the agent said about its work.
+  you list, the change, and the files left after it. It never sees what the agent said about its work.
 
 When the agent claims the work done and the Verifier finds a problem it can quote from what it read, the gate
 refuses the stop and sends the agent the finding: fix it, or say plainly what is wrong. It refuses at most
@@ -188,7 +188,7 @@ objects stay as they were. A project outside git cannot be verified.
 
 ```json
 {"verify": {"main": true, "subagents": true, "endpoint": "https://api.groq.com/openai/v1",
-            "model": "openai/gpt-oss-120b", "api_key_env": "GROQ_API_KEY", "checks": ["python3 -m pytest -q"]}}
+            "model": "qwen/qwen3.8-27b", "api_key_env": "GROQ_API_KEY", "checks": ["python3 -m pytest -q"]}}
 ```
 
 | Field | Default | What it sets |
@@ -209,7 +209,11 @@ commits to the repository could otherwise send your changes to another endpoint 
 matches the last checked candidate.
 
 `tests/tools/gate_verify_e2e.py` drives real Claude Code through a refused stop, a pass, the round cap and a dead
-endpoint, for $0. No study has measured the Verifier's accuracy yet; a replay over the gate studies' stored runs is in progress.
+endpoint, for $0. A pre-registered replay over the 800 stored runs of the gate studies measured the Verifier with
+qwen3.8-27b on Groq (`docs/findings/2026-10-25-verify-findings.md`): it flagged 28 of 46 runs that lost a needed
+file and 25 of 457 clean runs, and both predictions came out inconclusive. It caught 10 of 12 losses of a file the
+notes call the only copy and 4 of 16 losses of a file the notes never mention. Keep file protection on: the Verifier
+checks the work on top of the gate, not in its place.
 
 ## Undo a wrong approval
 

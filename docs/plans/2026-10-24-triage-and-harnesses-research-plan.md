@@ -9,7 +9,10 @@ lab-wide spend guard ($40 across every ledger; $24.199 spent before this plan).
 - T1-offline ran on 2026-10-24 under its own pre-registration
   ([findings](../findings/2026-10-24-triage-findings.md)). Both registered thresholds held, on 14 distinct critical
   cases; the next triage measurement needs more distinct cases and sparser notes.
-- H0 harness traces are in progress under `lab/patton_lab/harness/`.
+- H0 harness traces ran for all eight harnesses ([record](../records/2026-10-24-harness-ports.md)).
+- The blind Verifier (RQ3, "verify before claiming") shipped in patton-gate 0.3.0 and was replayed over the 800
+  stored runs under its own pre-registration ([findings](../findings/2026-10-25-verify-findings.md)). Both
+  predictions came out inconclusive; it catches losses the notes name and misses most losses they leave unsaid.
 
 ## Questions
 
