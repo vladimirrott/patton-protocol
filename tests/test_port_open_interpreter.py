@@ -4,14 +4,15 @@ and the fleet port's hook, config and container wiring (no container is started 
 from pathlib import Path
 import io
 import json
-import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "lab"))
 
+from patton_lab.harness import gitmount  # noqa: E402
 from patton_lab.fleet import spec  # noqa: E402
 from patton_lab.fleet.ports import open_interpreter as port  # noqa: E402
 from patton_lab.harness import bridge  # noqa: E402
@@ -104,6 +105,10 @@ class PortTests(unittest.TestCase):
         for d in ("work", "state", "home"):
             (base / d).mkdir()
         self.base = base
+        # the git copy lives in the gitignored harness cache; these tests only build the container command
+        patcher = mock.patch.object(gitmount, "why_not", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def run_spec(self, gate_config):
         config_file = self.base / "gate-config.json"
