@@ -212,6 +212,21 @@ class StopTests(unittest.TestCase):
         self.assertIn("python3 app.py", seen)
         self.assertIn("exit code 3", seen)
 
+    def test_the_verifier_sees_the_files_left_and_where_a_deleted_file_survives(self):
+        (self.repo.root / "keep-copy.txt").write_text("ledger\n")
+        (self.repo.root / "keep.txt").unlink()
+        (self.repo.root / "app.py").unlink()
+        stub = Stub(verdict="pass")
+        self.stop(stub)
+        seen = stub.seen["verifier"][0]
+        self.assertIn("### keep.txt (deleted; the same content is still at `keep-copy.txt`)", seen)
+        self.assertIn("### app.py (deleted)\n", seen)
+        left = seen.split("## Files in the project after the change")[1]
+        self.assertIn("- keep-copy.txt (7 bytes)", left)
+        self.assertIn("- README.md (", left)
+        self.assertNotIn("app.py", left)
+        self.assertNotIn("- keep.txt", left)
+
     def test_a_failure_without_quoted_evidence_does_not_refuse(self):
         (self.repo.root / "keep.txt").unlink()
         for evidence in ("this sentence appears nowhere in what the verifier read", "keep.txt"):
@@ -299,6 +314,44 @@ class StopTests(unittest.TestCase):
         out = io.StringIO()
         gate.verify_command(["--state", str(self.repo.state)], out, self.env)
         self.assertIn("changed since", out.getvalue())
+
+
+class InputTests(unittest.TestCase):
+    def test_twins_are_named_and_a_long_listing_is_cut(self):
+        files = [("a.txt", 3, "x"), ("b/a.txt", 3, "x"), ("c.txt", 5, "y")]
+        text = gate.verifier_input("m", [], [], [], "0" * 40, files)
+        self.assertIn("- a.txt (3 bytes, same content as `b/a.txt`)", text)
+        self.assertIn("- c.txt (5 bytes)\n", text + "\n")
+        many = [(f"f{i:04}.txt", 1, str(i)) for i in range(gate.VERIFY_LIST_CAP + 7)]
+        text = gate.verifier_input("m", [], [], [], "0" * 40, many)
+        self.assertIn(f"f{gate.VERIFY_LIST_CAP - 1:04}.txt", text)
+        self.assertNotIn(f"f{gate.VERIFY_LIST_CAP:04}.txt", text)
+        self.assertIn("and 7 more files", text)
+
+    def test_without_a_listing_the_section_is_left_out(self):
+        self.assertNotIn("Files in the project", gate.verifier_input("m", [], [], [], "0" * 40))
+
+
+class EvidenceTests(unittest.TestCase):
+    SOURCE = "## Notes\n`keep.txt` is the only copy of the ledger.\n```diff\n--- a/keep.txt\n-ledger entry one\n```"
+
+    def found(self, evidence):
+        return gate.quoted_findings({"findings": [{"problem": "p", "evidence": evidence}]}, self.SOURCE)
+
+    def test_one_quote_found_word_for_word_counts(self):
+        self.assertEqual(len(self.found("keep.txt is the only copy of the ledger.")), 1)
+
+    def test_separate_excerpts_on_separate_lines_count_when_each_is_found(self):
+        self.assertEqual(len(self.found("`keep.txt` is the only copy of the ledger.\n--- a/keep.txt\n-ledger entry one")), 1)
+
+    def test_one_made_up_line_spoils_the_whole_quote(self):
+        self.assertEqual(self.found("`keep.txt` is the only copy of the ledger.\nthe ledger was never backed up"), [])
+
+    def test_short_lines_alone_are_not_enough(self):
+        self.assertEqual(self.found("```diff\n-ledger"), [])
+
+    def test_blank_lines_between_excerpts_are_ignored(self):
+        self.assertEqual(len(self.found("keep.txt is the only copy of the ledger.\n\n-ledger entry one\n")), 1)
 
 
 class ReplyTests(unittest.TestCase):

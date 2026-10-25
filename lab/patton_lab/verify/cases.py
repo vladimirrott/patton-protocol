@@ -85,7 +85,18 @@ def changes(case: Case) -> list[dict[str, Any]]:
             continue
         status = "added" if old is None else "deleted" if new is None else "modified"
         pairs.append((path, status, old, new))
-    return gate.file_changes(pairs, CFG["max_diff_chars"])
+    out = gate.file_changes(pairs, CFG["max_diff_chars"])
+    for change in out:  # the plugin names content by git blob id; any stable content id gives the same text
+        change["before_id"] = None if change["before"] is None else _content_id(change["before"])
+    return out
+
+
+def _content_id(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def files_after(case: Case) -> list[tuple[str, int, str]]:
+    return [(p, len(t.encode("utf-8")), _content_id(t)) for p, t in sorted(case.after.items())]
 
 
 def notes(case: Case) -> list[tuple[str, str]]:
@@ -98,7 +109,7 @@ def digest(case: Case) -> str:
 
 
 def verifier_text(case: Case) -> str:
-    return gate.verifier_input(case.mission, changes(case), notes(case), [], digest(case))
+    return gate.verifier_input(case.mission, changes(case), notes(case), [], digest(case), files_after(case))
 
 
 def claims_text(case: Case) -> str:

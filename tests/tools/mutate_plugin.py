@@ -8,6 +8,7 @@ no longer occurs once (update the mutant); CAPPED means the run hit the time or 
 kill. The tests these mutants run touch no network, no model and no container.
 
     python3 tests/tools/mutate_plugin.py
+    python3 tests/tools/mutate_plugin.py --only verif --only outside   # mutants whose names hold any of these
 """
 
 import hashlib
@@ -59,10 +60,17 @@ MUTANTS = [
  ("unreadable allow ignored", 'if opaque and not study and (unreadable == "allow" or not config["files"]["protect"]):', 'if False:'),
  ("max_refusals fixed", 'if state.denials >= state.config["files"]["max_refusals"]:', 'if state.denials >= DENIAL_LIMIT:'),
  ("ancestor names nothing", "                            if self.root.startswith(real.rstrip(os.sep) + os.sep):", "                            if False:"),
- ("verifier sees the report", "        source = verifier_input(mission, changes, notes, checks, digest)", "        source = verifier_input(mission + final, changes, notes, checks, digest)"),
+ ("verifier sees the report", "        source = verifier_input(mission, changes, notes, checks, digest,", "        source = verifier_input(mission + final, changes, notes, checks, digest,"),
+ ("verifier sees no file list", "digest, git_files(root, state_dir, digest))", "digest)"),
+ ("file list from the start", "digest, git_files(root, state_dir, digest))", "digest, git_files(root, state_dir, turn['base']))"),
+ ("surviving copy not named", '        change["before_id"] = ids.get(change["path"])', '        change["before_id"] = None'),
+ ("twins not named", "            twins = [p for p in where[ident] if p != path]", "            twins = []"),
+ ("listing cap off by one", "        for path, size, ident in files[:VERIFY_LIST_CAP]:", "        for path, size, ident in files[:VERIFY_LIST_CAP + 1]:"),
+ ("listing cut silently", "            lines.append(f\"- and {len(files) - VERIFY_LIST_CAP} more files\")", "            pass"),
  ("claim reader sees the change", "claims_input(mission, final)))", "claims_input(mission + ''.join(c['diff'] for c in git_changes(root, state_dir, turn['base'], git_snapshot(root, state_dir))), final)))"),
- ("evidence not checked", "                and _norm_text(evidence) in text:", "                and True:"),
- ("short evidence accepted", "len(_norm_text(evidence)) >= VERIFY_MIN_EVIDENCE", "len(_norm_text(evidence)) >= 0"),
+ ("evidence not checked", "if parts and all(part in text for part in parts)", "if parts and True"),
+ ("one quoted line is enough", "if parts and all(part in text for part in parts)", "if parts and any(part in text for part in parts)"),
+ ("short evidence accepted", "max(map(len, parts)) >= VERIFY_MIN_EVIDENCE", "max(map(len, parts)) >= 0"),
  ("no round cap", '        if rounds >= cfg["max_rounds"]:', '        if False:'),
  ("rounds never counted", '                turns[scope]["rounds"] = rounds + 1', '                pass'),
  ("new prompt keeps rounds", 'turns[scope] = {"base": base, "rounds": 0,', 'turns[scope] = {"base": base, "rounds": old.get("rounds", 0),'),
@@ -78,7 +86,9 @@ MUTANTS = [
  ("stop falls through", '        if name in ("UserPromptSubmit", "Stop"):\n            return 0', '        if False:\n            return 0'),
  ("checks not run", '        checks = run_checks(root, cfg["checks"], cfg["check_timeout_s"]) if cfg["checks"] else []', '        checks = []'),
  ("subagent mission lost", '            mission = _mission_from_transcript(event.get("agent_transcript_path"))', '            mission = ""'),
- ("outside walked", "                        else:\n                            self.outside.add(real)\n", "                        else:\n                            self._files_under(real)\n                            self.outside.add(real)\n"),
+ ("outside walked", "                        else:\n                            self.outside.add(real)\n", "                        else:\n                            self._files_under(real)\n                            self.outside.add(real)\n",
+  # the whole suite would walk / under `rm -rf /` and hit the cap first; this test is the one aimed at the guard
+  ["test_gate_config.AncestorRemovalTests.test_removing_a_directory_outside_the_project_names_nothing_and_walks_nothing"]),
  ("unknown field accepted", '            if name not in DEFAULTS[section]:\n                raise ConfigError(path, f"unknown field {key}")', '            if name not in DEFAULTS[section]:\n                continue'),
  ("limit type unchecked", "                if not ok or (name == \"timeout_minutes\"", "                if False and (name == \"timeout_minutes\""),
  ("preset not expanded", '    from_preset = {f"missions.{k}": v for k, v in PRESETS[str(preset)].items()} if preset is not None else {}', '    from_preset = {}'),
@@ -125,7 +135,10 @@ def main() -> int:
         digest = sha(pristine)
         outcomes = []
         try:
-            for name, old, new in MUTANTS:
+            only = [a for flag, a in zip(sys.argv[1:], sys.argv[2:]) if flag == "--only"]
+            for name, old, new, *chosen in MUTANTS:
+                if only and not any(o in name for o in only):
+                    continue
                 text = pristine.read_text()
                 if text.count(old) != 1:
                     outcomes.append((name, f"NOT APPLIED ({text.count(old)} matches)"))
@@ -135,7 +148,7 @@ def main() -> int:
                     outcomes.append((name, "NOT APPLIED (no change)"))
                     continue
                 try:
-                    done = subprocess.run([sys.executable, "-B", "-m", "unittest", *TESTS], cwd=REPO / "tests",
+                    done = subprocess.run([sys.executable, "-B", "-m", "unittest", *(chosen[0] if chosen else TESTS)], cwd=REPO / "tests",
                                           capture_output=True, text=True, timeout=300, preexec_fn=cap,
                                           env={"PYTHONDONTWRITEBYTECODE": "1", "PATH": "/usr/bin:/bin",
                                                "HOME": str(Path.home())})

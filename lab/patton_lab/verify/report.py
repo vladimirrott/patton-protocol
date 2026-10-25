@@ -23,7 +23,7 @@ from . import runner
 LAB = runner.LAB
 REPORT = LAB / "VERIFY_REPORT.md"
 RESAMPLES, SEED = 10_000, 0
-PRIMARY = "gpt-oss-120b"
+PRIMARY = "qwen3.8-27b"
 RECALL_LIMIT = 0.75
 FALSE_FLAG_LIMIT = 0.10
 

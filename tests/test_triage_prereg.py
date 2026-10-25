@@ -28,6 +28,20 @@ class PreregTests(unittest.TestCase):
                     mock.patch.object(prereg, "check", return_value=1):
                 self.assertEqual(runner.main(["study"]), 2)
 
+    def test_the_registered_plugin_is_kept_byte_for_byte(self):
+        # the study ran on patton-gate 0.2.x; the plugin has moved on, so the registered copy stands in for it
+        copy = prereg.REPO / prereg.REGISTERED["plugins/patton-gate/scripts/patton_gate.py"]
+        self.assertEqual(prereg.file_hash("plugins/patton-gate/scripts/patton_gate.py"),
+                         "6d766a838108093c1950739b9caa83b4468482a0f70327eab9658088dede91fd")
+        self.assertEqual(prereg.hashlib.sha256(copy.read_bytes()).hexdigest(),
+                         prereg.file_hash("plugins/patton-gate/scripts/patton_gate.py"))
+
+    def test_the_live_plugin_still_reads_the_same_flags(self):
+        live = prereg.dataset_digest(prereg.flags_mod.collect(prereg.flags_mod.TEST_SOURCES).flags)
+        with prereg.registered_gate():
+            registered = prereg.dataset_digest(prereg.flags_mod.collect(prereg.flags_mod.TEST_SOURCES).flags)
+        self.assertEqual(live, registered)
+
     def test_every_frozen_input_is_hashed(self):
         text = prereg.PREREG_PATH.read_text(encoding="utf-8")
         for rel in prereg.FROZEN:

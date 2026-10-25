@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -25,8 +27,30 @@ FROZEN = ("lab/patton_lab/triage/flags.py", "lab/patton_lab/triage/prompt.py", "
           "lab/patton_lab/fixtures/e1.py")
 
 
+# The study ran on the plugin as it stood at registration. The plugin has moved on since (0.3.0 added the
+# Verifier), so a byte-for-byte copy of the registered version stands in for it here, and the record is checked
+# against that copy. tests/test_triage_prereg.py checks that the live plugin still reads the same flags.
+REGISTERED = {"plugins/patton-gate/scripts/patton_gate.py": "lab/triage/registered/patton_gate.py"}
+
+
 def file_hash(rel: str) -> str:
-    return hashlib.sha256((REPO / rel).read_bytes()).hexdigest()
+    return hashlib.sha256((REPO / REGISTERED.get(rel, rel)).read_bytes()).hexdigest()
+
+
+@contextlib.contextmanager
+def registered_gate():
+    """Build the flags with the registered plugin in place of the live one."""
+    path = REPO / REGISTERED["plugins/patton-gate/scripts/patton_gate.py"]
+    spec = importlib.util.spec_from_file_location("patton_gate_registered", path)
+    assert spec is not None and spec.loader is not None, f"cannot load {path}"
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up while the class is built
+    spec.loader.exec_module(module)
+    live, flags_mod._GATE = flags_mod._GATE, module
+    try:
+        yield module
+    finally:
+        flags_mod._GATE = live
 
 
 def dataset_digest(dataset) -> str:
@@ -35,7 +59,8 @@ def dataset_digest(dataset) -> str:
 
 
 def text() -> str:
-    test = flags_mod.collect(flags_mod.TEST_SOURCES)
+    with registered_gate():
+        test = flags_mod.collect(flags_mod.TEST_SOURCES)
     critical = sum(f.critical for f in test.flags)
     benign = sum(f.scored and not f.critical for f in test.flags)
     cells = "\n".join(f"| {model} | {context} | {len(runner.cell_flags(test.flags, context))} |"

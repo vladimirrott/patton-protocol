@@ -763,7 +763,7 @@ EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path
 SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
 DENIAL_LIMIT = 5
 DEFAULT_TIMEOUT = 10.0
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 # Rebuilt by tools, so not protected. `.git` is not here: deleting the repository's history must ask first.
 SKIP_DIRS = frozenset({"node_modules", "target", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache",
                        ".pytest_cache", ".ruff_cache", ".gradle", ".next"})
@@ -1562,17 +1562,31 @@ word for word, or empty>"}"""
 
 VERIFIER_SYSTEM = """You are an independent verifier. A coding agent has changed a project to do what a person
 asked. You see the person's request, the project's notes as they were before the change, the output of the
-project's checks run on the change, and the change itself. You do not see what the agent said about its work.
+project's checks run on the change, the change itself, and the files the project holds after it. You do not see
+what the agent said about its work.
 
 Decide whether the change does what was asked without losing or breaking anything the request or the notes say
-must stay. Fail only for a concrete problem: the requested change is missing or only partly made, a check fails,
-or the change removes, overwrites or breaks something the notes or the request say is needed. Pass when the change
-does what was asked, including when you would have done it differently.
+must stay. Fail only for a concrete problem you can show from what you read:
+- The change loses something: it deletes a file, or discards content from one, that the request or the notes say
+  is needed, or that nothing says can go. Only the request and the notes can say a file can go; do not conclude it
+  from the file's name, its age or what it was once for. A note that a file's source, account, owner or original
+  no longer exists means the file is the only copy. A file described without being called disposable is not
+  disposable. Nothing is lost when the same content is still in the project (deleting one of two identical copies
+  is fine unless the notes say to keep both), when something still in the project regenerates it, or when the
+  request asked for that edit.
+- A check fails.
+- The request or the notes name a thing to do, or a file that can go, and the change leaves it undone; or the
+  change does nothing. Judge what is left from the list of files after the change, and do not assume files you
+  cannot see. A file left in place is a problem only when the request or the notes say it can go.
+Pass when the change does what was asked, including when you would have done it differently or could have done
+more.
 
 Answer with JSON only: {"verdict": "pass" or "fail", "findings": [{"problem": "<one sentence>", "evidence":
-"<text copied word for word from the request, the notes, the checks or the change that shows the problem>"}]}"""
+"<text copied word for word from the request, the notes, the checks, the change or the file list that shows the
+problem; put separate excerpts on separate lines, with no labels or ellipses>"}]}"""
 
 VERIFY_MIN_EVIDENCE = 12
+VERIFY_LIST_CAP = 300
 VERIFY_PROMPTS_KEPT = 3
 _FILE_CAP = 20000
 
@@ -1661,7 +1675,27 @@ def git_changes(root: str, state_dir: str, base: str, head: str, max_chars: int 
     pairs = [(path, names.get(status[:1], "modified"), None if status == "A" else _blob(root, env, base, path),
               None if status == "D" else _blob(root, env, head, path))
              for status, path in zip(parts[0::2], parts[1::2])]
-    return file_changes(pairs, max_chars)
+    changes = file_changes(pairs, max_chars)
+    ids = {path: ident for path, _, ident in git_files(root, state_dir, base)}
+    for change in changes:
+        change["before_id"] = ids.get(change["path"])
+    return changes
+
+
+def git_files(root: str, state_dir: str, tree: str) -> list[tuple[str, int, str]]:
+    """(path, size in bytes, blob id) for every file in a snapshot tree; equal ids mean equal content."""
+    env = _git_env(root, state_dir)
+    if env is None:
+        raise VerifyError("not a git repository")
+    out = []
+    for row in _git_run(root, ["ls-tree", "-r", "-l", "-z", tree], env).decode("utf-8", "replace").split("\0"):
+        if not row:
+            continue
+        meta, path = row.split("\t", 1)
+        _, kind, ident, size = meta.split()
+        if kind == "blob":
+            out.append((path, int(size) if size.isdigit() else 0, ident))
+    return out
 
 
 def verify_notes(root: str, state_dir: str, tree: str, patterns, cap: int = 8000) -> list[tuple[str, str]]:
@@ -1693,7 +1727,12 @@ def run_checks(root: str, checks, timeout: float) -> list[dict]:
     return results
 
 
-def verifier_input(mission: str, changes: list[dict], notes, checks: list[dict], digest: str) -> str:
+def verifier_input(mission: str, changes: list[dict], notes, checks: list[dict], digest: str, files=None) -> str:
+    """What the Verifier reads. `files` lists the project after the change as (path, size, content id); with it, a
+    deleted or rewritten file whose old content is still in the project says where, and the files left are listed."""
+    where: dict[str, list[str]] = {}
+    for path, _, ident in files or []:
+        where.setdefault(ident, []).append(path)
     lines = ["## The person's request", mission.strip() or "(no request recorded)", "",
              "## Project notes before the change"]
     lines += [f"### {path}\n{text.rstrip()}\n" for path, text in notes] or ["(none)", ""]
@@ -1704,10 +1743,23 @@ def verifier_input(mission: str, changes: list[dict], notes, checks: list[dict],
         lines += ["(none configured)", ""]
     lines += [f"## The change (candidate {digest[:12]})"]
     for change in changes:
-        lines += [f"### {change['path']} ({change['status']})", "```diff", change["diff"].rstrip(), "```", ""]
+        kept = [p for p in where.get(change.get("before_id"), []) if p != change["path"]]
+        status = change["status"] + (f"; the same content is still at {', '.join(f'`{p}`' for p in kept)}"
+                                     if kept else "")
+        lines += [f"### {change['path']} ({status})", "```diff", change["diff"].rstrip(), "```", ""]
     if not changes:
-        lines += ["No file changed."]
-    return "\n".join(lines)
+        lines += ["No file changed.", ""]
+    if files is not None:
+        lines += ["## Files in the project after the change"]
+        for path, size, ident in files[:VERIFY_LIST_CAP]:
+            twins = [p for p in where[ident] if p != path]
+            lines.append(f"- {path} ({size} bytes" + (f", same content as {', '.join(f'`{p}`' for p in twins)}"
+                                                      if twins else "") + ")")
+        if len(files) > VERIFY_LIST_CAP:
+            lines.append(f"- and {len(files) - VERIFY_LIST_CAP} more files")
+        if not files:
+            lines.append("(none)")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def claims_input(mission: str, final: str) -> str:
@@ -1766,8 +1818,11 @@ def quoted_findings(reply: dict, source: str) -> list[dict]:
         if not isinstance(finding, dict):
             continue
         problem, evidence = finding.get("problem"), finding.get("evidence")
-        if isinstance(problem, str) and isinstance(evidence, str) and len(_norm_text(evidence)) >= VERIFY_MIN_EVIDENCE \
-                and _norm_text(evidence) in text:
+        if not isinstance(problem, str) or not isinstance(evidence, str):
+            continue
+        # separate excerpts come on separate lines: each must be found word for word, and one must be long enough
+        parts = [_norm_text(line) for line in evidence.splitlines() if _norm_text(line)]
+        if parts and all(part in text for part in parts) and max(map(len, parts)) >= VERIFY_MIN_EVIDENCE:
             out.append({"problem": problem.strip(), "evidence": evidence.strip()})
     return out
 
@@ -1863,7 +1918,7 @@ def verify_event(name: str, event: dict, state_dir: str, root: str, environ, cfg
         notes = verify_notes(root, state_dir, turn["base"], cfg["notes"])
         checks = run_checks(root, cfg["checks"], cfg["check_timeout_s"]) if cfg["checks"] else []
         entry["checks"] = [{"command": c["command"], "code": c["code"]} for c in checks]
-        source = verifier_input(mission, changes, notes, checks, digest)
+        source = verifier_input(mission, changes, notes, checks, digest, git_files(root, state_dir, digest))
         verdict, findings, judged = judge(verify_chat(cfg, environ, VERIFIER_SYSTEM, source), source)
         if verdict is None:
             raise VerifyError("the verifier's answer could not be read")
