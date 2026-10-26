@@ -34,9 +34,9 @@ class LabDir:
 
 class MoneyTests(unittest.TestCase):
     def test_the_verify_ledger_counts_toward_the_lab_cap(self):
-        lab = LabDir(lab=10.0, verify=29.99)
+        lab = LabDir(lab=10.0, verify=spend.GLOBAL_CAP - 10.01)
         self.addCleanup(lab.tmp.cleanup)
-        self.assertAlmostEqual(sum(spend.spent_everywhere(lab.path).values()), 39.99)
+        self.assertAlmostEqual(sum(spend.spent_everywhere(lab.path).values()), spend.GLOBAL_CAP - 0.01)
         with self.assertRaises(runner.SpendStop):
             runner.Meter(lab.path, lab.path / "verify_spend.jsonl", 100.0).reserve(0.02)
 

@@ -18,7 +18,7 @@ stop (where the port can carry each). Each passing (set, harness) gets a stamp o
 `lab/fleet_trace/`; the paid pilot refuses a harness whose stamp does not match the tree.
 
 The pilot is a pilot: it sizes a later study and carries no verdict. Every call goes through the recorder, whose
-meter refuses a call that could carry the set's ledger past its cap or the lab past $40 (patton_lab/spend.py).
+meter refuses a call that could carry the set's ledger past its cap or the lab past its $90 (patton_lab/spend.py).
 A stored run is never run again; the same command resumes.
 """
 

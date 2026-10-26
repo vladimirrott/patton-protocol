@@ -33,6 +33,9 @@ REGISTERED = {"plugins/patton-gate/scripts/patton_gate.py": "lab/verify/register
               # the ledger list grew after the study (the fleet runs); the study's guard counted the list below
               "lab/patton_lab/spend.py": "lab/verify/registered/spend.py"}
 
+# The study ran under the $40 the registered spend.py took from ledgers.py; the lab cap was raised after it.
+STUDY_CAP = runner.spend.ledgers.GLOBAL_CAP
+
 
 def file_hash(rel: str) -> str:
     return hashlib.sha256((REPO / REGISTERED.get(rel, rel)).read_bytes()).hexdigest()
@@ -140,7 +143,7 @@ deny-all arms, cost.
 ## Stops and spend
 
 - `lab/verify_spend.jsonl` (development run included) may hold at most ${runner.SETS['study'][1]:.2f}, and the
-  lab-wide cap of ${runner.spend.GLOBAL_CAP:.2f} counts every ledger (`patton_lab/spend.py`).
+  lab-wide cap of ${STUDY_CAP:.2f} counts every ledger (`patton_lab/spend.py`).
 - A 429 waits and retries; a 5xx or a lost connection retries twice and then stops the run, which the same command
   resumes without asking again for a stored run.
 

@@ -11,7 +11,8 @@ from pathlib import Path
 from . import ledgers
 
 LAB = ledgers.LAB
-GLOBAL_CAP = ledgers.GLOBAL_CAP
+# The CTO approved $50 more on 2026-10-25. ledgers.py keeps the $40 the closed studies ran under.
+GLOBAL_CAP = ledgers.GLOBAL_CAP + 50.00
 LINE_LEDGERS = {**ledgers.LINE_LEDGERS, "verify": "verify_spend.jsonl", "fleet": "fleet_spend.jsonl"}
 
 
