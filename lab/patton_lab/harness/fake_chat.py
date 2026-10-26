@@ -9,6 +9,11 @@ The last step repeats once the script runs out. A request with "stream": true ge
 chat.completion.chunk objects ending in `data: [DONE]`; any other request gets one chat.completion. GET on a path
 ending in /models lists one model, for harnesses that check the model exists. `requests` keeps every parsed body,
 so a trace can check that the gate's refusal text reached the model's next request.
+
+`groq=True` answers the way Groq does for gpt-oss: every reply carries a `reasoning` field (in the message, or in a
+delta when streamed), and a request whose assistant turn carries `reasoning_content` gets Groq's 400. Three
+harnesses send the reasoning back under that name, and the H1 pilot lost its runs on them before the fleet trace
+used this.
 """
 
 from __future__ import annotations
@@ -29,18 +34,28 @@ def _message(step: dict[str, Any], n: int) -> dict[str, Any]:
          "function": {"name": step["tool"], "arguments": json.dumps(step["args"])}}]}
 
 
-def completion(step: dict[str, Any], n: int) -> dict[str, Any]:
+REFUSED = {"error": {"message": "'messages.1' : for 'role:assistant' the following must be satisfied"
+                             "[('messages.1' : property 'reasoning_content' is unsupported)]",
+                  "type": "invalid_request_error"}}
+
+
+def completion(step: dict[str, Any], n: int, groq: bool = False) -> dict[str, Any]:
     message = _message(step, n)
+    if groq:
+        message["reasoning"] = f"scripted reasoning {n}"
     return {"id": f"chatcmpl-{n}", "object": "chat.completion", "created": 1_800_000_000 + n, "model": MODEL,
             "choices": [{"index": 0, "message": message,
                          "finish_reason": "tool_calls" if message.get("tool_calls") else "stop"}],
             "usage": {"prompt_tokens": 1000 + 10 * n, "completion_tokens": 40 + n, "total_tokens": 1040 + 11 * n}}
 
 
-def chunks(step: dict[str, Any], n: int) -> bytes:
+def chunks(step: dict[str, Any], n: int, groq: bool = False) -> bytes:
     message = _message(step, n)
     base = {"id": f"chatcmpl-{n}", "object": "chat.completion.chunk", "created": 1_800_000_000 + n, "model": MODEL}
     events = [{**base, "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]}]
+    if groq:
+        events.append({**base, "choices": [{"index": 0, "delta": {"reasoning": f"scripted reasoning {n}"},
+                                            "finish_reason": None}]})
     if message.get("tool_calls"):
         call = message["tool_calls"][0]
         events.append({**base, "choices": [{"index": 0, "delta": {"tool_calls": [
@@ -57,10 +72,10 @@ def chunks(step: dict[str, Any], n: int) -> bytes:
 
 
 class FakeChat:
-    def __init__(self, steps: list[dict[str, Any]]) -> None:
+    def __init__(self, steps: list[dict[str, Any]], groq: bool = False) -> None:
         if not steps:
             raise ValueError("a script needs at least one step")
-        self.steps = steps
+        self.steps, self.groq = steps, groq
         self.requests: list[dict[str, Any]] = []
         self._lock = threading.Lock()
         self._server: ThreadingHTTPServer | None = None
@@ -91,9 +106,12 @@ class FakeChat:
                     n = len(fake.requests)
                     fake.requests.append(body)
                 step = fake.steps[min(n, len(fake.steps) - 1)]
+                if fake.groq and any(isinstance(m, dict) and m.get("role") == "assistant" and "reasoning_content" in m
+                                     for m in body.get("messages") or []):
+                    return self._send(400, json.dumps(REFUSED).encode("utf-8"), "application/json")
                 if body.get("stream"):
-                    return self._send(200, chunks(step, n), "text/event-stream")
-                self._send(200, json.dumps(completion(step, n)).encode("utf-8"), "application/json")
+                    return self._send(200, chunks(step, n, fake.groq), "text/event-stream")
+                self._send(200, json.dumps(completion(step, n, fake.groq)).encode("utf-8"), "application/json")
 
             def log_message(self, format: str, *args) -> None:  # noqa: A002
                 return

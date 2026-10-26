@@ -126,9 +126,10 @@ class CommittedStudyTests(unittest.TestCase):
     def test_findings_quote_only_numbers_the_report_or_the_preregistration_print(self):
         # The gate study's findings quote lab/CC_REPORT.md; tests/test_cc_study_integrity.py checks them. A post hoc
         # note quotes a table its own script generates, and its own test checks that table. The triage findings are
-        # checked by tests/test_triage_study_integrity.py, the Verifier findings by tests/test_verify_study_integrity.py.
+        # checked by tests/test_triage_study_integrity.py, the Verifier findings by tests/test_verify_study_integrity.py,
+        # the fleet pilots' by tests/test_fleet_pilots.py.
         docs = sorted(p for p in (REPO_ROOT / "docs" / "findings").glob("*.md")
-                      if not any(other in p.name for other in ("gate-study", "posthoc", "triage", "verify")))
+                      if not any(other in p.name for other in ("gate-study", "posthoc", "triage", "verify", "fleet")))
         self.assertTrue(docs)
         for doc in docs:
             text = doc.read_text(encoding="utf-8")

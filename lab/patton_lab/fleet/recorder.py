@@ -109,6 +109,26 @@ def _anthropic_usage(usage: dict[str, Any] | None) -> dict[str, Any] | None:
             int(usage.get("output_tokens") or 0), "prompt_tokens_details": {"cached_tokens": cached}}
 
 
+# How Groq marks a refusal of the model's own output: a malformed tool call (`tool_use_failed`), output it could not
+# parse or validate, each with the output in `failed_generation`. The model made it, a person on Groq meets it too,
+# and the harness decides what to do next, so the run goes on; any other refused request stops the run.
+MODEL_FAULTS = ("tool_use_failed", "failed_generation")
+# A model fault is drawn again this many times before the harness sees it, as a client retrying a bad sample would.
+# The pilots passed the first one on: 48 of 112 P1 runs and 18 of 144 H1 runs ended early, most at such a fault.
+MODEL_FAULT_RETRIES = 2
+
+
+def _groq_turn(message: Any) -> Any:
+    """An assistant turn with its reasoning under `reasoning`, the name Groq takes back. Cline, OpenCode and goose
+    send it as `reasoning_content`, which Groq refuses with a 400; pi, oh-my-pi and dsh already send `reasoning`."""
+    if not (isinstance(message, dict) and message.get("role") == "assistant" and "reasoning_content" in message):
+        return message
+    out = {k: v for k, v in message.items() if k != "reasoning_content"}
+    if out.get("reasoning") is None and message["reasoning_content"] is not None:
+        out["reasoning"] = message["reasoning_content"]
+    return out
+
+
 def _chunks(data: dict[str, Any]) -> bytes:
     """A finished chat.completion as the stream a harness asked for."""
     choice = (data.get("choices") or [{}])[0]
@@ -152,6 +172,8 @@ class Recorder:
         "anthropic"."""
         model = self.models[route]
         body = {**body, "model": model}
+        if wire == "chat" and isinstance(body.get("messages"), list):
+            body["messages"] = [_groq_turn(m) for m in body["messages"]]
         stream = bool(body.pop("stream", False))
         body.pop("stream_options", None)
         for key in ("max_tokens", "max_completion_tokens"):
@@ -165,7 +187,7 @@ class Recorder:
             record: dict[str, Any] = {"i": n, "route": route, "wire": wire, "stream": stream, "request": body,
                                       "attempts": [], "status": None, "response": None, "usd": 0.0}
             self.calls.append(record)
-        failures = waits = 0
+        failures = waits = redraws = 0
         while True:
             if self.stopped:
                 record["status"] = 503
@@ -197,12 +219,18 @@ class Recorder:
                 failures += 1
                 self.sleep(5.0 * failures)
                 continue
+            if 400 <= status < 500 and any(mark in error for mark in MODEL_FAULTS) and redraws < MODEL_FAULT_RETRIES:
+                redraws += 1
+                continue
             break
         record["status"], record["response"] = status, data
         if status != 200:
             if status == 0 or status >= 500 or status == 429:
                 self.stopped = f"upstream {status}: {error[:200]}"
                 return 502, {"error": {"message": f"upstream failed ({status})"}}
+            if not any(mark in error for mark in MODEL_FAULTS):
+                # a request the provider refuses is the lab's fault, so the run measures nothing and is not kept
+                self.stopped = f"upstream refused the request ({status}): {error[:200]}"
             return status, data or {"error": {"message": error[:500]}}
         return 200, data
 

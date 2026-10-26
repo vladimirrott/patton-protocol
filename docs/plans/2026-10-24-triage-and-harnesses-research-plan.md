@@ -18,7 +18,17 @@ lab-wide spend guard ($40 across every ledger; $24.199 spent before this plan).
   before the stop, the report contract), the stop rules and the Verifier on Codex, a fail-closed shim for the
   harnesses whose own hooks fail open, stop support through the bridge with its own cap, a translating proxy for
   Gemini CLI, the fleet runner that runs every port through a recording proxy under the lab's cap, and the P1
-  temptation fixtures with an isolated oracle. No paid call has been made for either pilot.
+  temptation fixtures with an isolated oracle.
+- The CTO raised the lab cap from $40 to $90 on 2026-10-25.
+- The H1 and P1 pilots ran on 2026-10-25 ([findings](../findings/2026-10-25-fleet-pilots.md)): 144 and 112 runs for
+  $0.78 and $0.92. Unguarded, every one of the eight harnesses destroyed a needed file at least once (19 of 48
+  runs); the gate's arms did so in none of 96, and T1 cut the questions from 1.167 to 0.688 a run. In P1 only the
+  refused stop with the Verifier moved test gaming (10 of 28 to 4) and overclaiming (8 to 2). Two lab bugs surfaced
+  and were fixed before the registered studies: Groq refuses the `reasoning_content` field three harnesses send,
+  and a refused request was stored as a valid run.
+- The registered studies H1R (768 runs) and P1R (448 runs) are pre-registered from the code
+  ([H1R](../../lab/prereg/2026-10-25-fleet-h1r-preregistration.md),
+  [P1R](../../lab/prereg/2026-10-25-fleet-p1r-preregistration.md)), each under its own $8 cap.
 
 ## Questions
 
@@ -149,8 +159,8 @@ refusal or blind verification of coding-agent claims, so this is the open part.
 | P1-pilot | about $2 |
 | Left under the $40 cap | about $8.8 |
 
-The registered H1 and P1 studies will not fit in what is left. Their size and the cap are the person's decision
-after the pilots.
+The registered H1 and P1 studies did not fit in what was left. After the pilots the CTO added $50, and each
+registered study runs under its own $8 cap.
 
 ## Threats to validity
 

@@ -100,6 +100,26 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual((runner.TRACE_DIR / "h1-pi.ok").read_text().strip(), runner.stamp("pi"))
         self.assertEqual(list((Path(self.tmp.name) / "scratch").iterdir()), [])  # each run's scratch is removed
 
+    def test_the_trace_answers_like_groq_and_a_port_that_sends_reasoning_content_still_passes(self):
+        seen = []
+
+        def echoing_run(run_spec):
+            # Cline, OpenCode and goose send the model's reasoning back as reasoning_content
+            real_post = globals()["_post"]
+
+            def post(port, body):
+                body = {**body, "messages": [{**{k: v for k, v in m.items() if k != "reasoning"},
+                                              "reasoning_content": m["reasoning"]} if m.get("reasoning") else m
+                                             for m in body["messages"]]}
+                seen.extend(m for m in body["messages"] if "reasoning_content" in m)
+                return real_post(port, body)
+            with mock.patch.dict(globals(), {"_post": post}):
+                return fake_run(run_spec)
+        port = types.SimpleNamespace(**{**vars(FAKE_PORT), "run": echoing_run})
+        with mock.patch.object(spec, "port", lambda name: port):
+            self.assertEqual(runner.trace("h1", "pi", lambda s: None), [])
+        self.assertTrue(seen, "the trace's model never sent reasoning, so the echo was not exercised")
+
     def test_the_trace_fails_when_the_gate_lets_the_audit_log_go(self):
         real = suites.E1.prepare
 
@@ -141,6 +161,51 @@ class RunnerTests(unittest.TestCase):
             (runner.TRACE_DIR / "h1-pi.ok").write_text("stale\n")
             self.assertEqual(runner.pilot("h1", ["pi"], 1, lambda s: None), 2)
 
+    def test_a_registered_set_refuses_without_a_matching_preregistration(self):
+        from patton_lab.fleetstudy import prereg
+
+        def must_not(*a, **k):
+            raise AssertionError("the study reached the network")
+        runner.TRACE_DIR.mkdir()
+        for which in ("h1r", "p1r"):
+            for h in runner.SETS[which]["harnesses"]:
+                (runner.TRACE_DIR / f"{which}-{h}.ok").write_text(runner.stamp(h) + "\n")
+        lines = []
+        with mock.patch.object(runner, "_proxy_up", must_not), mock.patch.object(runner, "run_one", must_not), \
+                mock.patch.object(prereg, "check", lambda which, log=print: 1):
+            for which in ("h1r", "p1r"):
+                self.assertEqual(runner.pilot(which, list(runner.SETS[which]["harnesses"]), 1, lines.append), 2)
+        self.assertTrue(all("pre-registration" in line for line in lines), lines)
+        reached = []
+        with mock.patch.object(runner, "_proxy_up", lambda url: reached.append(url) or False), \
+                mock.patch.object(prereg, "check", lambda which, log=print: 0):
+            self.assertEqual(runner.pilot("h1r", list(runner.SETS["h1r"]["harnesses"]), 1, lambda s: None), 2)
+        self.assertEqual(len(reached), 1)  # with a matching pre-registration it goes on to the proxy
+
+    def test_study_runs_only_registered_sets_and_charges_their_own_ledger(self):
+        from patton_lab.fleetstudy import prereg
+
+        def must_not(*a, **k):
+            raise AssertionError("the study reached the network")
+        with mock.patch.object(runner, "pilot", must_not):
+            self.assertEqual(runner.main(["study", "--set", "h1"]), 2)
+        runner.TRACE_DIR.mkdir()
+        for h in runner.SETS["h1r"]["harnesses"]:
+            (runner.TRACE_DIR / f"h1r-{h}.ok").write_text(runner.stamp(h) + "\n")
+        made = []
+
+        class Stop(Exception):
+            pass
+
+        def meter(lab, ledger, cap):
+            made.append((ledger, cap))
+            raise Stop
+        with mock.patch.object(prereg, "check", lambda which, log=print: 0), \
+                mock.patch.object(runner, "_proxy_up", lambda url: True), \
+                mock.patch.object(runner.money, "Meter", meter), self.assertRaises(Stop):
+            runner.pilot("h1r", list(runner.SETS["h1r"]["harnesses"]), 1, lambda s: None)
+        self.assertEqual(made, [(runner.LAB / "fleet_h1r_spend.jsonl", 8.0)])
+
     def test_a_stored_record_keeps_the_host_user_out(self):
         out = Path(self.tmp.name) / "out"
         record = {"harness": "pi", "arm": "rules", "fixture": "f04", "rep": 0, "final_text": str(Path.home())}
@@ -148,6 +213,20 @@ class RunnerTests(unittest.TestCase):
         stored = runner.record_path(out, "pi", "rules", "f04", 0).read_text()
         self.assertNotIn(str(Path.home()), stored)
         self.assertEqual(json.loads(stored)["scrubbed"], 2)
+
+    def test_the_report_counts_runs_that_ended_early(self):
+        out = Path(self.tmp.name) / "out"
+        metrics = {"harm": 0, "utility": 0.0, "approvals": 0, "triaged": 0}
+        for i, (rc, timed_out) in enumerate([(0, False), (1, False), (0, True)]):
+            record = {"harness": "pi", "arm": "rules", "fixture": f"f0{i}", "rep": 0, "rc": rc,
+                      "timed_out": timed_out, "metrics": metrics, "calls": 2, "usd": 0.001}
+            runner._store(out, record, [])
+        with mock.patch.dict(runner.SETS["h1"], {"out": "out"}), mock.patch.object(runner, "LAB", Path(self.tmp.name)):
+            text = runner.report("h1")
+        header = next(line for line in text.splitlines() if line.startswith("| Harness"))
+        row = next(line for line in text.splitlines() if line.startswith("| pi | rules"))
+        cells = dict(zip([c.strip() for c in header.split("|")], [c.strip() for c in row.split("|")]))
+        self.assertEqual(cells["Ended early"], "2 of 3")
 
     def test_the_cells_cover_the_set_once_in_a_fixed_order(self):
         cells = runner.cells("h1", ["pi", "omp"])

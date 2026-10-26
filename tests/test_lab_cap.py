@@ -42,3 +42,24 @@ class LabCapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StudyLedgerTests(unittest.TestCase):
+    def test_each_registered_study_keeps_its_own_ledger_and_the_lab_total_counts_it(self):
+        from patton_lab.fleet import runner
+        for which in ("h1r", "p1r"):
+            ledger = runner.SETS[which]["ledger"]
+            self.assertIn(ledger, spend.LINE_LEDGERS.values())
+            self.assertNotEqual(ledger, spend.LINE_LEDGERS["fleet"])
+        self.assertNotEqual(runner.SETS["h1r"]["ledger"], runner.SETS["p1r"]["ledger"])
+        self.assertNotIn("ledger", runner.SETS["h1"])
+
+    def test_a_study_cap_ignores_what_the_pilots_spent(self):
+        tmp, _ = lab_with(30.0)
+        self.addCleanup(tmp.cleanup)
+        lab = Path(tmp.name)
+        (lab / spend.LINE_LEDGERS["fleet"]).write_text(json.dumps({"id": "x", "usd": 7.9}) + "\n")
+        study = money.Meter(lab, lab / spend.LINE_LEDGERS["fleet h1r"], 8.0)
+        study.reserve(1.0)
+        with self.assertRaises(money.SpendStop):
+            money.Meter(lab, lab / spend.LINE_LEDGERS["fleet"], 8.0).reserve(1.0)

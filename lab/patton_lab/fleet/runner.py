@@ -41,6 +41,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from ..fixtures import e1 as e1_fixtures
 from ..p1 import fixtures as p1_fixtures
 from ..harness.fake_chat import FakeChat
 from . import money, score, spec, suites
@@ -62,6 +63,12 @@ SETS = {"h1": {"suite": "e1", "fixtures": ("f02", "f04", "f08", "f11", "f12", "f
         "p1": {"suite": "p1", "fixtures": tuple(p1_fixtures.FIXTURES), "reps": 1, "cap": 4.0, "out": "fleet_p1",
                "seed": 43, "timeout_s": 600,
                "harnesses": ("pi", "omp", "dsh", "gemini-cli", "open-interpreter", "goose", "claude-code")}}
+# The registered studies the pilots sized (patton_lab/fleetstudy): each refuses to start unless its committed
+# pre-registration matches the code.
+SETS["h1r"] = {**SETS["h1"], "fixtures": tuple(f.id for f in e1_fixtures.E1_FIXTURES), "reps": 2, "cap": 8.0,
+               "out": "fleet_h1r", "ledger": money.spend.LINE_LEDGERS["fleet h1r"], "seed": 47, "prereg": True}
+SETS["p1r"] = {**SETS["p1"], "reps": 4, "cap": 8.0, "out": "fleet_p1r",
+               "ledger": money.spend.LINE_LEDGERS["fleet p1r"], "seed": 53, "prereg": True}
 TRACED = [REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py",
           REPO / "plugins" / "patton-gate" / "hooks" / "hooks.json"]
 
@@ -168,8 +175,10 @@ def trace(which: str, harness: str, log=print) -> list[str]:
     lab = _trace_lab()
     try:
         for arm in kit.arms:
-            worker = FakeMessages if getattr(module, "WIRE", "chat") == "anthropic" else FakeChat
-            fake, analyst = worker(kit.trace_steps(module)), FakeAnalyst()
+            steps = kit.trace_steps(module)
+            # the chat fake answers like Groq, reasoning field and refusals included (fake_chat.py)
+            fake = FakeMessages(steps) if getattr(module, "WIRE", "chat") == "anthropic" else FakeChat(steps, groq=True)
+            analyst = FakeAnalyst()
             try:
                 worker_url, analyst_url = f"http://127.0.0.1:{fake.start()}", f"http://127.0.0.1:{analyst.start()}"
                 meter = money.Meter(lab, lab / "fleet_spend.jsonl", 1.0)
@@ -225,6 +234,11 @@ def _proxy_up(url: str) -> bool:
 def pilot(which: str, harnesses: list[str], jobs: int, log=print) -> int:
     cfg = SETS[which]
     out = LAB / cfg["out"]
+    if cfg.get("prereg"):
+        from ..fleetstudy import prereg
+        if prereg.check(which, log) != 0:
+            log(f"!! {which} is a registered study: its pre-registration must match the code before any call")
+            return 2
     for harness in harnesses:
         marker = TRACE_DIR / f"{which}-{harness}.ok"
         if not marker.exists() or marker.read_text(encoding="utf-8").strip() != stamp(harness):
@@ -236,7 +250,7 @@ def pilot(which: str, harnesses: list[str], jobs: int, log=print) -> int:
         return 2
     todo = [c for c in cells(which, harnesses) if not record_path(out, *c).exists()]
     log(f"{which}: {len(todo)} runs to go")
-    meter = money.Meter(LAB, money.LEDGER, cfg["cap"])
+    meter = money.Meter(LAB, LAB / cfg["ledger"] if "ledger" in cfg else money.LEDGER, cfg["cap"])
     halt = threading.Event()
 
     def one(cell: tuple[str, str, str, int]) -> str:
@@ -288,7 +302,9 @@ def _count(group, key) -> str:
 def report(which: str) -> str:
     rows = load(which)
     suite = SETS[which]["suite"]
-    columns = COLUMNS[suite] + [("Calls per run", lambda g: f"{_mean(g, lambda r: r['calls']):.1f}"),
+    # a run that died (a crash, a timeout, a harness giving up after the model's malformed calls) can do no harm
+    columns = COLUMNS[suite] + [("Ended early", lambda g: f"{sum(r['rc'] != 0 or r['timed_out'] for r in g)} of {len(g)}"),
+                                ("Calls per run", lambda g: f"{_mean(g, lambda r: r['calls']):.1f}"),
                                 ("$ per run", lambda g: f"{_mean(g, lambda r: r['usd']):.4f}")]
     lines = [f"# Fleet pilot `{which}`", "", "A pilot: it sizes a later study and carries no verdict. "
              f"{len(rows)} runs, ${sum(r['usd'] for r in rows):.4f}.", "",
@@ -311,7 +327,7 @@ def plan_lines(which: str, harnesses: list[str]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="patton_lab.fleet.runner")
-    parser.add_argument("command", choices=("list", "trace", "plan", "pilot", "report"))
+    parser.add_argument("command", choices=("list", "trace", "plan", "pilot", "study", "report"))
     parser.add_argument("--set", default="h1", choices=tuple(SETS))
     parser.add_argument("--harness", action="append", default=[])
     parser.add_argument("--jobs", type=int, default=2)
@@ -340,6 +356,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "report":
         print(report(args.set), end="")
         return 0
+    if args.command == "study" and not SETS[args.set].get("prereg"):
+        print(f"!! {args.set} is a pilot, not a registered study; run it with `pilot`")
+        return 2
     return pilot(args.set, ready, args.jobs)
 
 
