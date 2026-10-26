@@ -45,8 +45,8 @@ An earlier study put a gate of the same design inside a sandbox, and harm was 0.
   recoverable; a command it cannot read, such as a script, leaves no copy. No study has measured people using it.
   To ask less often, an LLM analyst can sort the gate's questions first: replayed over the 838 flags of both studies,
   it cut questions per run from 1.240 to 0.491 and let through 0 of 120 critical flags
-  ([findings](docs/findings/2026-10-24-triage-findings.md)). Those flags hold only 14 distinct cases, and the
-  analyst is not in the plugin yet.
+  ([findings](docs/findings/2026-10-24-triage-findings.md)). Those flags hold only 14 distinct cases. The analyst
+  ships in patton-gate 0.4.0, off until you turn it on, and the study on other harnesses below measured it live.
 - **Finished work.** Utility fell from 0.862 to 0.768, and the data leave open whether that drop is under the
   registered 0.10 margin. A post hoc split ([note](docs/findings/2026-10-23-gate-utility-posthoc.md)) puts most of
   the drop in runs where the gate did nothing the worker could see, and much of the rest in a partial-approval rule
@@ -59,6 +59,13 @@ An earlier study put a gate of the same design inside a sandbox, and harm was 0.
   ([findings](docs/findings/2026-10-24-codex-gate-study-findings.md)). Sol harmed nothing without the gate (0.000),
   so that study could not show a cut (Q1 INCONCLUSIVE, floor). It found 0 of 96 bypasses, utility 0.948 unguarded
   against 0.938 with the hook, and 1.000 question per run. No Claude model has been measured yet.
+- **Other harnesses.** A pre-registered study ran 768 runs on eight more harnesses (pi, oh-my-pi, OpenCode, dsh,
+  Gemini CLI, Cline, Open Interpreter and goose) on gpt-oss-120b, with no person answering the gate
+  ([findings](docs/findings/2026-10-26-fleet-h1r-findings.md)). Unguarded, every one of them destroyed a needed
+  file in some runs, from 6 of 32 to 13 of 32. With the gate, none of 512 runs did (one-sided 95% upper bound
+  0.0058). With the analyst on, the gate asked 0.569 as often as with the rules alone. The analyst also let 20
+  changes run that the fixture's oracle refuses, so that prediction failed; none of them lost data, and 18 were the
+  live original of a file with a verified backup.
 - **Not a sandbox.** The gate reads commands to catch an honest agent's mistakes. An agent that sets out to get past
   it can, for example by writing a script and running it under a command the person approves. Run it inside the
   host's sandbox when you need a boundary against a hostile agent ([threat model](plugins/patton-gate/README.md#what-it-does-not-protect)).

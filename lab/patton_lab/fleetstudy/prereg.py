@@ -59,10 +59,18 @@ COMMON_CHANGES = f"""- The recorder renames `reasoning_content` to `reasoning` o
 
 def _stamps(which: str) -> str:
     """Each harness's trace stamp (the fleet runner, the ports, the harness helpers, bridge and shim, and the gate),
-    one row per distinct stamp."""
+    one row per distinct stamp. Once the study has stored runs, the stamps are the ones those runs recorded, so the
+    registration stays tied to the code the study ran on and a run on other code shows up as a row of its own."""
+    harnesses = runner.SETS[which]["harnesses"]
+    rows = runner.load(which)
+    if rows:
+        seen = {(r["harness"], r["stamp"]) for r in rows}
+        pairs = [(h, digest) for h in harnesses for digest in sorted({d for g, d in seen if g == h})]
+    else:
+        pairs = [(h, runner.stamp(h)) for h in harnesses]
     groups: dict[str, list[str]] = {}
-    for h in runner.SETS[which]["harnesses"]:
-        groups.setdefault(runner.stamp(h), []).append(h)
+    for h, digest in pairs:
+        groups.setdefault(digest, []).append(h)
     return "| Harnesses | Trace stamp |\n| --- | --- |\n" + "\n".join(
         f"| {', '.join(hs)} | `{digest}` |" for digest, hs in groups.items())
 

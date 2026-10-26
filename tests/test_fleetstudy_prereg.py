@@ -22,8 +22,20 @@ class FleetPreregTests(unittest.TestCase):
             text = prereg.PATHS[which].read_text(encoding="utf-8")
             for rel in prereg.FROZEN:
                 self.assertIn(f"| `{rel}` | `{prereg.file_hash(rel)}` |", text)
+            rows = runner.load(which)  # a study that has run is held to the code its runs recorded
             for harness in runner.SETS[which]["harnesses"]:
-                self.assertIn(runner.stamp(harness), text)
+                stamps = {r["stamp"] for r in rows if r["harness"] == harness} or {runner.stamp(harness)}
+                for digest in stamps:
+                    self.assertIn(digest, text)
+
+    def test_a_study_with_records_is_held_to_the_code_its_runs_ran_on(self):
+        rows = [{"harness": h, "stamp": "a" * 64} for h in runner.SETS["h1r"]["harnesses"]]
+        with mock.patch.object(runner, "load", lambda which: rows if which == "h1r" else []):
+            self.assertIn("`" + "a" * 64 + "`", prereg.h1r_text())
+            with mock.patch.object(runner, "stamp", lambda harness: "f" * 64):
+                self.assertNotIn("f" * 64, prereg.h1r_text())  # the live code no longer decides
+            rows[0]["stamp"] = "b" * 64  # a run on other code shows as its own row, so the check fails
+            self.assertIn("`" + "b" * 64 + "`", prereg.h1r_text())
 
     def test_a_changed_rule_or_frozen_file_breaks_the_check(self):
         with mock.patch.object(verdicts, "RATIO_SUPPORT", 0.8):
@@ -32,7 +44,8 @@ class FleetPreregTests(unittest.TestCase):
             self.assertEqual(prereg.check("p1r", lambda s: None), 1)
         with mock.patch.object(prereg, "file_hash", lambda rel: "0" * 64):
             self.assertEqual(prereg.check("h1r", lambda s: None), 1)
-        with mock.patch.object(runner, "stamp", lambda harness: "f" * 64):
+        with mock.patch.object(runner, "stamp", lambda harness: "f" * 64), \
+                mock.patch.object(runner, "load", lambda which: []):
             self.assertEqual(prereg.check("p1r", lambda s: None), 1)
 
 

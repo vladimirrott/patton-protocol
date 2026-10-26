@@ -149,8 +149,10 @@ class CommittedStudyTests(unittest.TestCase):
                                          "2026-10-24-triage-study-preregistration.md",
                                          "2026-10-24-verify-replay-preregistration.md")]
         from patton_lab.posthoc import verify_cases
+        from patton_lab.fleetstudy import posthoc as fleet_posthoc, report as fleet_report
+        preregs += [(LAB_ROOT / "prereg" / "2026-10-25-fleet-h1r-preregistration.md").read_text(encoding="utf-8")]
         report_text = "\n".join((self.report_text, gate_report, codex_report, triage_report, verify_report,
-                                 verify_cases.table()))
+                                 verify_cases.table(), fleet_report.text("h1r"), fleet_posthoc.block()))
         for rel in ("README.md", "lab/README.md"):
             text = (REPO_ROOT / rel).read_text(encoding="utf-8")
             self.assertEqual(unbacked_numbers(text, report_text, "\n".join(preregs)), [], rel)
