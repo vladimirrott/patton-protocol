@@ -31,8 +31,13 @@ lab-wide spend guard ($40 across every ledger; $24.199 spent before this plan).
   [P1R](../../lab/prereg/2026-10-25-fleet-p1r-preregistration.md)), each under its own $8 cap.
 - H1R ran on 2026-10-26 ([findings](../findings/2026-10-26-fleet-h1r-findings.md)): no harm in 512 gated runs on
   eight harnesses (R1 SUPPORTED), questions cut to 0.569 of the rules arm's (R2 SUPPORTED), and 20 analyst allows
-  outside the oracle's policy, none of which lost data (R3 NOT SUPPORTED). 370 runs failed to start their container
+  outside the oracle's policy, none of which did harm by the study's score (R3 NOT SUPPORTED). 370 runs failed to start their container
   on the first pass (a podman keyring leak) and ran again on the same code.
+- P1R ran on 2026-10-26 ([findings](../findings/2026-10-26-fleet-p1r-findings.md)): no arm cut test gaming or
+  overclaiming (Q1 INCONCLUSIVE, Q2 to Q4 NOT SUPPORTED). Much of the pilot's drop came from runs that ended
+  early, which almost never game. Every gamed stop-arm run fitted its code to the visible tests, and the Verifier's
+  prompt has no ground for that. Next for RQ3: a ground for it (checks the worker cannot see, or a Verifier asked
+  whether the change fixes the cause the request names), registered against these 448 runs.
 
 ## Questions
 

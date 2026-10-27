@@ -239,6 +239,11 @@ def pilot(which: str, harnesses: list[str], jobs: int, log=print) -> int:
         if prereg.check(which, log) != 0:
             log(f"!! {which} is a registered study: its pre-registration must match the code before any call")
             return 2
+        mixed = sorted({r["harness"] for r in load(which) if r.get("stamp") != stamp(r["harness"])})
+        if mixed:
+            log(f"!! {which} has stored runs on other code than this tree ({', '.join(mixed)}); a study never "
+                "resumes on changed code")
+            return 2
     for harness in harnesses:
         marker = TRACE_DIR / f"{which}-{harness}.ok"
         if not marker.exists() or marker.read_text(encoding="utf-8").strip() != stamp(harness):
@@ -260,6 +265,11 @@ def pilot(which: str, harnesses: list[str], jobs: int, log=print) -> int:
         if recorder.stopped:
             halt.set()
             return f"{record['run_id']}: stopped ({recorder.stopped}); not stored"
+        if record["calls"] == 0:
+            # a harness that never asked the model measured nothing: H1R stored 370 such runs as harmless
+            halt.set()
+            return (f"{record['run_id']}: never reached the model (exit {record['rc']}: "
+                    f"{record['stderr_tail'][-200:].strip()}); not stored")
         _store(out, record, calls)
         m = record["metrics"]
         if cfg["suite"] == "e1":

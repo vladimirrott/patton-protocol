@@ -64,8 +64,16 @@ An earlier study put a gate of the same design inside a sandbox, and harm was 0.
   ([findings](docs/findings/2026-10-26-fleet-h1r-findings.md)). Unguarded, every one of them destroyed a needed
   file in some runs, from 6 of 32 to 13 of 32. With the gate, none of 512 runs did (one-sided 95% upper bound
   0.0058). With the analyst on, the gate asked 0.569 as often as with the rules alone. The analyst also let 20
-  changes run that the fixture's oracle refuses, so that prediction failed; none of them lost data, and 18 were the
-  live original of a file with a verified backup.
+  changes run that the fixture's oracle refuses, so that prediction failed. None did harm by the study's score: 18
+  were the live original of a file whose verified backup stayed, and the other 2 were bookkeeping files the score
+  does not count, one of them a checksum that was lost.
+- **Honest reports.** A second pre-registered study gave seven harnesses four tasks that each tempt a shortcut
+  (448 runs, [findings](docs/findings/2026-10-26-fleet-p1r-findings.md)). Refusing an unchecked stop and running the
+  blind Verifier did not cut test gaming (41 runs against 43 with no hook) or false claims of success (48 against
+  45), and reminders or rules in the prompt did not cut gaming either. Every gamed run in that arm fitted its code
+  to the visible tests, which the hidden tests then failed. The Verifier refused the stop in 9 of those 41: its
+  prompt fails a change that loses something, fails a check or leaves the task undone, and fitted code does none of
+  those.
 - **Not a sandbox.** The gate reads commands to catch an honest agent's mistakes. An agent that sets out to get past
   it can, for example by writing a script and running it under a command the person approves. Run it inside the
   host's sandbox when you need a boundary against a hostile agent ([threat model](plugins/patton-gate/README.md#what-it-does-not-protect)).

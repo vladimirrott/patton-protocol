@@ -172,13 +172,15 @@ class RunnerTests(unittest.TestCase):
                 (runner.TRACE_DIR / f"{which}-{h}.ok").write_text(runner.stamp(h) + "\n")
         lines = []
         with mock.patch.object(runner, "_proxy_up", must_not), mock.patch.object(runner, "run_one", must_not), \
-                mock.patch.object(prereg, "check", lambda which, log=print: 1):
+                mock.patch.object(prereg, "check", lambda which, log=print: 1), \
+                mock.patch.object(runner, "LAB", Path(self.tmp.name) / "lab"):
             for which in ("h1r", "p1r"):
                 self.assertEqual(runner.pilot(which, list(runner.SETS[which]["harnesses"]), 1, lines.append), 2)
         self.assertTrue(all("pre-registration" in line for line in lines), lines)
         reached = []
         with mock.patch.object(runner, "_proxy_up", lambda url: reached.append(url) or False), \
-                mock.patch.object(prereg, "check", lambda which, log=print: 0):
+                mock.patch.object(prereg, "check", lambda which, log=print: 0), \
+                mock.patch.object(runner, "LAB", Path(self.tmp.name) / "lab"):
             self.assertEqual(runner.pilot("h1r", list(runner.SETS["h1r"]["harnesses"]), 1, lambda s: None), 2)
         self.assertEqual(len(reached), 1)  # with a matching pre-registration it goes on to the proxy
 
@@ -200,11 +202,49 @@ class RunnerTests(unittest.TestCase):
         def meter(lab, ledger, cap):
             made.append((ledger, cap))
             raise Stop
+        lab = Path(self.tmp.name) / "lab"
         with mock.patch.object(prereg, "check", lambda which, log=print: 0), \
-                mock.patch.object(runner, "_proxy_up", lambda url: True), \
+                mock.patch.object(runner, "_proxy_up", lambda url: True), mock.patch.object(runner, "LAB", lab), \
                 mock.patch.object(runner.money, "Meter", meter), self.assertRaises(Stop):
             runner.pilot("h1r", list(runner.SETS["h1r"]["harnesses"]), 1, lambda s: None)
-        self.assertEqual(made, [(runner.LAB / "fleet_h1r_spend.jsonl", 8.0)])
+        self.assertEqual(made, [(lab / "fleet_h1r_spend.jsonl", 8.0)])
+
+    def _ready(self, which):
+        runner.TRACE_DIR.mkdir(exist_ok=True)
+        for h in runner.SETS[which]["harnesses"]:
+            (runner.TRACE_DIR / f"{which}-{h}.ok").write_text(runner.stamp(h) + "\n")
+
+    def test_a_run_that_never_reached_the_model_is_not_stored_and_halts(self):
+        # 370 H1R runs failed to start their container, made no model call, and were stored as harmless runs
+        out = Path(self.tmp.name) / "lab"
+        self._ready("h1")
+        empty = {"run_id": "pi/rules/f02-r0", "harness": "pi", "arm": "rules", "fixture": "f02", "rep": 0,
+                 "calls": 0, "usd": 0.0, "wall_s": 0.5, "rc": 126, "metrics": {},
+                 "stderr_tail": "Error: OCI runtime error: crun: create keyring: Disk quota exceeded"}
+        recorder = types.SimpleNamespace(stopped=None)
+        with mock.patch.object(runner, "LAB", out), mock.patch.object(runner, "_proxy_up", lambda url: True), \
+                mock.patch.object(runner, "run_one", lambda *a, **k: (dict(empty), [], recorder)), \
+                mock.patch.object(runner.money, "Meter", lambda *a: None):
+            lines = []
+            self.assertEqual(runner.pilot("h1", ["pi"], 1, lines.append), 1)
+        self.assertEqual(list(out.glob("fleet_h1/*/*.json")), [])
+        self.assertTrue(any("never reached the model" in line for line in lines), lines)
+
+    def test_a_study_never_resumes_on_code_other_than_its_stored_runs_ran_on(self):
+        from patton_lab.fleetstudy import prereg
+        out = Path(self.tmp.name) / "lab"
+        self._ready("h1r")
+        stored = runner.record_path(out / "fleet_h1r", "pi", "rules", "f02", 0)
+        stored.parent.mkdir(parents=True)
+        stored.write_text(json.dumps({"harness": "pi", "stamp": "0" * 64}))
+
+        def must_not(*a, **k):
+            raise AssertionError("the study reached the network")
+        lines = []
+        with mock.patch.object(runner, "LAB", out), mock.patch.object(prereg, "check", lambda which, log=print: 0), \
+                mock.patch.object(runner, "_proxy_up", must_not), mock.patch.object(runner, "run_one", must_not):
+            self.assertEqual(runner.pilot("h1r", list(runner.SETS["h1r"]["harnesses"]), 1, lines.append), 2)
+        self.assertTrue(any("other code" in line for line in lines), lines)
 
     def test_a_stored_record_keeps_the_host_user_out(self):
         out = Path(self.tmp.name) / "out"

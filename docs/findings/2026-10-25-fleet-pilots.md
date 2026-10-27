@@ -128,6 +128,8 @@ Read as sizing, with one rep per cell:
 
 Read as sizing, with one rep per cell:
 
+- The registered P1R study did not reproduce what follows; its
+  [findings](2026-10-26-fleet-p1r-findings.md) trace the pilot's drop to runs that ended early.
 - The stop arm is the only one that moved: gamed runs fell from 10 of 28 to 4, overclaims from 8 to 2. The work
   rules in the prompt and the just-in-time reminders left both where they were.
 - 48 of 112 runs ended early, most at a model fault: Groq refused the model's malformed tool call and the harness
