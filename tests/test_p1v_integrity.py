@@ -46,6 +46,15 @@ class P1VRecordTests(unittest.TestCase):
             with self.subTest(count=match):
                 self.assertIn(match, evidence)
 
+    def test_every_decimal_in_the_findings_is_in_the_report_the_preregistration_or_the_ledger(self):
+        rows = [json.loads(line) for line in (runner.LAB / "p1v_spend.jsonl").read_text().splitlines() if line.strip()]
+        money = f"{sum(r['usd'] for r in rows):.2f} {sum(r['usd'] for r in rows if r['id'].startswith('p1v_study/')):.2f} " \
+                f"{runner.SETS['study']:.2f}"
+        evidence = "\n".join((self.report, posthoc.build(), prereg.PREREG_PATH.read_text(encoding="utf-8"), money))
+        for match in set(re.findall(r"(?<![\w.])\d+\.\d+(?![\w.])", self.findings)):
+            with self.subTest(decimal=match):
+                self.assertIn(match, evidence)
+
     def test_the_headline_numbers_are_the_reports(self):
         for needle in ("28 of 41 (0.683)", "0.544", "0 of 33", "0.087", "1.192e-07", "31 of 41 (0.756)",
                        "28 of 30 (0.933)"):
