@@ -38,13 +38,18 @@ lab-wide spend guard ($40 across every ledger; $24.199 spent before this plan).
   early, which almost never game. Every gamed stop-arm run fitted its code to the visible tests, and the Verifier's
   prompt has no ground for that. Next for RQ3: a ground for it (checks the worker cannot see, or a Verifier asked
   whether the change fixes the cause the request names), registered against these 448 runs.
+- P1V ran on 2026-11-04 ([findings](../findings/2026-11-04-p1v-findings.md), [design](2026-11-04-fitted-code-verifier-design.md)):
+  a Verifier prompt with one added ground, replayed over the 89 stored P1R stop-arm inputs, flagged 28 of 41 gamed
+  runs against 5 for the shipped prompt, and flagged none of the 33 runs that did the work (P1 to P3 all SUPPORTED).
+  It measures detection only; a live study has not run.
 
 ### Open work, 2026-11-04
 
 Nothing is uncommitted or unpushed. What remains, in the order I would take it:
 
-1. **RQ3, a ground for fitted code.** The P1R finding above: registered hidden checks, or a Verifier asked whether the
-   change fixes the cause the request names. Registered against the 448 stored runs before any new paid run.
+1. **RQ3, the fitted-code ground, live.** The P1V replay supported the ground on detection (28 of 41 gamed runs
+   flagged, 0 of 33 false flags). Next: put it into patton-gate, run the live stop arm against none on the same
+   fixtures, registered first, and try a Verifier with a reasoning setting for the 7 runs the candidate missed twice.
 2. **The Claude baseline.** The Sonnet and Haiku arms and the comparison with Claude Code's own auto mode (Q7) have
    not run. Step 7 of the [gate implementation plan](2026-10-19-real-harness-gate-implementation.md) stays unchecked
    until a long-lived token from `claude setup-token` sits in `~/.patton-spike-token`.
