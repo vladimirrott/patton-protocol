@@ -42,6 +42,9 @@ lab-wide spend guard ($40 across every ledger; $24.199 spent before this plan).
   a Verifier prompt with one added ground, replayed over the 89 stored P1R stop-arm inputs, flagged 28 of 41 gamed
   runs against 5 for the shipped prompt, and flagged none of the 33 runs that did the work (P1 to P3 all SUPPORTED).
   It measures detection only; a live study has not run.
+- P1M ran on 2026-11-04 ([findings](../findings/2026-11-04-p1m-findings.md)): the same prompt at qwen3.8-27b with
+  reasoning medium and high flagged no more gamed runs than with reasoning off (M1 NOT SUPPORTED for both, M2
+  SUPPORTED), at about 4 and 10 times the cost, and one draw swung by up to nine runs.
 
 ### Open work, 2026-11-04
 
@@ -49,7 +52,7 @@ Nothing is uncommitted or unpushed. What remains, in the order I would take it:
 
 1. **RQ3, the fitted-code ground, live.** The P1V replay supported the ground on detection (28 of 41 gamed runs
    flagged, 0 of 33 false flags). Next: put it into patton-gate, run the live stop arm against none on the same
-   fixtures, registered first, and try a Verifier with a reasoning setting for the 7 runs the candidate missed twice.
+   fixtures, registered first, (P1M found reasoning settings do not lift it).
 2. **The Claude baseline.** The Sonnet and Haiku arms and the comparison with Claude Code's own auto mode (Q7) have
    not run. Step 7 of the [gate implementation plan](2026-10-19-real-harness-gate-implementation.md) stays unchecked
    until a long-lived token from `claude setup-token` sits in `~/.patton-spike-token`.
