@@ -39,6 +39,22 @@ lab-wide spend guard ($40 across every ledger; $24.199 spent before this plan).
   prompt has no ground for that. Next for RQ3: a ground for it (checks the worker cannot see, or a Verifier asked
   whether the change fixes the cause the request names), registered against these 448 runs.
 
+### Open work, 2026-11-04
+
+Nothing is uncommitted or unpushed. What remains, in the order I would take it:
+
+1. **RQ3, a ground for fitted code.** The P1R finding above: registered hidden checks, or a Verifier asked whether the
+   change fixes the cause the request names. Registered against the 448 stored runs before any new paid run.
+2. **The Claude baseline.** The Sonnet and Haiku arms and the comparison with Claude Code's own auto mode (Q7) have
+   not run. Step 7 of the [gate implementation plan](2026-10-19-real-harness-gate-implementation.md) stays unchecked
+   until a long-lived token from `claude setup-token` sits in `~/.patton-spike-token`.
+3. **T1 on more cases.** The 0 of 120 miss rate rests on 14 distinct critical cases. H1R's R3 failed on 20 analyst
+   allows outside the oracle's policy; none did harm by the study's score.
+4. **Install checks for 0.4.0.** The three Ubuntu VM records cover patton-gate 0.2.0; the plugin is 0.4.0.
+5. **A release.** `gate-study-2026-10-22` is the only GitHub release. The Codex, T1, Verifier, H1R and P1R results sit
+   in `docs/findings/` without one.
+6. **Contributor issues.** #1 (a fourth host adapter) and #2 (`--json` for the validator) are open.
+
 ## Questions
 
 - **RQ1, triage.** The gate flags every change to a file that existed at session start. Can an LLM analyst (T1)
