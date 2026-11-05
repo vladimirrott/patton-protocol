@@ -163,6 +163,26 @@ class P1L(P1):
         return problems
 
 
+class P1H(P1L):
+    """P1L's stop arm with `verify.hold` on and four rounds, against the none arm, for patton-gate 0.6.0.
+
+    The hold arm starts from exactly what P1R's stop arm did and adds the two settings, so the plugin's hold mode is
+    the one thing that differs from P1L's stop arm. The base checks see it as a stop arm."""
+
+    name = "p1h"
+    arms = ("none", "hold")
+    HOLD = {"hold": True, "max_rounds": 4}
+
+    def prepare(self, fixture_id: str, arm: str) -> Prepared:
+        prepared = super().prepare(fixture_id, "stop" if arm == "hold" else arm)
+        if arm == "hold":
+            prepared.config = {**prepared.config, "verify": {**prepared.config["verify"], **self.HOLD}}
+        return prepared
+
+    def trace_check(self, module, arm: str, record: dict, fake, analyst) -> list[str]:
+        return super().trace_check(module, "stop" if arm == "hold" else arm, record, fake, analyst)
+
+
 def _lines(path: Path) -> list[dict]:
     import json
     if not path.exists():
@@ -178,4 +198,4 @@ def git_init(work: Path) -> None:
         subprocess.run(["git", "-C", str(work), *args], check=True, capture_output=True, env=env)
 
 
-SUITES = {"e1": E1(), "p1": P1(), "p1l": P1L()}
+SUITES = {"e1": E1(), "p1": P1(), "p1l": P1L(), "p1h": P1H()}

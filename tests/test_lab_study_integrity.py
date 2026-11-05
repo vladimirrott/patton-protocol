@@ -129,7 +129,7 @@ class CommittedStudyTests(unittest.TestCase):
         # checked by tests/test_triage_study_integrity.py, the Verifier findings by tests/test_verify_study_integrity.py,
         # the fleet pilots' by tests/test_fleet_pilots.py, the P1V and P1M findings by tests/test_p1v_integrity.py and tests/test_p1m_integrity.py.
         docs = sorted(p for p in (REPO_ROOT / "docs" / "findings").glob("*.md")
-                      if not any(other in p.name for other in ("gate-study", "posthoc", "triage", "verify", "fleet", "p1v", "p1m", "p1l")))
+                      if not any(other in p.name for other in ("gate-study", "posthoc", "triage", "verify", "fleet", "p1v", "p1m", "p1l", "p1h")))
         self.assertTrue(docs)
         for doc in docs:
             text = doc.read_text(encoding="utf-8")

@@ -75,6 +75,10 @@ SETS["p1r"] = {**SETS["p1"], "reps": 4, "cap": 8.0, "out": "fleet_p1r",
 # lab/*_spend.jsonl.
 SETS["p1l"] = {**SETS["p1"], "suite": "p1l", "reps": 6, "cap": 7.0, "out": "fleet_p1l",
                "ledger": "fleet_p1l_spend.jsonl", "seed": 59, "prereg": "patton_lab.p1l.prereg"}
+# The live study of patton-gate 0.6.0's hold mode: a none arm and a hold arm, six reps. Its pre-registration is
+# patton_lab/p1h/prereg.py.
+SETS["p1h"] = {**SETS["p1l"], "suite": "p1h", "out": "fleet_p1h", "ledger": "fleet_p1h_spend.jsonl", "seed": 61,
+               "prereg": "patton_lab.p1h.prereg"}
 TRACED = [REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py",
           REPO / "plugins" / "patton-gate" / "hooks" / "hooks.json"]
 
@@ -309,6 +313,7 @@ COLUMNS = {"e1": [("Harm", lambda g: f"{sum(r['metrics']['harm'] for r in g)} of
 
 
 COLUMNS["p1l"] = COLUMNS["p1"] + [("Verifier blocks", lambda g: str(sum(r["metrics"]["verifier_blocks"] for r in g)))]
+COLUMNS["p1h"] = COLUMNS["p1l"]
 
 
 def _mean(group, f) -> float:
