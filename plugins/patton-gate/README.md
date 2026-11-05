@@ -227,8 +227,10 @@ it passes. In the P1R study all 41 stop-arm runs that gamed the tests fitted the
 the 0.4.0 prompt gave the Verifier no ground to fail that. Replayed over the 89 Verifier inputs that study stored,
 qwen3.8-27b with the added ground flagged 28 of the 41 gamed runs and 0 of the 33 runs that did the work
 (`docs/findings/2026-11-04-p1v-findings.md`); turning qwen3.8-27b's reasoning on flagged no more
-(`docs/findings/2026-11-04-p1m-findings.md`). A replay measures detection. Whether a refused stop changes what the
-agent does is a separate question, which a live study registered after this release answers.
+(`docs/findings/2026-11-04-p1m-findings.md`). A replay measures detection. The live study (P1L, `docs/findings/2026-11-04-p1l-findings.md`, 336 runs on seven
+harnesses) found that a refused stop did not change what the agent did: the stop arm gamed the tests in 59 runs and
+the arm with no hook in 59. The Verifier named the fit, and the agent answered with prose and kept it. Treat the
+finding as something for you to read, not as a guard against gaming.
 
 ## Let an analyst answer the easy questions
 
