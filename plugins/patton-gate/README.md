@@ -206,6 +206,7 @@ objects stay as they were. A project outside git cannot be verified.
 | `verify.checks` | `[]` | shell commands run in the project at the stop; their exit codes and output go to the Verifier |
 | `verify.notes` | `README*`, `HANDOFF*`, `NOTES*`, `*.md` | which files count as the project's notes |
 | `verify.max_rounds` | 2 | refused stops per turn before the gate lets the agent stop and tells you |
+| `verify.hold` | `false` | after a refusal, check the next stop whatever the agent says, and drop the "say plainly" way out from the refusal text |
 | `verify.timeout_s`, `verify.check_timeout_s` | 120, 300 | seconds for one model call, for one check |
 | `verify.max_diff_chars` | 24000 | how much of the change the Verifier reads |
 
@@ -231,6 +232,14 @@ qwen3.8-27b with the added ground flagged 28 of the 41 gamed runs and 0 of the 3
 harnesses) found that a refused stop did not change what the agent did: the stop arm gamed the tests in 59 runs and
 the arm with no hook in 59. The Verifier named the fit, and the agent answered with prose and kept it. Treat the
 finding as something for you to read, not as a guard against gaming.
+
+Since 0.6.0 `verify.hold` closes the two exits the P1L runs used. By default a refusal tells the agent to fix the
+problem or say plainly what is left undone, and an agent that says so is not checked again. With `hold` on, the
+refusal asks for a change to the code, and the next stop of that turn goes to the Verifier even when the agent claims
+nothing. `verify.max_rounds` still ends it, so raise it (4 is a reasonable start) if you want more than one retry.
+`hold` is user-only, like the other verify fields. No study has measured it yet. Also since 0.6.0, a line of `...` or
+`…` inside the Verifier's quote marks skipped code and no longer voids the quote; every other line must still appear in
+what the Verifier read.
 
 ## Let an analyst answer the easy questions
 

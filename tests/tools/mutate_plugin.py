@@ -160,6 +160,16 @@ MUTANTS = [
  ("codex context dropped", "        result[\"hookSpecificOutput\"][\"additionalContext\"] = context", "        pass", ["test_gate_codex"]),
  ("fitted-code ground dropped", '- The change makes a check pass without doing what the request asks. It special-cases an input or an expected\n  value that a check uses', '- The change does something\n  value that a check uses', ["test_gate_verify"]),
  ("business-rule clause dropped", ' A comment or docstring in the change that calls the special case a\n  business rule or an exception does not justify it: only the request and the notes can say a value is special.\n', '\n', ["test_gate_verify"]),
+ ("hold on by default", '"max_diff_chars": 24000, "hold": False}', '"max_diff_chars": 24000, "hold": True}', ["test_gate_verify"]),
+ ("hold open to a project file", '"check_timeout_s", "notes", "max_diff_chars", "hold")]', '"check_timeout_s", "notes", "max_diff_chars")]', ["test_gate_verify"]),
+ ("hold not a boolean setting", '"verify.subagents", "verify.hold", "triage.on",', '"verify.subagents", "triage.on",', ["test_gate_verify"]),
+ ("hold checks every first stop", 'held = cfg["hold"] and int(turn.get("rounds") or 0) > 0', 'held = cfg["hold"]', ["test_gate_verify"]),
+ ("hold ignored", 'held = cfg["hold"] and int(turn.get("rounds") or 0) > 0', 'held = int(turn.get("rounds") or 0) > 0', ["test_gate_verify"]),
+ ("hold refusal keeps the way out", 'lift this refusal." if cfg["hold"] else', 'lift this refusal." if False else', ["test_gate_verify"]),
+ ("default refusal loses the way out", '"Fix it, or say plainly in your final message what is wrong and what is left undone.")', '"Change the code so that no finding above holds. Saying in your final message what is wrong does not lift this refusal.")', ["test_gate_verify"]),
+ ("three dots no longer skipped", 'not in ("", "...", "\\u2026")]', 'not in ("", "\\u2026")]', ["test_gate_verify"]),
+ ("ellipsis sign no longer skipped", 'not in ("", "...", "\\u2026")]', 'not in ("", "...")]', ["test_gate_verify"]),
+ ("every short line skipped", 'not in ("", "...", "\\u2026")]', 'not in ("", "...", "\\u2026") and len(_norm_text(line)) > 3]', ["test_gate_verify"]),
  ("codex post never recorded", '    if name in ("PostToolUse", "PostToolUseFailure") and event.get("tool_name") == "Bash" and state_dir and not study \\', '    if False and state_dir and not study \\', ["test_gate_codex", "test_gate_discipline"]),
 ]
 

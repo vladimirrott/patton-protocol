@@ -763,7 +763,7 @@ EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path
 SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
 DENIAL_LIMIT = 5
 DEFAULT_TIMEOUT = 10.0
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 # Rebuilt by tools, so not protected. `.git` is not here: deleting the repository's history must ask first.
 SKIP_DIRS = frozenset({"node_modules", "target", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache",
                        ".pytest_cache", ".ruff_cache", ".gradle", ".next"})
@@ -793,7 +793,7 @@ DEFAULTS = {
                  "max_output_tokens": None, "timeout_minutes": None, "max_retries": None, "exclusive_paths": False},
     "verify": {"main": False, "subagents": False, "endpoint": "", "model": "", "api_key_env": "", "timeout_s": 120,
                "max_rounds": 2, "checks": [], "check_timeout_s": 300, "notes": ["README*", "HANDOFF*", "NOTES*", "*.md"],
-               "max_diff_chars": 24000},
+               "max_diff_chars": 24000, "hold": False},
     "triage": {"on": False, "endpoint": "", "model": "", "api_key_env": "", "timeout_s": 60, "reasoning_effort": ""},
     "discipline": {"reminders": False, "tests": list(TEST_PATTERNS), "scope": [], "out_of_scope": "allow",
                    "max_calls": None, "check_before_stop": False, "check_commands": list(CHECK_COMMANDS),
@@ -803,7 +803,7 @@ DEFAULTS = {
 CHOICES = {"files.on_change": ("ask", "deny"), "files.unreadable_commands": ("allow", "ask", "deny"),
            "missions.preset": ("off", "patton"), "discipline.out_of_scope": ("allow", "remind", "deny"),
            "discipline.report": ("off", "subagents", "all")}
-BOOLS = ("files.protect", "missions.exclusive_paths", "verify.main", "verify.subagents", "triage.on",
+BOOLS = ("files.protect", "missions.exclusive_paths", "verify.main", "verify.subagents", "verify.hold", "triage.on",
          "discipline.reminders", "discipline.check_before_stop")
 LISTS = ("files.trusted_commands", "files.ignore", "files.always_protect", "files.skip_dirs", "verify.checks",
          "verify.notes", "discipline.tests", "discipline.scope", "discipline.check_commands")
@@ -819,7 +819,7 @@ STRINGS = {"verify.endpoint": re.compile(r"(https?://\S+)?"), "verify.model": re
 # Fields a project file may never set: where the change and the key go, and what commands run. Anyone who commits
 # to the repository, the agent included, can write that file.
 USER_ONLY = frozenset([f"verify.{name}" for name in ("endpoint", "model", "api_key_env", "timeout_s", "max_rounds",
-                                                      "checks", "check_timeout_s", "notes", "max_diff_chars")]
+                                                      "checks", "check_timeout_s", "notes", "max_diff_chars", "hold")]
                       + [f"triage.{name}" for name in ("endpoint", "model", "api_key_env", "timeout_s",
                                                        "reasoning_effort")]
                       + ["discipline.check_commands", "discipline.max_rounds"])
@@ -1862,7 +1862,7 @@ def quoted_findings(reply: dict, source: str) -> list[dict]:
         if not isinstance(problem, str) or not isinstance(evidence, str):
             continue
         # separate excerpts come on separate lines: each must be found word for word, and one must be long enough
-        parts = [_norm_text(line) for line in evidence.splitlines() if _norm_text(line)]
+        parts = [_norm_text(line) for line in evidence.splitlines() if _norm_text(line) not in ("", "...", "\u2026")]
         if parts and all(part in text for part in parts) and max(map(len, parts)) >= VERIFY_MIN_EVIDENCE:
             out.append({"problem": problem.strip(), "evidence": evidence.strip()})
     return out
@@ -1945,7 +1945,9 @@ def verify_event(name: str, event: dict, state_dir: str, root: str, environ, cfg
         else:
             mission = _mission_from_transcript(event.get("agent_transcript_path"))
         final = str(event.get("last_assistant_message") or "")
-        claims = read_claim(verify_chat(cfg, environ, CLAIMS_SYSTEM, claims_input(mission, final)))
+        # held: a stop that follows a refusal is checked again whatever the agent says it did
+        held = cfg["hold"] and int(turn.get("rounds") or 0) > 0
+        claims = True if held else read_claim(verify_chat(cfg, environ, CLAIMS_SYSTEM, claims_input(mission, final)))
         entry["claims_done"] = claims
         if not claims:
             entry["decision"] = "allow (no completion claimed)"
@@ -1982,10 +1984,12 @@ def verify_event(name: str, event: dict, state_dir: str, root: str, environ, cfg
                 turns[scope]["rounds"] = rounds + 1
                 _atomic_write(_turns_file(state_dir), json.dumps(turns))
         entry["decision"] = "block"
+        what = ("Change the code so that no finding above holds. Saying in your final message what is wrong does not "
+                "lift this refusal." if cfg["hold"] else
+                "Fix it, or say plainly in your final message what is wrong and what is left undone.")
         return {"decision": "block",
                 "reason": (f"Patton verify: an independent check of this change (candidate {digest[:12]}) found a "
-                           f"problem:\n{listed}\nFix it, or say plainly in your final message what is wrong and what "
-                           "is left undone. The check runs again when you stop.")}
+                           f"problem:\n{listed}\n{what} The check runs again when you stop.")}
     except (VerifyError, OSError, subprocess.SubprocessError, ValueError) as err:
         entry["decision"] = "allow (not verified)"
         entry["error"] = str(err)[:300]

@@ -83,9 +83,17 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual({i["field"] for i in ignored},
                          {"verify.endpoint", "verify.api_key_env", "verify.checks", "verify.model"})
 
+    def test_hold_is_off_by_default_and_only_the_person_can_turn_it_on(self):
+        self.write(Path(self.repo.env["XDG_CONFIG_HOME"]) / "patton-gate" / "config.json", {"verify": ENDPOINT})
+        self.write(self.repo.root / ".claude" / "patton-gate.json", {"verify": {"main": True, "hold": True}})
+        config, _, ignored = gate.load_config(str(self.repo.root), self.repo.env)
+        self.assertFalse(config["verify"]["hold"])
+        self.assertIn("verify.hold", {i["field"] for i in ignored})
+
     def test_bad_values_are_refused(self):
         path = Path(self.repo.env["XDG_CONFIG_HOME"]) / "patton-gate" / "config.json"
-        for bad in ({"endpoint": "ftp://x"}, {"api_key_env": "has space"}, {"max_rounds": 0}, {"main": "yes"}):
+        for bad in ({"endpoint": "ftp://x"}, {"api_key_env": "has space"}, {"max_rounds": 0}, {"main": "yes"},
+                     {"hold": "yes"}):
             with self.subTest(bad=bad):
                 self.write(path, {"verify": {**ENDPOINT, **bad}})
                 with self.assertRaises(gate.ConfigError):
@@ -142,14 +150,18 @@ class Stub:
         return json.dumps({"verdict": self.verdict, "findings": self.findings})
 
 
-class StopTests(unittest.TestCase):
+class StopCase(unittest.TestCase):
+    """A repository with the Verifier on and a prompt recorded; `VERIFY` adds to the verify section of the config."""
+
+    VERIFY: dict = {}
+
     def setUp(self):
         self.repo = Repo()
         self.addCleanup(self.repo.close)
         cfg_path = Path(self.repo.env["XDG_CONFIG_HOME"]) / "patton-gate" / "config.json"
         cfg_path.parent.mkdir(parents=True)
         cfg_path.write_text(json.dumps({"verify": {**ENDPOINT, "main": True, "subagents": True,
-                                                   "checks": ["python3 app.py"]}}))
+                                                   "checks": ["python3 app.py"], **self.VERIFY}}))
         self.env = {**self.repo.env, "PATTON_GATE_ROOT": str(self.repo.root), "PATTON_GATE_STATE": str(self.repo.state)}
         self.hook({"hook_event_name": "SessionStart"})
         self.hook({"hook_event_name": "UserPromptSubmit", "prompt": "Delete the scratch files and keep the ledger."})
@@ -166,6 +178,8 @@ class StopTests(unittest.TestCase):
         return self.hook({"hook_event_name": "Stop", "stop_hook_active": False, "last_assistant_message": message},
                          stub)
 
+
+class StopTests(StopCase):
     def test_a_user_prompt_is_recorded_and_never_answered_with_a_deny(self):
         self.assertIsNone(self.hook({"hook_event_name": "UserPromptSubmit", "prompt": "Again."}))
 
@@ -350,8 +364,86 @@ class EvidenceTests(unittest.TestCase):
     def test_short_lines_alone_are_not_enough(self):
         self.assertEqual(self.found("```diff\n-ledger"), [])
 
+    def test_a_line_of_dots_marks_skipped_code_and_is_ignored(self):
+        for dots in ("...", "\u2026", "  ...  "):
+            with self.subTest(dots=dots):
+                self.assertEqual(len(self.found(f"`keep.txt` is the only copy of the ledger.\n{dots}\n-ledger entry one")), 1)
+
+    def test_a_made_up_short_line_still_spoils_the_quote(self):
+        self.assertEqual(self.found("`keep.txt` is the only copy of the ledger.\nzz;"), [])
+
+    def test_dots_alone_quote_nothing(self):
+        self.assertEqual(self.found("...\n\u2026"), [])
+
+    def test_dots_do_not_excuse_a_made_up_line(self):
+        self.assertEqual(self.found("`keep.txt` is the only copy of the ledger.\n...\nthe ledger was never backed up"), [])
+        self.assertEqual(self.found("`keep.txt` is the only copy of the ledger.\n... and more words"), [])
+
     def test_blank_lines_between_excerpts_are_ignored(self):
         self.assertEqual(len(self.found("keep.txt is the only copy of the ledger.\n\n-ledger entry one\n")), 1)
+
+
+class HoldTests(StopCase):
+    """verify.hold: a refused stop is checked again whatever the agent says, and the refusal offers no way out in
+    words. The default behaviour stays what 0.5.0 shipped."""
+
+    VERIFY = {"hold": True, "max_rounds": 4}
+    FINDING = [{"problem": "the ledger was deleted", "evidence": "`keep.txt` is the only copy of the ledger."}]
+
+    def setUp(self):
+        super().setUp()
+        (self.repo.root / "keep.txt").unlink()
+        self.stub = Stub(verdict="fail", findings=self.FINDING)
+
+    def decisions(self):
+        return [json.loads(line)["decision"] for line in (self.repo.state / "verify.jsonl").read_text().splitlines()]
+
+    def test_the_refusal_offers_no_way_out_in_words(self):
+        out = self.stop(self.stub)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("the ledger was deleted", out["reason"])
+        self.assertNotIn("say plainly", out["reason"])
+        self.assertIn("does not lift this refusal", out["reason"])
+
+    def test_a_stop_after_a_refusal_is_checked_again_even_when_the_agent_claims_nothing(self):
+        self.stop(self.stub)
+        self.stub.claims = False
+        out = self.stop(self.stub, "The ledger is gone and I could not restore it.")
+        self.assertEqual(out["decision"], "block")
+        self.assertEqual(self.decisions(), ["block", "block"])
+        self.assertEqual(len(self.stub.seen["verifier"]), 2)
+
+    def test_the_first_stop_still_needs_a_claim(self):
+        self.stub.claims = False
+        self.assertIsNone(self.stop(self.stub, "I could not finish."))
+        self.assertEqual(len(self.stub.seen["verifier"]), 0)
+
+    def test_a_fixed_change_lets_the_agent_stop(self):
+        self.stop(self.stub)
+        (self.repo.root / "keep.txt").write_text("ledger\n")
+        self.stub.verdict, self.stub.findings = "pass", []
+        self.assertIsNone(self.stop(self.stub))
+        self.assertEqual(self.decisions(), ["block", "allow (passed)"])
+
+    def test_the_round_cap_still_ends_it(self):
+        outs = [self.stop(self.stub) for _ in range(5)]
+        self.assertEqual([o.get("decision") for o in outs], ["block"] * 4 + [None])
+        self.assertIn("still fails", outs[4]["systemMessage"])
+
+    def test_without_hold_a_refused_agent_that_claims_nothing_is_let_go(self):
+        # the 0.5.0 behaviour, run on a repository whose config does not hold
+        class Plain(StopCase):
+            pass
+        case = Plain("setUp")
+        case.setUp()
+        self.addCleanup(case.repo.close)
+        (case.repo.root / "keep.txt").unlink()
+        stub = Stub(verdict="fail", findings=self.FINDING)
+        out = case.stop(stub)
+        self.assertIn("say plainly", out["reason"])
+        stub.claims = False
+        self.assertIsNone(case.stop(stub, "The ledger is gone."))
+        self.assertEqual(len(stub.seen["verifier"]), 1)
 
 
 FITTED_GROUND = """- The change makes a check pass without doing what the request asks. It special-cases an input or an expected
