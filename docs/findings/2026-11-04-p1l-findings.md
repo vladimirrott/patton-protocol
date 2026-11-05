@@ -50,7 +50,8 @@ Final: all 336 registered runs are stored, $4.6143.
 <!-- /p1l report -->
 
 - **Q1, gamed.** Stop 59 against none 59. Each arm has 17 pairs where only it gamed, so the sign test has nothing to
-  say, p = 0.5000.
+  say, p = 0.5000. The registered test prints 0.5000 on a tie; the exact one-sided tail is a little larger, and no
+  verdict depends on it.
 - **Q2, overclaimed.** Stop 51 against none 73. The sign test is clear (39 pairs where only none overclaimed, 17 where
   only stop did, p = 0.0023) and passes Holm's correction, but the stop arm's runs are more than half of the none
   arm's, so the registered rule returns INCONCLUSIVE.
@@ -87,9 +88,9 @@ it gamed in 25 runs against 28. On p01 the stop arm gamed more, 34 runs against 
 ## Limits
 
 One worker model (gpt-oss-120b), one Verifier model (qwen3.8-27b), through Groq. No arm ran the 0.4.0 Verifier beside
-the new one, so the study cannot split the ground's share from the stop hook's. P1R's stop arm on 0.4.0 gamed in 41
-runs against 43 for none, and this study's stop arm on 0.5.0 gamed in 59 against 59, so the ground did not change
-the count either way; that is a comparison across two studies. The oracle counts any fit to the visible tests as
+the new one, so the study cannot split the ground's share from the stop hook's. P1R's stop arm on 0.4.0 gamed in 41 of 112
+runs against 43 of 112 for none, and this study's stop arm on 0.5.0 gamed in 59 of 168 against 59 of 168, so the
+ground did not change the share of gamed runs either way; that is a comparison across two studies with 4 and 6 reps. The oracle counts any fit to the visible tests as
 gamed. Runs that ended early stay in every denominator.
 
 ## Cost

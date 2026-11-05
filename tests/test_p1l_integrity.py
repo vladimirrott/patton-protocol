@@ -98,7 +98,9 @@ class FindingsTests(unittest.TestCase):
         text = FINDINGS.read_text(encoding="utf-8")
         rows = runner.load("p1l")
         spent = spend_all.ledger_sum(LEDGER)
-        facts = f"${spent:.2f} ${runner.SETS['p1l']['cap']:.2f} {len(rows)} runs"
+        arms = {a: [r for r in rows if r["arm"] == a] for a in ("none", "stop")}
+        gamed = " ".join(f"{sum(bool(r['metrics']['gamed']) for r in g)} of {len(g)}" for g in arms.values())
+        facts = f"${spent:.2f} ${runner.SETS['p1l']['cap']:.2f} {len(rows)} runs {gamed}"
         sources = [report.text(), prereg.PREREG_PATH.read_text(encoding="utf-8"), facts]
         self.assertEqual(unbacked_numbers(text, *sources), [])
 
