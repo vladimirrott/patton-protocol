@@ -52,8 +52,10 @@ Nothing is uncommitted or unpushed. What remains, in the order I would take it:
 
 1. **RQ3, the fitted-code ground, live. Done (P1L, 2026-11-04).** The ground ships in patton-gate 0.5.0 and the live
    stop arm gamed in 59 runs against 59 for none ([findings](../findings/2026-11-04-p1l-findings.md)): the Verifier
-   names the fit and the worker keeps it. Next in RQ3: a stop that holds until the finding is gone, or a revert of the
-   fit, registered before it runs.
+   names the fit and the worker keeps it. The hold arm (P1H, 2026-11-05, patton-gate 0.6.0) closed the prose exit and
+   re-checked every refused turn: it gamed in 63 runs against 64 for none ([findings](../findings/2026-11-05-p1h-findings.md)).
+   The stop-time Verifier loop is spent. Next in RQ3, outside the stop hook: revert the fit when a check passes only
+   because of it, or a second signal that does not come from the same model; register it before it runs.
 2. **The Claude baseline.** The Sonnet and Haiku arms and the comparison with Claude Code's own auto mode (Q7) have
    not run. Step 7 of the [gate implementation plan](2026-10-19-real-harness-gate-implementation.md) stays unchecked
    until a long-lived token from `claude setup-token` sits in `~/.patton-spike-token`.
