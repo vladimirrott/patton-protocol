@@ -97,6 +97,8 @@ if [ ! -x "$node_dir/bin/node" ]; then
 fi
 export PATH="$node_dir/bin:$PATH"
 node --version
+# Node's happy-eyeballs retry gives up on an IPv6 address that the host's VPN drops, and npm then ends with no output
+export NODE_OPTIONS="--network-family-autoselection-attempt-timeout=2000"
 npm install -g --silent @openai/codex@0.159.0
 codex --version
 if [ "${PATTON_VM_SOURCE:-checkout}" = github ]; then

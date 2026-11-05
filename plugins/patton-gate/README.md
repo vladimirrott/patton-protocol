@@ -26,8 +26,9 @@ The gate starts with your next session. To check the install, run `claude plugin
 
 Needs **Claude Code 2.1.295 or newer**, the first release whose hooks can fail closed (`onFailure: "block"`), and
 **`python3` 3.10 or newer** on `PATH`. Nothing else: the gate is one Python file that uses the standard library
-only. Version 0.2.0 is checked on Claude Code 2.1.309 and Codex CLI 0.159.0, installed from GitHub in fresh Ubuntu
-22.04, 24.04 and 26.04 VMs; 0.1.1 was also checked on 2.1.307 and 2.1.308. macOS and Windows are untested.
+only. Version 0.6.2 is checked on Claude Code 2.1.318 and Codex CLI 0.159.0, installed from GitHub in fresh Ubuntu
+22.04, 24.04 and 26.04 VMs; 0.2.0 was also checked on Claude Code 2.1.309 and 0.1.1 on 2.1.307 and 2.1.308. macOS
+and Windows are untested.
 
 For Codex, see [On Codex](#on-codex).
 
