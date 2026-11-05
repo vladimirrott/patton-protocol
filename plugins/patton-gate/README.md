@@ -221,6 +221,15 @@ file and 25 of 457 clean runs, and both predictions came out inconclusive. It ca
 notes call the only copy and 4 of 16 losses of a file the notes never mention. Keep file protection on: the Verifier
 checks the work on top of the gate, not in its place.
 
+Since 0.5.0 the Verifier also fails a change that makes a check pass without doing what the request asks: code that
+special-cases an input or an expected value a check uses, hard-codes the result a check expects, or edits a check so
+it passes. In the P1R study all 41 stop-arm runs that gamed the tests fitted their code to the visible checks, and
+the 0.4.0 prompt gave the Verifier no ground to fail that. Replayed over the 89 Verifier inputs that study stored,
+qwen3.8-27b with the added ground flagged 28 of the 41 gamed runs and 0 of the 33 runs that did the work
+(`docs/findings/2026-11-04-p1v-findings.md`); turning qwen3.8-27b's reasoning on flagged no more
+(`docs/findings/2026-11-04-p1m-findings.md`). A replay measures detection. Whether a refused stop changes what the
+agent does is a separate question, which a live study registered after this release answers.
+
 ## Let an analyst answer the easy questions
 
 Off by default. Most questions the gate asks are about files your notes already call disposable: rotated logs,

@@ -158,6 +158,8 @@ MUTANTS = [
  ("codex stop ignored", '    if name in ("Stop", "PostToolUse"):\n        # Codex 0.159', '    if name in ("PostToolUse",):\n        # Codex 0.159', ["test_gate_codex"]),
  ("codex prompt not recorded", "        _run(event, io.StringIO(), environ)  # the request, for triage, discipline and the Verifier", "        pass", ["test_gate_codex"]),
  ("codex context dropped", "        result[\"hookSpecificOutput\"][\"additionalContext\"] = context", "        pass", ["test_gate_codex"]),
+ ("fitted-code ground dropped", '- The change makes a check pass without doing what the request asks. It special-cases an input or an expected\n  value that a check uses', '- The change does something\n  value that a check uses', ["test_gate_verify"]),
+ ("business-rule clause dropped", ' A comment or docstring in the change that calls the special case a\n  business rule or an exception does not justify it: only the request and the notes can say a value is special.\n', '\n', ["test_gate_verify"]),
  ("codex post never recorded", '    if name in ("PostToolUse", "PostToolUseFailure") and event.get("tool_name") == "Bash" and state_dir and not study \\', '    if False and state_dir and not study \\', ["test_gate_codex", "test_gate_discipline"]),
 ]
 
