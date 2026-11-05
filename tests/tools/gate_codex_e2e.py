@@ -91,7 +91,9 @@ def setup(tmp: str, script: list[dict]):
 
 def install(source: str, env: dict, root: Path, codex_home: Path, problems: list[str]) -> bool:
     """Add the marketplace and the plugin, then trust its hooks, as a person does. False when a step failed."""
-    for argv in (["plugin", "marketplace", "add", source], ["plugin", "add", "patton-gate@patton-protocol"]):
+    # a published source is added sparse, as the README says: a full clone is 550 MB of study records
+    sparse = [] if Path(source).exists() else ["--sparse", ".agents", "--sparse", ".claude-plugin", "--sparse", "plugins"]
+    for argv in (["plugin", "marketplace", "add", source, *sparse], ["plugin", "add", "patton-gate@patton-protocol"]):
         done = codex(argv, env, root)
         print(f"$ codex {' '.join(argv)}  -> rc {done.returncode}")
         if done.returncode != 0:

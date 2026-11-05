@@ -3056,7 +3056,8 @@ def codex_trust(stdout, environ) -> int:
         hooks = ours(call(2, "hooks/list", {"cwds": [os.getcwd()]}))
         if not hooks:
             stdout.write("Codex lists no patton-gate hooks. Install the plugin first:\n  codex plugin marketplace add "
-                         "vladimirrott/patton-protocol && codex plugin add patton-gate@patton-protocol\n")
+                         "vladimirrott/patton-protocol --sparse .agents --sparse .claude-plugin --sparse plugins "
+                         "&& codex plugin add patton-gate@patton-protocol\n")
             return 1
         value = {h["key"]: {"trusted_hash": h["currentHash"]} for h in hooks}
         call(3, "config/batchWrite", {"edits": [{"keyPath": "hooks.state", "mergeStrategy": "upsert", "value": value}],

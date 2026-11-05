@@ -335,7 +335,7 @@ which files that command touches.
 Codex CLI 0.159 or newer, and `python3` 3.10 or newer:
 
 ```sh
-codex plugin marketplace add vladimirrott/patton-protocol && codex plugin add patton-gate@patton-protocol && python3 "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/patton-protocol/patton-gate/*/scripts/patton_gate.py codex-trust
+codex plugin marketplace add vladimirrott/patton-protocol --sparse .agents --sparse .claude-plugin --sparse plugins && codex plugin add patton-gate@patton-protocol && python3 "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/patton-protocol/patton-gate/*/scripts/patton_gate.py codex-trust
 ```
 
 Codex runs a plugin's hooks only after you trust them. The last command does what Codex's `/hooks` review does: it

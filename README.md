@@ -95,7 +95,7 @@ records, took two minutes on a fast link, and Claude Code stops a clone after tw
 which Codex skips until you do:
 
 ```sh
-codex plugin marketplace add vladimirrott/patton-protocol && codex plugin add patton-gate@patton-protocol && python3 "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/patton-protocol/patton-gate/*/scripts/patton_gate.py codex-trust
+codex plugin marketplace add vladimirrott/patton-protocol --sparse .agents --sparse .claude-plugin --sparse plugins && codex plugin add patton-gate@patton-protocol && python3 "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/patton-protocol/patton-gate/*/scripts/patton_gate.py codex-trust
 ```
 
 Run the trust step again after `codex plugin marketplace upgrade`: Codex drops trust when a hook changes. Codex hooks cannot ask a
