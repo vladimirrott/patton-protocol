@@ -23,8 +23,8 @@ HOME is the run's fresh `spec.home`, and CLAUDE_CONFIG_DIR is inside it. `--perm
 turns Claude Code's own prompts off; `--setting-sources user` on that empty home loads no settings, project
 settings in /work never load, `--strict-mcp-config` loads no MCP server, and WebFetch and WebSearch are disallowed.
 
-A guarded arm loads plugins/patton-gate (0.4.0), mounted read-only at /opt/patton-gate, with `--plugin-dir`, and
-sets PATTON_GATE_ROOT, PATTON_GATE_STATE, PATTON_GATE_CONFIG and every `spec.env` variable in Claude Code's
+A guarded arm loads plugins/patton-gate (the version the set registers), mounted read-only at /opt/patton-gate,
+with `--plugin-dir`, and sets PATTON_GATE_ROOT, PATTON_GATE_STATE, PATTON_GATE_CONFIG and every `spec.env` variable in Claude Code's
 environment, which its hooks inherit. Discipline is native: the plugin's PreToolUse carries the test reminder as
 `additionalContext` (CONTEXT is True) and its Stop hook refuses a stop with a reason Claude Code hands the model
 (STOP is True). The unguarded arm mounts no plugin, no config and sets no PATTON_* variable.

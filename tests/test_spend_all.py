@@ -54,7 +54,7 @@ class SpendAllTests(unittest.TestCase):
         self.assertAlmostEqual(counted["lab"], listed["lab"], places=9)
         unlisted = set(counted) - {"lab"} - {Path(f).stem for f in spend.LINE_LEDGERS.values()}
         # Ledgers made after spend.py was frozen are counted by spend_all alone; name each one here when it is created.
-        after_the_freeze = {"p1v_spend", "p1m_spend"}
+        after_the_freeze = {"p1v_spend", "p1m_spend", "fleet_p1l_spend"}
         self.assertEqual(unlisted - after_the_freeze, set(), "a ledger exists that spend.py does not list")
 
     def test_the_cap_is_the_lab_wide_ninety(self):

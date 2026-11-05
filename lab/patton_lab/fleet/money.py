@@ -1,10 +1,14 @@
-"""The fleet runs' meter: the triage meter's in-flight worst case, counted against every ledger the lab has."""
+"""The fleet runs' meter: the triage meter's in-flight worst case, counted against every ledger the lab has.
+
+It counts every `lab/*_spend.jsonl` on disk (`spend_all`), not the fixed list in `spend.py`, which the earlier
+pre-registrations froze and which leaves out the ledgers written after them (P1V, P1M).
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from .. import spend
+from .. import spend, spend_all
 from ..triage import runner as triage
 
 LAB = spend.LAB
@@ -20,12 +24,12 @@ class Meter(triage.Meter):
 
     def reserve(self, amount: float) -> None:
         with self.lock:
-            spent = spend.spent_everywhere(self.lab)
-            here = spend.ledgers.ledger_sum(self.ledger)
+            spent = spend_all.spent_everywhere(self.lab)
+            here = spend_all.ledger_sum(self.ledger) if self.ledger.exists() else 0.0
             if here + self.held + amount > self.cap:
                 raise SpendStop(f"the fleet ledger holds ${here:.4f}; another call could pass this set's "
                                 f"${self.cap} cap")
-            if sum(spent.values()) + self.held + amount > spend.GLOBAL_CAP:
+            if sum(spent.values()) + self.held + amount > spend_all.GLOBAL_CAP:
                 raise SpendStop(f"the lab has spent ${sum(spent.values()):.4f}; another call could pass the "
-                                f"${spend.GLOBAL_CAP} cap")
+                                f"${spend_all.GLOBAL_CAP} cap")
             self.held += amount

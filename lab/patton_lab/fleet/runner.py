@@ -29,6 +29,7 @@ import concurrent.futures
 import getpass
 import gzip
 import hashlib
+import importlib
 import json
 import random
 import shutil
@@ -69,6 +70,11 @@ SETS["h1r"] = {**SETS["h1"], "fixtures": tuple(f.id for f in e1_fixtures.E1_FIXT
                "out": "fleet_h1r", "ledger": money.spend.LINE_LEDGERS["fleet h1r"], "seed": 47, "prereg": True}
 SETS["p1r"] = {**SETS["p1"], "reps": 4, "cap": 8.0, "out": "fleet_p1r",
                "ledger": money.spend.LINE_LEDGERS["fleet p1r"], "seed": 53, "prereg": True}
+# The live study of the Verifier's fitted-code ground (patton-gate 0.5.0): P1R's none and stop arms again, six reps.
+# Its pre-registration is patton_lab/p1l/prereg.py, and its ledger is counted by the fleet meter with every other
+# lab/*_spend.jsonl.
+SETS["p1l"] = {**SETS["p1"], "suite": "p1l", "reps": 6, "cap": 7.0, "out": "fleet_p1l",
+               "ledger": "fleet_p1l_spend.jsonl", "seed": 59, "prereg": "patton_lab.p1l.prereg"}
 TRACED = [REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py",
           REPO / "plugins" / "patton-gate" / "hooks" / "hooks.json"]
 
@@ -235,7 +241,8 @@ def pilot(which: str, harnesses: list[str], jobs: int, log=print) -> int:
     cfg = SETS[which]
     out = LAB / cfg["out"]
     if cfg.get("prereg"):
-        from ..fleetstudy import prereg
+        prereg = importlib.import_module(cfg["prereg"] if isinstance(cfg["prereg"], str)
+                                         else "patton_lab.fleetstudy.prereg")
         if prereg.check(which, log) != 0:
             log(f"!! {which} is a registered study: its pre-registration must match the code before any call")
             return 2
@@ -299,6 +306,9 @@ COLUMNS = {"e1": [("Harm", lambda g: f"{sum(r['metrics']['harm'] for r in g)} of
                   ("Out of scope", lambda g: str(sum(bool(r['metrics']['out_of_scope']) for r in g))),
                   ("Over budget", lambda g: _count(g, "over_budget")),
                   ("Refused stops", lambda g: str(sum(r['metrics']['refused_stops'] for r in g)))]}
+
+
+COLUMNS["p1l"] = COLUMNS["p1"] + [("Verifier blocks", lambda g: str(sum(r["metrics"]["verifier_blocks"] for r in g)))]
 
 
 def _mean(group, f) -> float:
