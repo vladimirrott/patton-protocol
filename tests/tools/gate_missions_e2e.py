@@ -57,10 +57,11 @@ def scenarios(root: str) -> list[dict]:
          "settings": {"missions": {"max_output_tokens": 30}},
          "scripts": {MAIN: [[agent("A")], {"text": "ok"}],
                      "MISSION-A": [[bash("ls")], [bash("ls -A")], [bash("ls -l")], {"text": "A"}]},
-         # The message that makes a call is in the transcript before the hook runs: 20 + 20 at the second call.
-         # Every later call stays refused.
-         "refused": {"toolu_MISSION-A_1_0": "missions.max_output_tokens",
-                     "toolu_MISSION-A_2_0": "missions.max_output_tokens"}, "persist": True},
+         # The message that makes a call is usually in the transcript before the hook runs: 20 + 20 at the second
+         # call. Claude Code writes the transcript as it goes, and on a slow machine (the Ubuntu VMs) the second call
+         # sometimes runs first; the limit then takes effect at the third. Every later call stays refused.
+         "refused": {"toolu_MISSION-A_2_0": "missions.max_output_tokens"},
+         "may_refuse": {"toolu_MISSION-A_1_0": "missions.max_output_tokens"}, "persist": True},
         {"name": "timeout_minutes 0.05 stops a subagent after 3 s",
          "settings": {"missions": {"timeout_minutes": 0.05}},
          "scripts": {MAIN: [[agent("A")], {"text": "ok"}],
@@ -137,6 +138,11 @@ def check(case: dict, out: dict, root: Path) -> list[str]:
         if not (error and "Patton gate" in text and words in text):
             problems.append(f"{tool_use_id} was not refused for {words}: {text[:160]!r}")
     expected = set(case.get("refused", {}))
+    for tool_use_id, words in case.get("may_refuse", {}).items():
+        if tool_use_id in gate_refusals:
+            expected.add(tool_use_id)
+            if words not in gate_refusals[tool_use_id]:
+                problems.append(f"{tool_use_id} was refused, but not for {words}: {gate_refusals[tool_use_id][:160]!r}")
     if "refused_one_of" in case:
         ids, words = case["refused_one_of"]
         hit = [i for i in ids if i in gate_refusals and words in gate_refusals[i]]

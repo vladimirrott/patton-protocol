@@ -161,7 +161,7 @@ and a field beside the preset overrides it. `null` turns one limit off.
 | `missions.max_workers` | 4 | a dispatch while that many subagents run or are starting (a dispatch that has not started a subagent within 60 s stops counting) |
 | `missions.max_dispatches` | 12 | a dispatch past that many in one session, however the mission is worded (4 workers, each dispatched once and retried twice) |
 | `missions.max_commands` | 20 | the subagent's shell commands and file edits past the budget |
-| `missions.max_output_tokens` | off | the subagent's next command once its transcript holds that many output tokens |
+| `missions.max_output_tokens` | off | the subagent's next command once its transcript holds that many output tokens; Claude Code writes the transcript as it goes, so on a slow machine the limit can take effect one command late |
 | `missions.timeout_minutes` | 15 | the subagent's next command after that many minutes |
 | `missions.max_retries` | 2 | a dispatch of a mission with the same description and type, past 1 plus retries |
 | `missions.exclusive_paths` | `true` | a change to a file another running subagent changed; the file opens when that subagent stops |
