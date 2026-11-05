@@ -84,10 +84,12 @@ class PackagingTests(unittest.TestCase):
 
     def test_every_readme_gives_the_same_working_install_command(self):
         market = json.loads((REPO_ROOT / ".claude-plugin" / "marketplace.json").read_text())
-        command = f"claude plugin install patton-gate --marketplace vladimirrott/{market['name']}"
+        command = (f"claude plugin marketplace add vladimirrott/{market['name']} --sparse .claude-plugin plugins")
+        install = f"claude plugin install patton-gate@{market['name']}"
         self.assertEqual(market["name"], "patton-protocol", "the marketplace name is the repository name")
         for readme in (REPO_ROOT / "README.md", PLUGIN / "README.md", REPO_ROOT / "gate" / "README.md"):
             self.assertIn(command, readme.read_text(), readme)
+            self.assertIn(install, readme.read_text(), readme)
 
     def test_the_readme_lists_exactly_the_directories_the_gate_skips(self):
         text = (PLUGIN / "README.md").read_text()

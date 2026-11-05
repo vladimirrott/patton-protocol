@@ -17,13 +17,14 @@ claude --version
 echo "installer took $(( $(when) - t0 )) s"
 
 step "install the plugin with one command (source: ${PATTON_VM_SOURCE:-checkout})"
-if [ "${PATTON_VM_SOURCE:-checkout}" = github ]; then
-    market="vladimirrott/patton-protocol"
-else
-    market="$HOME/patton-protocol"
-fi
 t0=$(when)
-claude plugin install patton-gate --marketplace "$market" -y
+if [ "${PATTON_VM_SOURCE:-checkout}" = github ]; then
+    # the README's two commands: a full clone of the repository is 550 MB and outlasts Claude Code's git timeout
+    claude plugin marketplace add vladimirrott/patton-protocol --sparse .claude-plugin plugins
+    claude plugin install patton-gate@patton-protocol -y
+else
+    claude plugin install patton-gate --marketplace "$HOME/patton-protocol" -y
+fi
 echo "plugin install took $(( $(when) - t0 )) s"
 listing="$(claude plugin list)"
 printf '%s\n' "$listing"

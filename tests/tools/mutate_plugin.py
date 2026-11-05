@@ -21,7 +21,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 TARGET = REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py"
-TESTS = ["test_gate_config", "test_gate_missions", "test_gate_originals", "test_gate_codex", "test_gate_plugin",
+TESTS = ["test_gate_classifier_options", "test_gate_config", "test_gate_missions", "test_gate_originals", "test_gate_codex", "test_gate_plugin",
          "test_gate_verify", "test_gate_triage", "test_gate_discipline"]
 T1, DISC = ["test_gate_triage"], ["test_gate_discipline"]
 MUTANTS = [
@@ -170,6 +170,27 @@ MUTANTS = [
  ("three dots no longer skipped", 'not in ("", "...", "\\u2026")]', 'not in ("", "\\u2026")]', ["test_gate_verify"]),
  ("ellipsis sign no longer skipped", 'not in ("", "...", "\\u2026")]', 'not in ("", "...")]', ["test_gate_verify"]),
  ("every short line skipped", 'not in ("", "...", "\\u2026")]', 'not in ("", "...", "\\u2026") and len(_norm_text(line)) > 3]', ["test_gate_verify"]),
+ ('rg --pre allowed', '"rg": (("--pre", "--pre-glob", "--hostname-bin"), "")', '"rg": ((), "")', ["test_gate_classifier_options"]),
+ ('rg --pre-glob allowed', '("--pre", "--pre-glob", "--hostname-bin")', '("--pre", "--hostname-bin")', ["test_gate_classifier_options"]),
+ ('rg --hostname-bin allowed', '("--pre", "--pre-glob", "--hostname-bin")', '("--pre", "--pre-glob")', ["test_gate_classifier_options"]),
+ ('tree --output allowed', '"tree": (("--output",), "o")', '"tree": ((), "o")', ["test_gate_classifier_options"]),
+ ('tree -o allowed', '"tree": (("--output",), "o")', '"tree": (("--output",), "")', ["test_gate_classifier_options"]),
+ ('file --compile allowed', '"file": (("--compile",), "C")', '"file": ((), "C")', ["test_gate_classifier_options"]),
+ ('file -C allowed', '"file": (("--compile",), "C")', '"file": (("--compile",), "")', ["test_gate_classifier_options"]),
+ ('git --output allowed', 'GIT_RISKY_OPTIONS = (("--output", "--ext-diff", "--textconv", "--open-files-in-pager"), "O")', 'GIT_RISKY_OPTIONS = (("--ext-diff", "--textconv", "--open-files-in-pager"), "O")', ["test_gate_classifier_options"]),
+ ('git --ext-diff allowed', '("--output", "--ext-diff", "--textconv", "--open-files-in-pager"), "O")', '("--output", "--textconv", "--open-files-in-pager"), "O")', ["test_gate_classifier_options"]),
+ ('git --textconv allowed', '("--output", "--ext-diff", "--textconv", "--open-files-in-pager"), "O")', '("--output", "--ext-diff", "--open-files-in-pager"), "O")', ["test_gate_classifier_options"]),
+ ('git --open-files-in-pager allowed', '("--output", "--ext-diff", "--textconv", "--open-files-in-pager"), "O")', '("--output", "--ext-diff", "--textconv"), "O")', ["test_gate_classifier_options"]),
+ ('git -O allowed', '"--open-files-in-pager"), "O")', '"--open-files-in-pager"), "")', ["test_gate_classifier_options"]),
+ ('git options never read', '            self._git_read_only(sub, rest)\n            return', '            return', ["test_gate_classifier_options"]),
+ ('risky options never read', '            if name in RISKY_OPTIONS:\n                self._refuse_options(name, words, *RISKY_OPTIONS[name])\n', '', ["test_gate_classifier_options"]),
+ ('git branch changes allowed', '                    raise _Opaque(f"git branch {f} changes a branch")', '                    pass', ["test_gate_classifier_options"]),
+ ('git branch creation allowed', '            if operands and not (set(names) & GIT_BRANCH_WITH_OPERANDS or any(', '            if False and not (set(names) & GIT_BRANCH_WITH_OPERANDS or any(', ["test_gate_classifier_options"]),
+ ('git branch -l pattern refused', 'any(\n                    not n.startswith("--") and set(n[1:]) & {"l"} for n in names)', 'any(\n                    False for n in names)', ["test_gate_classifier_options"]),
+ ('git branch --list pattern refused', 'GIT_BRANCH_WITH_OPERANDS = frozenset("--list -l --contains', 'GIT_BRANCH_WITH_OPERANDS = frozenset("-l --contains', ["test_gate_classifier_options"]),
+ ('git remote changes allowed', 'if any(f not in ("-v", "--verbose") for f in flags) or (operands and operands[0] not in GIT_REMOTE_READS):', 'if False:', ["test_gate_classifier_options"]),
+ ('git remote show refused', 'GIT_REMOTE_READS = frozenset({"show", "get-url"})', 'GIT_REMOTE_READS = frozenset({"get-url"})', ["test_gate_classifier_options"]),
+ ('git remote get-url refused', 'GIT_REMOTE_READS = frozenset({"show", "get-url"})', 'GIT_REMOTE_READS = frozenset({"show"})', ["test_gate_classifier_options"]),
  ("codex post never recorded", '    if name in ("PostToolUse", "PostToolUseFailure") and event.get("tool_name") == "Bash" and state_dir and not study \\', '    if False and state_dir and not study \\', ["test_gate_codex", "test_gate_discipline"]),
 ]
 

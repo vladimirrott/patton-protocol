@@ -4,7 +4,8 @@ A Claude Code hook that asks before the agent changes a file that existed when t
 One file, standard library only.
 
 **To use the gate, install the plugin** ([`plugins/patton-gate`](../plugins/patton-gate/README.md)):
-`claude plugin install patton-gate --marketplace vladimirrott/patton-protocol`. This directory holds the exact
+`claude plugin marketplace add vladimirrott/patton-protocol --sparse .claude-plugin plugins`, then
+`claude plugin install patton-gate@patton-protocol`. This directory holds the exact
 file the 2026-10-21 pre-registration froze, and it never changes, so the study can be replayed against it. The
 plugin keeps its classifier and decision rules, passes the same bypass corpus, and adapts it for daily use (it asks
 about commands it cannot read, stays silent when nothing protected is at stake, and lists the session's files

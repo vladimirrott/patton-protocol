@@ -163,7 +163,8 @@ per release) and creates the SSH key `~/.ssh/patton-vm`; later runs reuse both. 
 minutes on 2026-10-22, most of it in the interactive checks.
 
 It boots a throwaway VM, installs Claude Code with the official installer, installs the plugin with
-`claude plugin install patton-gate --marketplace <source> -y`, runs both scripts above inside it, runs the README's
+`claude plugin marketplace add <source> --sparse .claude-plugin plugins` and
+`claude plugin install patton-gate@patton-protocol -y` (from your checkout it clones the checkout whole), runs both scripts above inside it, runs the README's
 `log` command as written, checks `disable` and `enable` from inside a project, `uninstall --keep-data` and
 `marketplace remove`, and deletes the VM. By default the source is your checkout; `PATTON_VM_SOURCE=github`
 installs from GitHub, which is the user's path, so run that after a push. A run passes only when the transcript

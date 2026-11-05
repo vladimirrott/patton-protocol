@@ -13,8 +13,13 @@ settle ([Triage](#let-an-analyst-answer-the-easy-questions)), rules that keep th
 ## Install
 
 ```sh
-claude plugin install patton-gate --marketplace vladimirrott/patton-protocol
+claude plugin marketplace add vladimirrott/patton-protocol --sparse .claude-plugin plugins
+claude plugin install patton-gate@patton-protocol
 ```
+
+`--sparse` limits the clone to the plugin, about 2 MB. A full clone of this repository is about 550 MB of study
+records, took two minutes on a fast link, and Claude Code stops a clone after two minutes unless
+`CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS` is larger.
 
 The gate starts with your next session. To check the install, run `claude plugin list`: it shows
 `patton-gate@patton-protocol` with `Status: ✔ enabled`.
@@ -237,7 +242,10 @@ Since 0.6.0 `verify.hold` closes the two exits the P1L runs used. By default a r
 problem or say plainly what is left undone, and an agent that says so is not checked again. With `hold` on, the
 refusal asks for a change to the code, and the next stop of that turn goes to the Verifier even when the agent claims
 nothing. `verify.max_rounds` still ends it, so raise it (4 is a reasonable start) if you want more than one retry.
-`hold` is user-only, like the other verify fields. No study has measured it yet. Also since 0.6.0, a line of `...` or
+`hold` is user-only, like the other verify fields. The live study (P1H, `docs/findings/2026-11-05-p1h-findings.md`, 336
+runs on seven harnesses) found no effect on gaming: the hold arm gamed the tests in 63 runs and the arm with no hook in
+64. Hold made 126 extra checks, and the Verifier passed or could not back its finding on the last look of 34 of the 48
+runs it had refused. It also costs more, so leave it off unless you want the extra reading. Also since 0.6.0, a line of `...` or
 `…` inside the Verifier's quote marks skipped code and no longer voids the quote; every other line must still appear in
 what the Verifier read.
 

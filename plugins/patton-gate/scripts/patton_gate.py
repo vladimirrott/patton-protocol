@@ -251,6 +251,18 @@ COMPOUND_OPAQUE = frozenset({"for", "case", "select", "function", "coproc"})
 GIT_READ_ONLY = frozenset(
     "status log diff show ls-files rev-parse add commit blame grep describe branch remote shortlog ls-tree "
     "cat-file".split())
+# Options that make a read-only verb write a file or start a program. Each makes the command opaque, so the gate asks.
+# name: (long options, letters of short options; a letter anywhere in a dashed cluster counts, `-Ovim` included)
+RISKY_OPTIONS = {"rg": (("--pre", "--pre-glob", "--hostname-bin"), ""), "tree": (("--output",), "o"),
+                 "file": (("--compile",), "C")}
+GIT_RISKY_OPTIONS = (("--output", "--ext-diff", "--textconv", "--open-files-in-pager"), "O")
+# `git branch` and `git remote` read only in these forms; every other form changes the repository.
+GIT_BRANCH_LISTING = frozenset(
+    "-a --all -r --remotes -v -vv --verbose --list -l --show-current --contains --no-contains --merged --no-merged "
+    "--points-at --sort --format --column --no-column -i --ignore-case --color --no-color --abbrev --no-abbrev".split())
+GIT_BRANCH_WITH_OPERANDS = frozenset("--list -l --contains --no-contains --merged --no-merged --points-at".split())
+GIT_BRANCH_SHORT = frozenset("arvli")
+GIT_REMOTE_READS = frozenset({"show", "get-url"})
 # Commands `find -exec` may run without making the find opaque: each only reads the files it is given.
 FIND_EXEC_READ_ONLY = frozenset(
     "du ls stat wc cat head tail file grep md5sum sha1sum sha256sum sha512sum cksum".split())
@@ -479,9 +491,38 @@ class _Walker:
         elif name == "cd":
             self._cd(words, isolated)
         elif name in READ_ONLY_VERBS:
+            if name in RISKY_OPTIONS:
+                self._refuse_options(name, words, *RISKY_OPTIONS[name])
             return
         else:
             raise _Opaque(f"unknown command: {name}")
+
+    @staticmethod
+    def _refuse_options(name: str, words: list[Word], longs: tuple[str, ...], shorts: str) -> None:
+        for w in words:
+            t = w.text
+            if t.startswith("--"):
+                if t.split("=", 1)[0] in longs:
+                    raise _Opaque(f"{name} {t.split('=', 1)[0]} writes a file or starts a program")
+            elif t.startswith("-") and len(t) > 1 and any(c in t[1:] for c in shorts):
+                raise _Opaque(f"{name} {t} writes a file or starts a program")
+
+    def _git_read_only(self, sub: str, rest: list[Word]) -> None:
+        self._refuse_options(f"git {sub}", rest, *GIT_RISKY_OPTIONS)
+        flags = [w.text for w in rest if w.text.startswith("-") and w.text != "--"]
+        operands = [w.text for w in rest if not w.text.startswith("-")]
+        if sub == "branch":
+            names = [f.split("=", 1)[0] for f in flags]
+            for f, n in zip(flags, names):
+                if f.startswith("--") and n not in GIT_BRANCH_LISTING or \
+                        not f.startswith("--") and not set(f[1:]) <= GIT_BRANCH_SHORT:
+                    raise _Opaque(f"git branch {f} changes a branch")
+            if operands and not (set(names) & GIT_BRANCH_WITH_OPERANDS or any(
+                    not n.startswith("--") and set(n[1:]) & {"l"} for n in names)):
+                raise _Opaque("git branch with a name creates a branch")
+        elif sub == "remote":
+            if any(f not in ("-v", "--verbose") for f in flags) or (operands and operands[0] not in GIT_REMOTE_READS):
+                raise _Opaque("git remote changes the remotes")
 
     def _rm(self, name: str, words: list[Word]) -> None:
         flags, operands, _v = _args(words, short_arg="ns" if name == "shred" else "", long_arg=("--iterations", "--size"))
@@ -647,6 +688,7 @@ class _Walker:
             raise _Opaque("git with options before the subcommand")
         sub, rest = words[0].text, words[1:]
         if sub in GIT_READ_ONLY:
+            self._git_read_only(sub, rest)
             return
         if moved:  # -C moves where paths resolve; only read-only subcommands get past it
             raise _Opaque("git -C with a subcommand that changes files")
@@ -763,7 +805,7 @@ EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path
 SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
 DENIAL_LIMIT = 5
 DEFAULT_TIMEOUT = 10.0
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 # Rebuilt by tools, so not protected. `.git` is not here: deleting the repository's history must ask first.
 SKIP_DIRS = frozenset({"node_modules", "target", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache",
                        ".pytest_cache", ".ruff_cache", ".gradle", ".next"})

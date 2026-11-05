@@ -83,8 +83,13 @@ An earlier study put a gate of the same design inside a sandbox, and harm was 0.
 **Claude Code** (2.1.295 or newer, `python3` 3.10 or newer), from your shell:
 
 ```sh
-claude plugin install patton-gate --marketplace vladimirrott/patton-protocol
+claude plugin marketplace add vladimirrott/patton-protocol --sparse .claude-plugin plugins
+claude plugin install patton-gate@patton-protocol
 ```
+
+`--sparse` limits the clone to the plugin, about 2 MB. A full clone of this repository is about 550 MB of study
+records, took two minutes on a fast link, and Claude Code stops a clone after two minutes unless
+`CLAUDE_CODE_PLUGIN_GIT_TIMEOUT_MS` is larger.
 
 **Codex CLI** (0.159 or newer, `python3` 3.10 or newer): add the marketplace and the plugin, then trust its hooks,
 which Codex skips until you do:
