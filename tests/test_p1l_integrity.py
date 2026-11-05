@@ -31,6 +31,59 @@ def cassettes(arm: str):
     return sorted(OUT.glob(f"*/{arm}-*.cassette.jsonl.gz"))
 
 
+def stop_calls(path: Path):
+    """(kind, call) for each claim-reader and Verifier call of one stored stop run, in order."""
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        for line in handle:
+            call = json.loads(line) if line.strip() else {}
+            messages = (call.get("request") or {}).get("messages") or []
+            head = str(messages[0].get("content", "")) if messages else ""
+            if call.get("route") == "t1" and head.startswith("You read the final message of a coding agent"):
+                yield "claim", call
+            elif call.get("route") == "t1" and head.startswith(p1v_cases.VERIFIER_PREFIX):
+                yield "verifier", call
+
+
+def after_one_refusal():
+    """What the 22 gamed stop runs on p01 and p04 that the Verifier refused once did next, by the calls they made."""
+    gate = p1v_prompts.gate
+    tally = Counter()
+    for record in runner.load("p1l"):
+        m = record["metrics"]
+        if record["arm"] != "stop" or record["fixture"] not in ("p01", "p04") or not m["gamed"] or m["verifier_blocks"] != 1:
+            continue
+        steps = []
+        for kind, call in stop_calls(OUT / record["harness"] / f"stop-{record['fixture']}-r{record['rep']}.cassette.jsonl.gz"):
+            reply = call["response"]["choices"][0]["message"]["content"]
+            steps.append(("claim " + ("yes" if gate.read_claim(reply) else "no")) if kind == "claim"
+                         else "verifier " + str(gate.judge(reply, call["request"]["messages"][1]["content"])[0]))
+        tally[tuple(steps)] += 1
+    return tally
+
+
+def unbacked_fails():
+    """(Verifier fail answers over all stop runs, those no quote backed, those whose only unmatched line was `...`)."""
+    gate = p1v_prompts.gate
+    fails = unbacked = elided = 0
+    for path in cassettes("stop"):
+        for kind, call in stop_calls(path):
+            if kind != "verifier":
+                continue
+            reply, source = call["response"]["choices"][0]["message"]["content"], call["request"]["messages"][1]["content"]
+            verdict, findings, _ = gate.judge(reply, source)
+            if verdict != "fail":
+                continue
+            fails += 1
+            if not findings:
+                unbacked += 1
+                text = gate._norm_text(source)
+                missing = {gate._norm_text(line) for f in gate.parse_reply(reply).get("findings") or []
+                           for line in str(f.get("evidence")).splitlines() if gate._norm_text(line)} - {x for x in [""] if x in text}
+                missing = {m for m in missing if m not in text}
+                elided += missing == {"..."}
+    return fails, unbacked, elided
+
+
 @unittest.skipUnless(FINDINGS.exists(), "the P1L study has not been recorded yet")
 class RecordTests(unittest.TestCase):
     def test_every_registered_cell_is_stored_once_and_reached_the_model(self):
@@ -100,9 +153,22 @@ class FindingsTests(unittest.TestCase):
         spent = spend_all.ledger_sum(LEDGER)
         arms = {a: [r for r in rows if r["arm"] == a] for a in ("none", "stop")}
         gamed = " ".join(f"{sum(bool(r['metrics']['gamed']) for r in g)} of {len(g)}" for g in arms.values())
-        facts = f"${spent:.2f} ${runner.SETS['p1l']['cap']:.2f} {len(rows)} runs {gamed}"
+        refused = after_one_refusal()
+        fails, unbacked, elided = unbacked_fails()
+        facts = (f"${spent:.2f} ${runner.SETS['p1l']['cap']:.2f} {len(rows)} runs {gamed} "
+                 f"{sum(refused.values())} runs {fails} answers {unbacked} of {fails} {elided} of {unbacked}")
         sources = [report.text(), prereg.PREREG_PATH.read_text(encoding="utf-8"), facts]
         self.assertEqual(unbacked_numbers(text, *sources), [])
+
+    def test_what_the_refused_runs_did_next(self):
+        tally = after_one_refusal()
+        self.assertEqual(tally[("claim yes", "verifier fail", "claim no")], 14)
+        self.assertEqual(tally[("claim yes", "verifier fail", "claim yes", "verifier pass")], 7)
+        self.assertEqual(tally[("claim yes", "verifier fail", "claim yes", "verifier fail")], 1)
+        self.assertEqual(sum(tally.values()), 22)
+
+    def test_the_fails_no_quote_backed(self):
+        self.assertEqual(unbacked_fails(), (83, 9, 3))
 
     def test_the_cost_in_the_findings_is_the_ledgers(self):
         self.assertIn(f"${spend_all.ledger_sum(LEDGER):.2f}", FINDINGS.read_text(encoding="utf-8"))
