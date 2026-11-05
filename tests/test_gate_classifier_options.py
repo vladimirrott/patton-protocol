@@ -27,11 +27,16 @@ OPAQUE = [
     "git remote add x y", "git remote set-url origin x", "git remote remove origin", "git remote rename a b",
     "git remote prune origin",
     "file -C -m notes.txt", "file --compile",
+    # git and GNU tools accept any unambiguous start of a long option, and tree -R runs tree again with -o in every directory
+    "git diff --out=notes.txt", "git log --outp notes.txt", "git show --ext=HEAD", "git diff --text HEAD",
+    "git grep --open foo", "file --comp notes.txt", "tree -R", "tree -R -L 2", "tree -R -H . -L 2", "tree --outp=notes.txt",
 ]
 READ_ONLY = [
     "rg foo .", "rg -n --hidden foo", "tree -a", "tree -L 2", "file notes.txt",
     "git diff --stat", "git log --oneline -n 3", "git show HEAD", "git grep foo", "git status", "git add .",
     "git branch", "git branch -a", "git branch -r", "git branch -v", "git branch --list 'f*'", "git branch --show-current",
+    "git diff -- notes.txt", "git log -- notes.txt", "git log --oneline", "git diff --stat --name-only", "git log --format=%H", "git diff --output-indicator-new=+",
+    "git log --pretty=oneline --abbrev-commit", "git diff --no-ext-diff",
     "git branch --contains HEAD", "git branch -l 'f*'", "git branch -la 'f*'", "git remote", "git remote -v", "git remote show origin", "git remote get-url origin",
 ]
 

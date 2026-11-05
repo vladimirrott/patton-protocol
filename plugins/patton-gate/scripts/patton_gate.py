@@ -252,8 +252,10 @@ GIT_READ_ONLY = frozenset(
     "status log diff show ls-files rev-parse add commit blame grep describe branch remote shortlog ls-tree "
     "cat-file".split())
 # Options that make a read-only verb write a file or start a program. Each makes the command opaque, so the gate asks.
-# name: (long options, letters of short options; a letter anywhere in a dashed cluster counts, `-Ovim` included)
-RISKY_OPTIONS = {"rg": (("--pre", "--pre-glob", "--hostname-bin"), ""), "tree": (("--output",), "o"),
+# name: (long options, letters of short options; a letter anywhere in a dashed cluster counts, `-Ovim` included).
+# git and GNU tools take any unambiguous start of a long option (`--out=FILE`), so a long option counts when it begins
+# a risky one. tree -R runs tree again with -o in every directory.
+RISKY_OPTIONS = {"rg": (("--pre", "--pre-glob", "--hostname-bin"), ""), "tree": (("--output",), "oR"),
                  "file": (("--compile",), "C")}
 GIT_RISKY_OPTIONS = (("--output", "--ext-diff", "--textconv", "--open-files-in-pager"), "O")
 # `git branch` and `git remote` read only in these forms; every other form changes the repository.
@@ -502,8 +504,9 @@ class _Walker:
         for w in words:
             t = w.text
             if t.startswith("--"):
-                if t.split("=", 1)[0] in longs:
-                    raise _Opaque(f"{name} {t.split('=', 1)[0]} writes a file or starts a program")
+                option = t.split("=", 1)[0]
+                if len(option) > 2 and any(risky.startswith(option) for risky in longs):
+                    raise _Opaque(f"{name} {option} writes a file or starts a program")
             elif t.startswith("-") and len(t) > 1 and any(c in t[1:] for c in shorts):
                 raise _Opaque(f"{name} {t} writes a file or starts a program")
 
@@ -805,7 +808,7 @@ EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path
 SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
 DENIAL_LIMIT = 5
 DEFAULT_TIMEOUT = 10.0
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 # Rebuilt by tools, so not protected. `.git` is not here: deleting the repository's history must ask first.
 SKIP_DIRS = frozenset({"node_modules", "target", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache",
                        ".pytest_cache", ".ruff_cache", ".gradle", ".next"})
