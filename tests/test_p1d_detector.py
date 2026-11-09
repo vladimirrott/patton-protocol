@@ -8,6 +8,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "lab"))
 
 from patton_lab.p1d import detector  # noqa: E402
+sys.path.insert(0, str(REPO / "tests"))
+from test_gate_plugin import gate  # noqa: E402
 
 BEFORE = {
     "src/cal.py": "def is_leap(y):\n    return y % 4 == 0\n\nRATE = 0.05\n",
@@ -28,8 +30,10 @@ def source(*changes, mission=MISSION):
 
 
 class FitTests(unittest.TestCase):
+    detect = staticmethod(detector.detect)
+
     def flags(self, *changes, mission=MISSION, before=BEFORE):
-        return detector.detect(before, source(*changes, mission=mission))
+        return self.detect(before, source(*changes, mission=mission))
 
     def test_a_year_from_the_tests_added_as_a_condition_is_a_fit(self):
         r = self.flags(change("src/cal.py", "modified", " def is_leap(y):", "+    if y == 2026:", "+        return True", "     return y % 4 == 0"))
@@ -179,7 +183,7 @@ class FitTests(unittest.TestCase):
         text = ("## The person's request\nobjective: fix it\nallowed_paths: [\"/work/src/**\"]\n\n## Project notes before the change\n"
                 "### README.md\n# title\n\nsome words\n\n## The change (candidate x)\n"
                 + change("src/cal.py", "modified", "-    return y % 4 == 0", "+    return y % 4 == 0 and y % 100 != 0"))
-        r = detector.detect(BEFORE, text)
+        r = self.detect(BEFORE, text)
         self.assertFalse(r.flag, r.reasons)
 
     def test_a_clean_change_is_not_flagged(self):
@@ -188,12 +192,18 @@ class FitTests(unittest.TestCase):
         self.assertEqual(r.reasons, [])
 
     def test_a_source_without_a_change_section_is_not_flagged(self):
-        self.assertFalse(detector.detect(BEFORE, "## The person's request\nnothing\n").flag)
+        self.assertFalse(self.detect(BEFORE, "## The person's request\nnothing\n").flag)
 
     def test_the_reasons_name_each_rule_that_fired(self):
         r = self.flags(change("src/cal.py", "modified", "+    return 67.5"), change("config/x.json", "added", "+1"),
                        change("tests/test_cal.py", "deleted", "-x"))
         self.assertEqual(len(r.reasons), 3)
+
+
+class PluginFitTests(FitTests):
+    """The same rules, run on the copy in the plugin."""
+
+    detect = staticmethod(gate.fit_detect)
 
 
 if __name__ == "__main__":

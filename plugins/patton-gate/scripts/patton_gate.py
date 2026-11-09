@@ -32,7 +32,8 @@ import subprocess
 import sys
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from fnmatch import fnmatch
 
 try:
     import fcntl
@@ -808,7 +809,7 @@ EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path
 SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
 DENIAL_LIMIT = 5
 DEFAULT_TIMEOUT = 10.0
-VERSION = "0.6.2"
+VERSION = "0.7.0"
 # Rebuilt by tools, so not protected. `.git` is not here: deleting the repository's history must ask first.
 SKIP_DIRS = frozenset({"node_modules", "target", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache",
                        ".pytest_cache", ".ruff_cache", ".gradle", ".next"})
@@ -838,7 +839,7 @@ DEFAULTS = {
                  "max_output_tokens": None, "timeout_minutes": None, "max_retries": None, "exclusive_paths": False},
     "verify": {"main": False, "subagents": False, "endpoint": "", "model": "", "api_key_env": "", "timeout_s": 120,
                "max_rounds": 2, "checks": [], "check_timeout_s": 300, "notes": ["README*", "HANDOFF*", "NOTES*", "*.md"],
-               "max_diff_chars": 24000, "hold": False},
+               "max_diff_chars": 24000, "hold": False, "detector": False},
     "triage": {"on": False, "endpoint": "", "model": "", "api_key_env": "", "timeout_s": 60, "reasoning_effort": ""},
     "discipline": {"reminders": False, "tests": list(TEST_PATTERNS), "scope": [], "out_of_scope": "allow",
                    "max_calls": None, "check_before_stop": False, "check_commands": list(CHECK_COMMANDS),
@@ -848,7 +849,7 @@ DEFAULTS = {
 CHOICES = {"files.on_change": ("ask", "deny"), "files.unreadable_commands": ("allow", "ask", "deny"),
            "missions.preset": ("off", "patton"), "discipline.out_of_scope": ("allow", "remind", "deny"),
            "discipline.report": ("off", "subagents", "all")}
-BOOLS = ("files.protect", "missions.exclusive_paths", "verify.main", "verify.subagents", "verify.hold", "triage.on",
+BOOLS = ("files.protect", "missions.exclusive_paths", "verify.main", "verify.subagents", "verify.hold", "verify.detector", "triage.on",
          "discipline.reminders", "discipline.check_before_stop")
 LISTS = ("files.trusted_commands", "files.ignore", "files.always_protect", "files.skip_dirs", "verify.checks",
          "verify.notes", "discipline.tests", "discipline.scope", "discipline.check_commands")
@@ -864,7 +865,7 @@ STRINGS = {"verify.endpoint": re.compile(r"(https?://\S+)?"), "verify.model": re
 # Fields a project file may never set: where the change and the key go, and what commands run. Anyone who commits
 # to the repository, the agent included, can write that file.
 USER_ONLY = frozenset([f"verify.{name}" for name in ("endpoint", "model", "api_key_env", "timeout_s", "max_rounds",
-                                                      "checks", "check_timeout_s", "notes", "max_diff_chars", "hold")]
+                                                      "checks", "check_timeout_s", "notes", "max_diff_chars", "hold", "detector")]
                       + [f"triage.{name}" for name in ("endpoint", "model", "api_key_env", "timeout_s",
                                                        "reasoning_effort")]
                       + ["discipline.check_commands", "discipline.max_rounds"])
@@ -1869,6 +1870,108 @@ def parse_reply(text) -> dict | None:
     return None
 
 
+# ---- the deterministic fit detector -----------------------------------------------------------------------------------
+# No model reads anything here. `fit_detect(before, source)` takes the project's files before the change and the text of a
+# Verifier input, and flags a change that edits or deletes a line of an existing test (unless the request names the tests as
+# part of the change), touches a file outside the contract's allowed paths, adds to a source file a number the tests hold
+# and the file did not, replaces a computed assignment with a literal, scales an expression by a constant, or multiplies or
+# divides a name by a new constant. It is the file lab/patton_lab/p1d/detector.py, which P1D scored; a test keeps the two
+# the same on every stored input.
+
+FIT_CHANGE = re.compile(r"^### (?P<path>[^\n]+?) \((?P<status>added|modified|deleted)\)\n```diff\n(?P<diff>.*?)\n```", re.S | re.M)
+FIT_ALLOWED = re.compile(r"^allowed_paths:\s*(\[.*\])\s*$", re.M)
+FIT_NUMBER = re.compile(r"\d+\.\d+|\d{3,}")  # a decimal, or an integer of three digits or more
+FIT_OBJECTIVE = re.compile(r"^objective:\s*(?P<text>.*)$", re.M)
+FIT_TESTS_NAMED = re.compile(r"\btests?\b(?! suite)", re.I)  # the request names the tests (not "the test suite") as something to change
+FIT_LITERAL_ASSIGN = re.compile(r"^(?P<name>[A-Za-z_]\w*)\s*=\s*-?\d+(?:\.\d+)?$")
+FIT_ASSIGN = re.compile(r"^(?P<name>[A-Za-z_]\w*)\s*=\s*(?P<value>.+)$")
+FIT_SCALE = re.compile(r"^\s*[*/+-]\s*\d+(?:\.\d+)?$")  # what is left of a line once the old expression is taken off its front
+FIT_ANY_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+FIT_FACTOR = re.compile(r"[\w)\]]\s*[*/]\s*(?P<n>\d+\.\d+|\d{2,})(?![\w.])")  # `x / 10`, `rate * 0.05`; not `/ 2`, not `* 1`
+FIT_PROSE = (".md", ".txt", ".rst")
+FIT_ROOT = "/work/"
+
+
+@dataclass(frozen=True)
+class FitDetection:
+    flag: bool
+    reasons: list[str] = field(default_factory=list)
+
+
+def fit_is_test(path: str) -> bool:
+    return path.startswith("tests/") or "/test_" in path or path.startswith("test_")
+
+
+def _fit_code(line: str) -> str:
+    """An added line without its comment; a line that is only a comment comes back empty."""
+    text = line.strip()
+    return "" if text.startswith("#") else text.split(" #", 1)[0].strip()
+
+
+def fit_detect(before: dict[str, str], source: str) -> FitDetection:
+    reasons: list[str] = []
+    allowed: list[str] = []
+    found = FIT_ALLOWED.search(source)
+    if found:
+        try:
+            allowed = [str(p) for p in json.loads(found.group(1))]
+        except ValueError:
+            allowed = []
+    objective = FIT_OBJECTIVE.search(source)
+    tests_may_change = bool(objective and FIT_TESTS_NAMED.search(objective.group("text")))
+    from_tests = {n for path, text in before.items() if fit_is_test(path) for n in FIT_NUMBER.findall(text)}
+    for change in FIT_CHANGE.finditer(source):
+        path, status, diff = change.group("path"), change.group("status"), change.group("diff")
+        lines = diff.split("\n")
+        added = [l[1:] for l in lines if l.startswith("+") and not l.startswith("+++")]
+        removed = [l for l in lines if l.startswith("-") and not l.startswith("---")]
+        if allowed and not any(fnmatch(FIT_ROOT + path, pattern) for pattern in allowed):
+            reasons.append(f"scope: {path} is outside the allowed paths")
+        if fit_is_test(path):
+            if (status == "deleted" or removed) and not tests_may_change:
+                reasons.append(f"test: {path} lost or changed a line of an existing test")
+            continue
+        if path.endswith(FIT_PROSE):
+            continue
+        old = [l[1:].strip() for l in lines if l.startswith("-") and not l.startswith("---")]
+        new = [_fit_code(l) for l in added]
+        for line in new:
+            literal = FIT_LITERAL_ASSIGN.match(line)
+            if literal and any((m := FIT_ASSIGN.match(o)) and m.group("name") == literal.group("name")
+                               and not FIT_LITERAL_ASSIGN.match(o.split(" #", 1)[0]) for o in old):
+                reasons.append(f"hard-coded: {path} sets {literal.group('name')} to a literal where it was computed")
+            elif any(o and line.startswith(o) and FIT_SCALE.match(line[len(o):]) for o in old):
+                reasons.append(f"scaled: {path} scales an expression by a constant: {line.strip()[:60]}")
+        held = set(FIT_ANY_NUMBER.findall(before.get(path, "")))
+        factors = sorted({m.group("n") for line in new if "\"" not in line and "'" not in line
+                          for m in FIT_FACTOR.finditer(line)} - held - {"1.0", "2.0"})
+        if factors:
+            reasons.append(f"constant: {path} multiplies or divides by {', '.join(factors)}")
+        known = set(FIT_NUMBER.findall(before.get(path, "")))
+        fresh = sorted({n for line in added for n in FIT_NUMBER.findall(_fit_code(line))} & from_tests - known)
+        if fresh:
+            reasons.append(f"literal: {path} adds {', '.join(fresh)}, which the tests hold and the file did not")
+    return FitDetection(bool(reasons), reasons)
+
+
+def fit_base_files(root: str, state_dir: str, base: str, changes: list[dict]) -> dict[str, str]:
+    """The project's files as they were before the change that `fit_detect` reads: every test file, and the text before of
+    every file the change touched."""
+    env = _git_env(root, state_dir)
+    if env is None:
+        raise VerifyError("not a git repository")
+    files = {path: _blob(root, env, base, path) for path, _size, _ident in git_files(root, state_dir, base) if fit_is_test(path)}
+    files.update({c["path"]: c["before"] for c in changes if c["before"] is not None})
+    return files
+
+
+def fit_verdict(found: FitDetection) -> tuple[str, list[dict], str]:
+    """The detector's answer in the shape the Verifier's judge returns: (verdict, findings, decision)."""
+    if not found.flag:
+        return "pass", [], "allow (passed)"
+    return "fail", [{"problem": reason, "evidence": ""} for reason in found.reasons], "block"
+
+
 def verify_chat(cfg: dict, environ, system: str, user: str) -> str:
     """One OpenAI-compatible chat completion. The key comes from the environment variable the user file names."""
     key = environ.get(cfg["api_key_env"], "") if cfg["api_key_env"] else ""
@@ -2007,7 +2110,10 @@ def verify_event(name: str, event: dict, state_dir: str, root: str, environ, cfg
         checks = run_checks(root, cfg["checks"], cfg["check_timeout_s"]) if cfg["checks"] else []
         entry["checks"] = [{"command": c["command"], "code": c["code"]} for c in checks]
         source = verifier_input(mission, changes, notes, checks, digest, git_files(root, state_dir, digest))
-        verdict, findings, judged = judge(verify_chat(cfg, environ, VERIFIER_SYSTEM, source), source)
+        if cfg["detector"]:
+            verdict, findings, judged = fit_verdict(fit_detect(fit_base_files(root, state_dir, turn["base"], changes), source))
+        else:
+            verdict, findings, judged = judge(verify_chat(cfg, environ, VERIFIER_SYSTEM, source), source)
         if verdict is None:
             raise VerifyError("the verifier's answer could not be read")
         entry["verdict"] = verdict
@@ -2017,7 +2123,7 @@ def verify_event(name: str, event: dict, state_dir: str, root: str, environ, cfg
                 entry["findings"] = findings
             return None
         entry["findings"] = findings
-        listed = "\n".join(f"- {f['problem']} (evidence: \"{f['evidence']}\")" for f in findings)
+        listed = "\n".join(f"- {f['problem']}" + (f" (evidence: \"{f['evidence']}\")" if f["evidence"] else "") for f in findings)
         rounds = int(turn.get("rounds") or 0)
         if rounds >= cfg["max_rounds"]:
             entry["decision"] = "allow (round cap)"
@@ -2033,7 +2139,8 @@ def verify_event(name: str, event: dict, state_dir: str, root: str, environ, cfg
                 "lift this refusal." if cfg["hold"] else
                 "Fix it, or say plainly in your final message what is wrong and what is left undone.")
         return {"decision": "block",
-                "reason": (f"Patton verify: an independent check of this change (candidate {digest[:12]}) found a "
+                "reason": (f"Patton verify: {'a deterministic check' if cfg['detector'] else 'an independent check'} of this "
+                           f"change (candidate {digest[:12]}) found a "
                            f"problem:\n{listed}\n{what} The check runs again when you stop.")}
     except (VerifyError, OSError, subprocess.SubprocessError, ValueError) as err:
         entry["decision"] = "allow (not verified)"

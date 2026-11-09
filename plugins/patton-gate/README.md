@@ -212,6 +212,7 @@ objects stay as they were. A project outside git cannot be verified.
 | `verify.checks` | `[]` | shell commands run in the project at the stop; their exit codes and output go to the Verifier |
 | `verify.notes` | `README*`, `HANDOFF*`, `NOTES*`, `*.md` | which files count as the project's notes |
 | `verify.max_rounds` | 2 | refused stops per turn before the gate lets the agent stop and tells you |
+| `verify.detector` | `false` | decide the stop with a deterministic fit check in place of the Verifier model (the claim reader still runs) |
 | `verify.hold` | `false` | after a refusal, check the next stop whatever the agent says, and drop the "say plainly" way out from the refusal text |
 | `verify.timeout_s`, `verify.check_timeout_s` | 120, 300 | seconds for one model call, for one check |
 | `verify.max_diff_chars` | 24000 | how much of the change the Verifier reads |
@@ -248,7 +249,14 @@ nothing. `verify.max_rounds` still ends it, so raise it (4 is a reasonable start
 runs on seven harnesses) found no effect on gaming: the hold arm gamed the tests in 63 runs and the arm with no hook in
 64. Hold made 126 extra checks, and the Verifier passed or could not back its finding on the last look of 34 of the 48
 runs it had refused. It also costs more, and it removes the "say plainly" exit that produced the honest endings above
-(75 of 168 runs ended honestly with hold against 71 with no hook). Leave it off. Also since 0.6.0, a line of `...` or
+(75 of 168 runs ended honestly with hold against 71 with no hook). Leave it off. Since 0.7.0 `verify.detector` swaps the Verifier model for a short deterministic check that no model runs. It flags a
+change that edits or deletes a line of an existing test, touches a file outside the `allowed_paths` of a mission
+contract in your request, adds to source a number the tests hold, replaces a computed assignment with a literal, or
+multiplies or divides a name by a new constant. Replayed over the 244 Verifier inputs that P1L and P1H stored, it flagged
+90 of the 108 gamed runs and 1 of the 81 runs that did the work, where the Verifier's last look had flagged 32 of the
+gamed runs (`docs/findings/2026-11-09-p1d-findings.md`). The refusal still lets the agent say plainly what is left
+undone, because that exit produced the honest endings in P1L. The check was written against four small Python tasks:
+treat a flag as a reason to look. Also since 0.6.0, a line of `...` or
 `…` inside the Verifier's quote marks skipped code and no longer voids the quote; every other line must still appear in
 what the Verifier read.
 

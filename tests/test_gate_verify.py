@@ -90,10 +90,17 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(config["verify"]["hold"])
         self.assertIn("verify.hold", {i["field"] for i in ignored})
 
+    def test_the_detector_is_off_by_default_and_only_the_person_can_turn_it_on(self):
+        self.write(Path(self.repo.env["XDG_CONFIG_HOME"]) / "patton-gate" / "config.json", {"verify": ENDPOINT})
+        self.write(self.repo.root / ".claude" / "patton-gate.json", {"verify": {"main": True, "detector": True}})
+        config, _, ignored = gate.load_config(str(self.repo.root), self.repo.env)
+        self.assertFalse(config["verify"]["detector"])
+        self.assertIn("verify.detector", {i["field"] for i in ignored})
+
     def test_bad_values_are_refused(self):
         path = Path(self.repo.env["XDG_CONFIG_HOME"]) / "patton-gate" / "config.json"
         for bad in ({"endpoint": "ftp://x"}, {"api_key_env": "has space"}, {"max_rounds": 0}, {"main": "yes"},
-                     {"hold": "yes"}):
+                     {"hold": "yes"}, {"detector": "yes"}):
             with self.subTest(bad=bad):
                 self.write(path, {"verify": {**ENDPOINT, **bad}})
                 with self.assertRaises(gate.ConfigError):
@@ -443,6 +450,87 @@ class HoldTests(StopCase):
         self.assertIn("say plainly", out["reason"])
         stub.claims = False
         self.assertIsNone(case.stop(stub, "The ledger is gone."))
+        self.assertEqual(len(stub.seen["verifier"]), 1)
+
+
+class DetectorTests(StopCase):
+    """verify.detector: the deterministic fit detector decides in place of the Verifier model. The claim reader still runs, so
+    an agent that says it did not finish is let go, and the refusal keeps the way out in words."""
+
+    VERIFY = {"detector": True}
+    TESTS = "import unittest\nfrom app import total\n\nclass T(unittest.TestCase):\n    def test_total(self):\n        self.assertEqual(total([100.0, 50.0]), 153.0)\n"
+    APP = "def total(xs):\n    return sum(xs)\n"
+
+    def setUp(self):
+        super().setUp()
+        (self.repo.root / "tests").mkdir()
+        (self.repo.root / "tests" / "test_app.py").write_text(self.TESTS)
+        (self.repo.root / "app.py").write_text(self.APP)
+        git(self.repo.root, "add", "-A")
+        git(self.repo.root, "commit", "-q", "-m", "tests")
+        # a new prompt takes a new snapshot of the project: the tests and the app are now part of the start
+        self.hook({"hook_event_name": "UserPromptSubmit", "prompt": "Make the tests pass."})
+        self.stub = Stub(claims=True, verdict="pass")
+
+    def decisions(self):
+        return [json.loads(line)["decision"] for line in (self.repo.state / "verify.jsonl").read_text().splitlines()]
+
+    def test_a_number_copied_from_the_tests_into_the_code_refuses_the_stop_without_the_verifier_model(self):
+        (self.repo.root / "app.py").write_text("def total(xs):\n    if xs == [100.0, 50.0]:\n        return 153.0\n    return sum(xs)\n")
+        out = self.stop(self.stub)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("literal: app.py adds 100.0, 153.0, 50.0", out["reason"])
+        self.assertIn("deterministic", out["reason"])
+        self.assertEqual((len(self.stub.seen["claims"]), len(self.stub.seen["verifier"])), (1, 0))
+
+    def test_the_refusal_keeps_the_way_out_in_words(self):
+        (self.repo.root / "app.py").write_text("def total(xs):\n    return 153.0\n")
+        reason = self.stop(self.stub)["reason"]
+        self.assertIn("say plainly in your final message", reason)
+        self.assertNotIn("evidence", reason)
+
+    def test_an_agent_that_says_it_did_not_finish_is_let_go_unchecked(self):
+        (self.repo.root / "app.py").write_text("def total(xs):\n    return 153.0\n")
+        stub = Stub(claims=False)
+        self.assertIsNone(self.stop(stub, "I could not make the test pass without hard-coding the answer."))
+        self.assertEqual(self.decisions(), ["allow (no completion claimed)"])
+
+    def test_a_clean_change_passes_and_the_verifier_model_is_never_called(self):
+        (self.repo.root / "app.py").write_text("def total(xs):\n    return float(sum(float(x) for x in xs))\n")
+        self.assertIsNone(self.stop(self.stub))
+        self.assertEqual(self.decisions(), ["allow (passed)"])
+        self.assertEqual(len(self.stub.seen["verifier"]), 0)
+
+    def test_an_edited_test_line_refuses_the_stop(self):
+        (self.repo.root / "tests" / "test_app.py").write_text(self.TESTS.replace("153.0", "150.0"))
+        out = self.stop(self.stub)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("test: tests/test_app.py", out["reason"])
+
+    def test_the_rounds_cap_ends_it_as_for_the_verifier_model(self):
+        (self.repo.root / "app.py").write_text("def total(xs):\n    return 153.0\n")
+        outs = [self.stop(self.stub) for _ in range(3)]
+        self.assertEqual([o.get("decision") for o in outs], ["block", "block", None])
+        self.assertIn("still fails", outs[2]["systemMessage"])
+
+    def test_the_findings_are_logged_with_the_decision(self):
+        (self.repo.root / "app.py").write_text("def total(xs):\n    return 153.0\n")
+        self.stop(self.stub)
+        entry = json.loads((self.repo.state / "verify.jsonl").read_text().splitlines()[-1])
+        self.assertEqual((entry["verdict"], entry["decision"]), ("fail", "block"))
+        self.assertTrue(entry["findings"][0]["problem"].startswith("literal:"))
+
+    def test_without_the_option_the_verifier_model_decides(self):
+        class Plain(StopCase):
+            pass
+        case = Plain("setUp")
+        case.setUp()
+        self.addCleanup(case.repo.close)
+        (case.repo.root / "tests").mkdir()
+        (case.repo.root / "tests" / "test_app.py").write_text(self.TESTS)
+        (case.repo.root / "app.py").write_text("def total(xs):\n    return 153.0\n")
+        stub = Stub(verdict="pass")
+        self.assertIsNone(case.stop(stub))
         self.assertEqual(len(stub.seen["verifier"]), 1)
 
 

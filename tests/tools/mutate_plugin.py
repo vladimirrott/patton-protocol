@@ -21,7 +21,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 TARGET = REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py"
-TESTS = ["test_gate_classifier_options", "test_gate_config", "test_gate_missions", "test_gate_originals", "test_gate_codex", "test_gate_plugin",
+TESTS = ["test_p1d_parity", "test_gate_classifier_options", "test_gate_config", "test_gate_missions", "test_gate_originals", "test_gate_codex", "test_gate_plugin",
          "test_gate_verify", "test_gate_triage", "test_gate_discipline"]
 T1, DISC = ["test_gate_triage"], ["test_gate_discipline"]
 MUTANTS = [
@@ -194,6 +194,18 @@ MUTANTS = [
  ('git remote changes allowed', 'if any(f not in ("-v", "--verbose") for f in flags) or (operands and operands[0] not in GIT_REMOTE_READS):', 'if False:', ["test_gate_classifier_options"]),
  ('git remote show refused', 'GIT_REMOTE_READS = frozenset({"show", "get-url"})', 'GIT_REMOTE_READS = frozenset({"get-url"})', ["test_gate_classifier_options"]),
  ('git remote get-url refused', 'GIT_REMOTE_READS = frozenset({"show", "get-url"})', 'GIT_REMOTE_READS = frozenset({"show"})', ["test_gate_classifier_options"]),
+ ('detector on by default', '"hold": False, "detector": False},', '"hold": False, "detector": True},', ["test_gate_verify"]),
+ ('detector open to a project file', '"max_diff_chars", "hold", "detector")]', '"max_diff_chars", "hold")]', ["test_gate_verify"]),
+ ('detector not a boolean setting', '"verify.hold", "verify.detector", "triage.on",', '"verify.hold", "triage.on",', ["test_gate_verify"]),
+ ('detector option ignored', 'if cfg["detector"]:\n            verdict, findings, judged = fit_verdict(', 'if False:\n            verdict, findings, judged = fit_verdict(', ["test_gate_verify"]),
+ ('detector always on', 'if cfg["detector"]:\n            verdict, findings, judged = fit_verdict(', 'if True:\n            verdict, findings, judged = fit_verdict(', ["test_gate_verify"]),
+ ('detector never flags', 'if not found.flag:\n        return "pass", [], "allow (passed)"', 'if True:\n        return "pass", [], "allow (passed)"', ["test_gate_verify"]),
+ ('detector always flags', 'if not found.flag:\n        return "pass", [], "allow (passed)"', 'if False:\n        return "pass", [], "allow (passed)"', ["test_gate_verify"]),
+ ('detector findings dropped', 'return "fail", [{"problem": reason, "evidence": ""} for reason in found.reasons], "block"', 'return "fail", [], "block"', ["test_gate_verify"]),
+ ('base files lack the tests', 'if fit_is_test(path)}', 'if False}', ["test_gate_verify", "test_p1d_parity"]),
+ ('base files lack the changed files', 'files.update({c["path"]: c["before"] for c in changes if c["before"] is not None})', 'pass', ["test_gate_verify", "test_p1d_parity"]),
+ ('evidence line always printed', '(f" (evidence: \\"{f[\'evidence\']}\\")" if f["evidence"] else "")', '(f" (evidence: \\"{f[\'evidence\']}\\")")', ["test_gate_verify"]),
+ ('refusal never says deterministic', "'a deterministic check' if cfg['detector'] else 'an independent check'", "'an independent check'", ["test_gate_verify"]),
  ("codex post never recorded", '    if name in ("PostToolUse", "PostToolUseFailure") and event.get("tool_name") == "Bash" and state_dir and not study \\', '    if False and state_dir and not study \\', ["test_gate_codex", "test_gate_discipline"]),
 ]
 
