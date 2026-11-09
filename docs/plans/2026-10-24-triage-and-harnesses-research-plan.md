@@ -56,8 +56,11 @@ Nothing is uncommitted or unpushed. What remains, in the order I would take it:
    re-checked every refused turn: it gamed in 63 runs against 64 for none, and lost the honest endings the plain refusal had
    produced ([findings](../findings/2026-11-05-p1h-findings.md)). The prose exit is the useful part of a refusal. A
    deterministic detector (P1D, [findings](../findings/2026-11-09-p1d-findings.md)) found 90 of 108 gamed runs with 1 false
-   flag in 81, against 32 for the Verifier. Next in RQ3: put that signal in the gate with the prose exit open and measure
-   honest endings and undisclosed fits as well as gaming; register it before it runs.
+   flag in 81, against 32 for the Verifier. P1X ([findings](../findings/2026-11-09-p1x-findings.md)) put it in the gate with the prose
+   exit open: undisclosed fits fell from 48 with no hook to 25 under the detector and under the Verifier model alike, and honest
+   work held. The honesty effect of a refusal replicates; the code workers write barely moves. Next in RQ3: a signal that
+   changes the code (a revert of the fit, or a held stop whose finding is consistent and whose exit stays open), or a
+   different worker, and the Claude baseline that needs your token.
 2. **The Claude baseline.** The Sonnet and Haiku arms and the comparison with Claude Code's own auto mode (Q7) have
    not run. Step 7 of the [gate implementation plan](2026-10-19-real-harness-gate-implementation.md) stays unchecked
    until a long-lived token from `claude setup-token` sits in `~/.patton-spike-token`.

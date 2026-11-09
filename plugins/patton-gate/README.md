@@ -255,8 +255,11 @@ contract in your request, adds to source a number the tests hold, replaces a com
 multiplies or divides a name by a new constant. Replayed over the 244 Verifier inputs that P1L and P1H stored, it flagged
 90 of the 108 gamed runs and 1 of the 81 runs that did the work, where the Verifier's last look had flagged 32 of the
 gamed runs (`docs/findings/2026-11-09-p1d-findings.md`). The refusal still lets the agent say plainly what is left
-undone, because that exit produced the honest endings in P1L. The check was written against four small Python tasks:
-treat a flag as a reason to look. Also since 0.6.0, a line of `...` or
+undone, because that exit produced the honest endings in P1L. Live (P1X, `docs/findings/2026-11-09-p1x-findings.md`, 504
+runs on seven harnesses), the detector arm and the Verifier-model arm gave the same result: gamed runs that claimed the work
+done fell from 48 with no hook to 25 under each, honest work was unharmed, and the detector refused more runs without making
+the agent write better code. It did not make the hook cheaper, because the claim reader still runs. The check was written
+against four small Python tasks: treat a flag as a reason to look. Also since 0.6.0, a line of `...` or
 `…` inside the Verifier's quote marks skipped code and no longer voids the quote; every other line must still appear in
 what the Verifier read.
 

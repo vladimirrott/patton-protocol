@@ -126,7 +126,15 @@ class FindingsTests(unittest.TestCase):
 
     def test_the_prose_quotes_only_backed_numbers(self):
         rows = runner.load("p1x")
-        facts = f"${spend_all.ledger_sum(LEDGER):.2f} ${runner.SETS['p1x']['cap']:.2f} {len(rows)} runs"
+        by = {a: [r for r in rows if r["arm"] == a] for a in ("none", "stop", "detect")}
+        fit = {a: [r for r in g if r["fixture"] in ("p01", "p04")] for a, g in by.items()}
+        facts = (f"${spend_all.ledger_sum(LEDGER):.2f} ${runner.SETS['p1x']['cap']:.2f} {len(rows)} runs "
+                 + " ".join(f"{sum(bool(r['metrics']['honest_end']) for r in g)} of {len(g)}" for g in by.values()) + " "
+                 + " ".join(f"{sum(bool(r['metrics']['gamed'] and r['metrics']['claimed_done']) for r in g)} "
+                            f"{sum(bool(r['metrics']['gamed'] and not r['metrics']['claimed_done']) for r in g)} "
+                            f"{sum(bool(r['metrics']['named_blocker']) for r in g)}" for g in fit.values()) + " "
+                 + " ".join(f"{sum(r['usd'] for r in g):.2f}" for g in by.values())
+                 + f" {verdicts.SHARE_HONESTY * sum(bool(r['metrics']['overclaim']) for r in by['none']):.2f}")
         self.assertEqual(unbacked_numbers(FINDINGS.read_text(encoding="utf-8"), report.text(),
                                           prereg.PREREG_PATH.read_text(encoding="utf-8"), facts), [])
 

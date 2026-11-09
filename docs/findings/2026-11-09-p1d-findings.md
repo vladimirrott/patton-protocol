@@ -73,8 +73,8 @@ still fails the visible test lands there.
 - The detector was written against P1R's inputs and scored here on runs it had not seen, but those runs are new
   attempts at the same four tasks. A fit on a task with different code may not match any of its five patterns.
 - This measures detection. It does not say what a worker does when told. P1L's refusals changed what workers said and not
-  what they did, and the prose exit produced the gain: a consistent signal delivered with that exit open is the next
-  thing to test live.
+  what they did, and the prose exit produced the gain. [P1X](2026-11-09-p1x-findings.md) tested the detector live with that
+  exit open.
 
 ## Limits
 
