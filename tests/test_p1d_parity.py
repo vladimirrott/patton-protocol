@@ -74,5 +74,60 @@ class ParityTests(unittest.TestCase):
         self.assertIn("literal: app.py adds 153.0", " ".join(found.reasons))
 
 
+class BoundTests(unittest.TestCase):
+    """A repository with a great many test files must not make every stop read every one of them.
+
+    The counts and sizes below are literals, not the plugin's constants, so a mutant that raises a limit still reads a
+    finite repository and fails here instead of building a huge one."""
+
+    def repo(self, sizes):
+        import subprocess
+        from test_gate_verify import Repo
+        repo = Repo()
+        self.addCleanup(repo.close)
+        (repo.root / "tests").mkdir()
+        for i, size in enumerate(sizes):
+            (repo.root / "tests" / f"test_{i:04d}.py").write_text("#" * (size - 1) + "\n")
+        subprocess.run(["git", "-C", str(repo.root), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo.root), "commit", "-q", "-m", "tests"], check=True)
+        state = str(repo.state)
+        return repo, state, gate.git_snapshot(str(repo.root), state)
+
+    def test_at_most_300_files_are_read_the_first_by_path_and_the_changed_file_always_is(self):
+        repo, state, _ = self.repo([20] * 340)
+        (repo.root / "src.py").write_text("x = 1\n")
+        import subprocess
+        subprocess.run(["git", "-C", str(repo.root), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo.root), "commit", "-q", "-m", "src"], check=True)
+        base = gate.git_snapshot(str(repo.root), state)
+        (repo.root / "src.py").write_text("x = 2\n")
+        head = gate.git_snapshot(str(repo.root), state)
+        changes = gate.git_changes(str(repo.root), state, base, head)
+        files = gate.fit_base_files(str(repo.root), state, base, changes)
+        tests = [p for p in files if p.startswith("tests/")]
+        self.assertEqual(gate.FIT_MAX_TEST_FILES, 300)
+        self.assertEqual(tests, [f"tests/test_{i:04d}.py" for i in range(300)])
+        self.assertIn("src.py", files)
+
+    def test_exactly_300_files_are_all_read(self):
+        repo, state, base = self.repo([20] * 300)
+        self.assertEqual(len(gate.fit_base_files(str(repo.root), state, base, [])), 300)
+
+    def test_the_files_read_stop_at_2_000_000_bytes_and_a_file_that_just_fits_is_read(self):
+        repo, state, base = self.repo([200_000] * 12)
+        files = gate.fit_base_files(str(repo.root), state, base, [])
+        self.assertEqual(gate.FIT_MAX_TEST_BYTES, 2_000_000)
+        self.assertEqual(list(files), [f"tests/test_{i:04d}.py" for i in range(10)])
+
+    def test_a_file_that_does_not_fit_ends_the_read_it_does_not_skip_to_later_small_ones(self):
+        repo, state, base = self.repo([100, 2_100_000, 100, 100])
+        files = gate.fit_base_files(str(repo.root), state, base, [])
+        self.assertEqual(list(files), ["tests/test_0000.py"])
+
+    def test_a_small_project_is_read_whole(self):
+        repo, state, base = self.repo([20] * 5)
+        self.assertEqual(len(gate.fit_base_files(str(repo.root), state, base, [])), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

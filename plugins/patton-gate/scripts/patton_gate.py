@@ -809,7 +809,7 @@ EDIT_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path
 SAFE_TOOLS = frozenset({"Read", "Glob", "Grep", "LS", "TodoWrite", "NotebookRead"})
 DENIAL_LIMIT = 5
 DEFAULT_TIMEOUT = 10.0
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 # Rebuilt by tools, so not protected. `.git` is not here: deleting the repository's history must ask first.
 SKIP_DIRS = frozenset({"node_modules", "target", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache",
                        ".pytest_cache", ".ruff_cache", ".gradle", ".next"})
@@ -1954,13 +1954,25 @@ def fit_detect(before: dict[str, str], source: str) -> FitDetection:
     return FitDetection(bool(reasons), reasons)
 
 
+FIT_MAX_TEST_FILES = 300  # a stop reads at most this many test files, first by path, and
+FIT_MAX_TEST_BYTES = 2_000_000  # at most this many bytes of them, so a large project does not slow every stop
+
+
 def fit_base_files(root: str, state_dir: str, base: str, changes: list[dict]) -> dict[str, str]:
-    """The project's files as they were before the change that `fit_detect` reads: every test file, and the text before of
-    every file the change touched."""
+    """The project's files as they were before the change that `fit_detect` reads: the test files (up to the two limits above),
+    and the text before of every file the change touched."""
     env = _git_env(root, state_dir)
     if env is None:
         raise VerifyError("not a git repository")
-    files = {path: _blob(root, env, base, path) for path, _size, _ident in git_files(root, state_dir, base) if fit_is_test(path)}
+    files: dict[str, str] = {}
+    used = 0
+    for path, size, _ident in git_files(root, state_dir, base):  # `git ls-tree` lists paths in order
+        if not fit_is_test(path):
+            continue
+        if len(files) >= FIT_MAX_TEST_FILES or used + size > FIT_MAX_TEST_BYTES:
+            break
+        files[path] = _blob(root, env, base, path)
+        used += size
     files.update({c["path"]: c["before"] for c in changes if c["before"] is not None})
     return files
 
