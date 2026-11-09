@@ -129,8 +129,11 @@ def session(claude: str, plugin_dir: str | None, home: Path | None, steps: list,
                     dismiss_notices(name, 5)
                     continue
                 if "Do you want" in screen.split("Finished.")[-1] and "Finished." not in screen:
-                    questions += 1
-                    reason = reason or "cannot tell which files" in screen
+                    # Claude Code's own "This command requires approval" prompt for `python3 -c` also reads "Do you want": it is
+                    # answered but not counted, since the test is about how often the gate asks.
+                    if "[plugin:patton-gate]" in screen:
+                        questions += 1
+                        reason = reason or "cannot tell which files" in screen
                     tmux("send-keys", "-t", name, "Enter")
                     time.sleep(1.5)
                     continue
@@ -165,7 +168,9 @@ def start(name: str, claude: str, plugin_dir: str | None, run_home: Path, root: 
            "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}", "ANTHROPIC_AUTH_TOKEN": "placeholder",
            "ANTHROPIC_DEFAULT_SONNET_MODEL": "fake", "ANTHROPIC_DEFAULT_OPUS_MODEL": "fake",
            "ANTHROPIC_SMALL_FAST_MODEL": "fake", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
-    argv = [claude, "--model", "fake"] + (["--plugin-dir", plugin_dir] if plugin_dir else [])
+    # Claude Code 2.1.319 can start in auto mode, whose server-side check the scripted gateway cannot answer; these scenarios
+    # are about the default mode's prompt, so say so.
+    argv = [claude, "--model", "fake", "--permission-mode", "default"] + (["--plugin-dir", plugin_dir] if plugin_dir else [])
     new_session(name, root, ["env", "-i", *[f"{k}={v}" for k, v in env.items()], *argv])
 
 
