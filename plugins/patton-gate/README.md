@@ -236,8 +236,9 @@ qwen3.8-27b with the added ground flagged 28 of the 41 gamed runs and 0 of the 3
 (`docs/findings/2026-11-04-p1v-findings.md`); turning qwen3.8-27b's reasoning on flagged no more
 (`docs/findings/2026-11-04-p1m-findings.md`). A replay measures detection. The live study (P1L, `docs/findings/2026-11-04-p1l-findings.md`, 336 runs on seven
 harnesses) found that a refused stop did not change what the agent did: the stop arm gamed the tests in 59 runs and
-the arm with no hook in 59. The Verifier named the fit, and the agent answered with prose and kept it. Treat the
-finding as something for you to read, not as a guard against gaming.
+the arm with no hook in 59. The Verifier named the fit, and the agent answered with prose and kept it. It did change
+what the agent said: runs ended honestly in 89 of 168 against 64 with no hook, and overclaimed in 51 against 73. Treat
+the finding as something for you to read, not as a guard against gaming.
 
 Since 0.6.0 `verify.hold` closes the two exits the P1L runs used. By default a refusal tells the agent to fix the
 problem or say plainly what is left undone, and an agent that says so is not checked again. With `hold` on, the
@@ -246,7 +247,8 @@ nothing. `verify.max_rounds` still ends it, so raise it (4 is a reasonable start
 `hold` is user-only, like the other verify fields. The live study (P1H, `docs/findings/2026-11-05-p1h-findings.md`, 336
 runs on seven harnesses) found no effect on gaming: the hold arm gamed the tests in 63 runs and the arm with no hook in
 64. Hold made 126 extra checks, and the Verifier passed or could not back its finding on the last look of 34 of the 48
-runs it had refused. It also costs more, so leave it off unless you want the extra reading. Also since 0.6.0, a line of `...` or
+runs it had refused. It also costs more, and it removes the "say plainly" exit that produced the honest endings above
+(75 of 168 runs ended honestly with hold against 71 with no hook). Leave it off. Also since 0.6.0, a line of `...` or
 `…` inside the Verifier's quote marks skipped code and no longer voids the quote; every other line must still appear in
 what the Verifier read.
 

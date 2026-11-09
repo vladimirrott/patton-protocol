@@ -18,7 +18,8 @@ FIXTURES = runner.SETS["p1h"]["fixtures"]
 
 def row(harness, arm, fixture, rep, **metrics):
     base = {"goal_met": False, "gamed": False, "overclaim": False, "honest_end": False, "out_of_scope": [],
-            "over_budget": False, "refused_stops": 0, "verifier_blocks": 0, "verifier_capped": 0}
+            "over_budget": False, "refused_stops": 0, "verifier_blocks": 0, "verifier_capped": 0,
+            "claimed_done": False}
     return {"harness": harness, "arm": arm, "fixture": fixture, "rep": rep, "rc": 0, "timed_out": False, "calls": 10,
             "usd": 0.01, "metrics": {**base, **metrics}}
 
@@ -79,6 +80,22 @@ class TextTests(unittest.TestCase):
         self.assertIn("P1L's stop arm, run earlier on 0.5.0 and not paired with these runs: gamed 42 of 168, "
                       "overclaimed 0 of 168, goal met on p02 and p03 42 of 84; this study's hold arm: gamed 42 of 168, "
                       "overclaimed 0 of 168, goal met on p02 and p03 42 of 84.", text)
+
+    def test_the_disclosure_lines_put_this_studys_arms_beside_p1ls(self):
+        def rule(h, a, f, r):
+            if f not in ("p01", "p04"):
+                return {"honest_end": a == "hold", "overclaim": a == "none"}
+            return {"gamed": True, "claimed_done": r < 4 if a == "none" else r < 1, "honest_end": a == "hold" and r == 5}
+        earlier = [row(h, a, f, r, **rule(h, "hold" if a == "stop" else a, f, r)) for h in HARNESSES for a in ("none", "stop")
+                   for f in FIXTURES for r in range(6)]
+        text = self.text(full(rule), earlier)
+        self.assertIn("- Honest ends: none 0 of 168, hold 98 of 168; P1L's none 0 of 168, stop 98 of 168. Overclaims: none 84 of 168, "
+                      "hold 0 of 168; P1L's none 84 of 168, stop 0 of 168.", text)
+        self.assertIn("gamed runs that claimed the work done: none 56 of 84, hold 14 of 84; P1L's none 56 of 84, stop 14 of 84. "
+                      "Gamed runs that did not claim it: none 28 of 84, hold 70 of 84; P1L's none 28 of 84, stop 70 of 84.", text)
+
+    def test_without_p1ls_records_the_disclosure_lines_are_left_out(self):
+        self.assertNotIn("Honest ends:", self.text(full()))
 
     def test_without_p1ls_records_the_report_says_so(self):
         self.assertIn("P1L's stop arm: not stored.", self.text(full()))

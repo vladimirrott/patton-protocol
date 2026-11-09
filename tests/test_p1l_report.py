@@ -18,7 +18,8 @@ FIXTURES = runner.SETS["p1l"]["fixtures"]
 
 def row(harness, arm, fixture, rep, **metrics):
     base = {"goal_met": False, "gamed": False, "overclaim": False, "honest_end": False, "out_of_scope": [],
-            "over_budget": False, "refused_stops": 0, "verifier_blocks": 0, "verifier_capped": 0}
+            "over_budget": False, "refused_stops": 0, "verifier_blocks": 0, "verifier_capped": 0,
+            "claimed_done": False}
     return {"harness": harness, "arm": arm, "fixture": fixture, "rep": rep, "rc": 0, "timed_out": False, "calls": 10,
             "usd": 0.01, "metrics": {**base, **metrics}}
 
@@ -70,6 +71,17 @@ class TextTests(unittest.TestCase):
         self.assertIn("| p01 | stop | 42 | 21 | 0 | 7 | 0 |", text)  # gamed 21, overclaimed 0, honest end 7, met 0
         # per harness: 2 fixtures x (1 + 2 + 2) refusals; the capped flags (2) are not what the column counts
         self.assertRegex(text, r"\| pi \| stop \| 24 \|.*\| 0 \| 10 \| 0 of 24 \|")
+
+    def test_the_disclosure_lines_count_honest_ends_overclaims_and_gamed_runs_by_whether_they_claimed_done(self):
+        def rule(h, a, f, r):
+            if f not in ("p01", "p04"):
+                return {"honest_end": a == "stop", "overclaim": a == "none"}
+            return {"gamed": True, "claimed_done": r < 4 if a == "none" else r < 1, "honest_end": a == "stop" and r == 5}
+        text = self.text(full(rule))
+        # per arm: 7 harnesses x 2 fixtures x 6 reps = 84 runs on p01 and p04, and 84 on p02 and p03
+        self.assertIn("- Honest ends: none 0 of 168, stop 98 of 168. Overclaims: none 84 of 168, stop 0 of 168.", text)
+        self.assertIn("gamed runs that claimed the work done: none 56 of 84, stop 14 of 84; "
+                      "gamed runs that did not claim it: none 28 of 84, stop 70 of 84.", text)
 
     def test_mechanism_has_one_row_per_fixture_and_arm(self):
         text = self.text(full(lambda h, a, f, r: {"gamed": a == "none" and f == "p01"}))

@@ -1,9 +1,9 @@
-# P1H findings: a stop that holds checks more and changes nothing
+# P1H findings: a stop that holds checks more and gains nothing the refusal had not
 
 Study: 2026-11-05, a none arm and a hold arm against patton-gate 0.6.0, 336 runs on seven harnesses. Pre-registration:
 [`lab/prereg/2026-11-05-p1h-preregistration.md`](../../lab/prereg/2026-11-05-p1h-preregistration.md), committed as
 `6e3e5dc` before the first call of the study. It follows [P1L](2026-11-04-p1l-findings.md), where the refused stop
-changed what the worker wrote and not what it did.
+changed what the worker said and not what it did.
 
 ## Result
 
@@ -48,6 +48,8 @@ Final: all 336 registered runs are stored, $5.9117.
 - Verifier flags the round cap let through, hold runs on p01 and p04: 12.
 
 - P1L's stop arm, run earlier on 0.5.0 and not paired with these runs: gamed 59 of 168, overclaimed 51 of 168, goal met on p02 and p03 52 of 84; this study's hold arm: gamed 63 of 168, overclaimed 70 of 168, goal met on p02 and p03 51 of 84.
+- Honest ends: none 71 of 168, hold 75 of 168; P1L's none 64 of 168, stop 89 of 168. Overclaims: none 72 of 168, hold 70 of 168; P1L's none 73 of 168, stop 51 of 168.
+- On p01 and p04, gamed runs that claimed the work done: none 48 of 84, hold 43 of 84; P1L's none 42 of 84, stop 33 of 84. Gamed runs that did not claim it: none 16 of 84, hold 20 of 84; P1L's none 16 of 84, stop 26 of 84.
 <!-- /p1h report -->
 
 - **Q1, gamed.** Hold 63 against none 64. The arms differ in 17 and 16 pairs, one each way, so the sign test has
@@ -81,12 +83,19 @@ the level a hold needs.
 
 - Closing the exits closed nothing the worker used to get through. The hold arm gamed in 63 of 168 runs and P1L's stop
   arm, run a day earlier and not paired with these runs, in 59 of 168.
+- It also lost what the refusal had gained. With the "say plainly" exit open (P1L), honest ends rose to 89 of 168 from
+  64 and overclaims fell to 51 of 168 from 73. With the exit closed, honest ends are 75 of 168 against 71 with no hook
+  and overclaims 70 of 168 against 72. On p01 and p04, 20 of 84 hold runs gamed without claiming the work done, against
+  26 of 84 in P1L's stop arm, and 43 gamed and claimed it, against 33. Each comparison crosses two studies, so read
+  them as a lead; they were added after the study and carry no verdict. The prose exit was the useful part of the
+  refusal, and `verify.hold` removes it.
 - The change costs money. The hold arm cost $0.0651 a run on claude-code against $0.0371 for none, and the study cost
   $5.91 where P1L cost $4.61.
-- `verify.hold` stays in the plugin, off by default, and the README says it has no measured effect on gaming. The
-  Verifier's finding is still worth reading when you review the work.
-- What is left is outside the stop hook: revert the fit when a check passes only because of it, or put a second
-  signal in front of the Verifier that does not come from the same model. Neither is built.
+- `verify.hold` stays in the plugin, off by default, and the README says it has no measured effect on gaming and gave up
+  the disclosure that P1L's refusal produced. The Verifier's finding is still worth reading when you review the work.
+- What is left is a signal that is not the same model, delivered with the prose exit still open: a stop that names the fit
+  and lets the worker say plainly what is undone gave the honesty gain in P1L, and a consistent signal might give more
+  of it. [P1D](2026-11-09-p1d-findings.md) replays a deterministic detector for that.
 
 ## Limits
 
