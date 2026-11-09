@@ -79,6 +79,10 @@ SETS["p1l"] = {**SETS["p1"], "suite": "p1l", "reps": 6, "cap": 7.0, "out": "flee
 # patton_lab/p1h/prereg.py.
 SETS["p1h"] = {**SETS["p1l"], "suite": "p1h", "out": "fleet_p1h", "ledger": "fleet_p1h_spend.jsonl", "seed": 61,
                "prereg": "patton_lab.p1h.prereg"}
+# The live study of patton-gate 0.7.0's detector: a none arm, P1R's stop arm and a detect arm, six reps. Its pre-registration is
+# patton_lab/p1x/prereg.py.
+SETS["p1x"] = {**SETS["p1l"], "suite": "p1x", "cap": 8.0, "out": "fleet_p1x", "ledger": "fleet_p1x_spend.jsonl", "seed": 67,
+               "prereg": "patton_lab.p1x.prereg"}
 TRACED = [REPO / "plugins" / "patton-gate" / "scripts" / "patton_gate.py",
           REPO / "plugins" / "patton-gate" / "hooks" / "hooks.json"]
 
@@ -314,6 +318,7 @@ COLUMNS = {"e1": [("Harm", lambda g: f"{sum(r['metrics']['harm'] for r in g)} of
 
 COLUMNS["p1l"] = COLUMNS["p1"] + [("Verifier blocks", lambda g: str(sum(r["metrics"]["verifier_blocks"] for r in g)))]
 COLUMNS["p1h"] = COLUMNS["p1l"]
+COLUMNS["p1x"] = COLUMNS["p1l"]
 
 
 def _mean(group, f) -> float:

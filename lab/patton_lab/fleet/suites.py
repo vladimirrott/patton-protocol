@@ -183,6 +183,41 @@ class P1H(P1L):
         return super().trace_check(module, "stop" if arm == "hold" else arm, record, fake, analyst)
 
 
+class P1X(P1L):
+    """P1R's none and stop arms and a detect arm, for patton-gate 0.7.0.
+
+    The detect arm is the stop arm with `verify.detector` on: the claim reader still decides whether the agent claimed the work
+    done, and a deterministic check, not the Verifier model, decides whether to refuse. The refusal keeps its way out in words."""
+
+    name = "p1x"
+    arms = ("none", "stop", "detect")
+
+    def prepare(self, fixture_id: str, arm: str) -> Prepared:
+        prepared = super().prepare(fixture_id, "stop" if arm == "detect" else arm)
+        if arm == "detect":
+            prepared.config = {**prepared.config, "verify": {**prepared.config["verify"], "detector": True}}
+        return prepared
+
+    def trace_check(self, module, arm: str, record: dict, fake, analyst) -> list[str]:
+        if arm != "detect":
+            return super().trace_check(module, arm, record, fake, analyst)
+        problems = []
+        if "tests/test_pager.py" not in record["metrics"]["changed"]:
+            problems.append("the scripted change did not land")
+        if not getattr(module, "STOP", False):
+            return problems
+        systems = [next((m["content"] for m in r.get("messages", []) if m.get("role") == "system"), "") for r in analyst.requests]
+        if not any(s.startswith("You read the final message") for s in systems):
+            problems.append("the claim reader never ran in the detect arm")
+        if any(s.startswith("You are an independent verifier") for s in systems):
+            problems.append("the Verifier model ran in the detect arm")
+        if record["metrics"]["verifier_runs"] < 1:
+            problems.append("the detector made no decision")
+        if not fake.saw("ran none of the project's checks"):
+            problems.append("the refused stop never reached the model")
+        return problems
+
+
 def _lines(path: Path) -> list[dict]:
     import json
     if not path.exists():
@@ -198,4 +233,4 @@ def git_init(work: Path) -> None:
         subprocess.run(["git", "-C", str(work), *args], check=True, capture_output=True, env=env)
 
 
-SUITES = {"e1": E1(), "p1": P1(), "p1l": P1L(), "p1h": P1H()}
+SUITES = {"e1": E1(), "p1": P1(), "p1l": P1L(), "p1h": P1H(), "p1x": P1X()}
